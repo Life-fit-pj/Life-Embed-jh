@@ -1,0 +1,110 @@
+"""
+할 일 : 동네 하나가 이 사용자에게 왜 맞는지 설명한다
+
+explain.py 는 TOP 5 전체를 한 번에 설명한다.
+이 파일은 지도 핀을 눌렀을 때 그 동네만 설명한다.
+
+차이는 재료다. 여기서는 실제 시설 이름을 쓸 수 있다.
+"교육 98점" 이 아니라 "학원 261곳, 그중 입시·보습이 많다" 처럼
+근거를 댈 수 있는 것이 이 파일의 존재 이유다.
+"""
+
+from collections import Counter
+
+from core.db import facilities, facility_counts
+from core.llm import get_llm
+
+SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
+사용자가 지도에서 특정 동네를 눌렀습니다. 그 동네가 왜 이 사람에게 맞는지
+2~3문장으로 짧게 설명하세요.
+
+## 반드시 지킬 것
+
+1. 주어진 데이터에 있는 숫자와 시설 이름만 쓰세요.
+   지어내지 마세요. 시설 이름은 준 것을 그대로 쓰세요.
+
+2. 점수는 서울 427개 행정동 중 백분위입니다.
+   98점 = 상위 2% 라는 뜻입니다.
+
+3. 사용자가 중요하게 본 항목을 중심으로 설명하세요.
+   중요도가 낮은 항목은 굳이 언급하지 마세요.
+
+4. 데이터에 없는 것은 알고 있어도 말하지 마세요.
+   없는 것: 집값, 전월세, 교육비, 물가, 통학 시간, 지하철 노선명,
+   학군 배정, 시설의 품질이나 평판
+   지역에 대한 통념(강남은 비싸다 등)도 쓰지 마세요.
+
+5. 약점이 있으면 솔직히 덧붙이세요. 장점만 나열하지 마세요.
+
+6. 시설 분류는 "많은 순서" 만 주어집니다. 분류별 개수는 모르므로
+   "입시 학원 23곳" 처럼 쓰지 마세요. "입시·보습 계열이 많다" 로 쓰세요.
+
+존댓말로, 3문장을 넘기지 마세요."""
+
+
+def build_context(gu, dong, query, weights, scores):
+    """Claude 에게 넘길 재료를 글로 정리한다."""
+    lines = [f"## 동네\n서울 {gu} {dong}", ""]
+    
+    if query:
+        lines.append(f"## 사용자 검색어\n{query}")
+        lines.append("")
+    
+    # 사용자가 중요하게 본 항목 (가중치 3.5 이상)
+    high = [k for k, w in (weights or {}).items() if w >= 3.5]
+    lines.append(f"## 사용자가 중시한 항목\n{", ".join(high) if high else '뚜렷한 편중 없음'}")
+    lines.append("")
+    
+    lines.append("## 지표 점수 (서울 427개 동 중 백분위)")
+    for k, v in (scores or {}).items():
+        lines.append(f"  {k} {round(v)}점")
+    lines.append("")
+    
+    counts = facility_counts(gu, dong)
+    if counts:
+        lines.append("## 이 동네의 시설 개수")
+        for label, n in sorted(counts.items(), key=lambda x: -x[1]):
+            lines.append(f"    {label} {n:,}곳")
+        lines.append("")
+    
+    items = facilities(gu, dong, limit=30)
+    if items:
+        lines.append("## 실제 시설 (일부)")
+        for label, rows in items.items():
+            names = ", ".join(r["name"] for r in rows[:5])
+            lines.append(f"   {label}: {names}")
+            
+            # 분류가 몰려 있으면 그것도 근거가 된다.
+            # "학원 261곳" 보다 "그중 입시·보습이 가장 많다" 가 유용하다
+            cats = Counter(r["category"] for r in rows if r["category"])
+            if cats:
+                # 표본 30개 중의 비율이므로 개수를 그대로 쓰면 오해가 생긴다.
+                # "많은 순서" 로만 알려 준다
+                top = ", ".join(c for c, _ in cats.most_common(3))
+                lines.append(f"    많은 분류 순: {top}")
+
+    return "\n".join(lines)
+
+
+def region_explain(gu, dong, query="", weights=None, scores=None):
+    """동네 하나에 대한 설명문을 만든다."""
+    context = build_context(gu, dong, query, weights, scores)
+    
+    messages = [
+        ("system", SYSTEM_PROMPT),
+        ("human", context),
+    ]
+    return get_llm(max_tokens=400).invoke(messages).content.strip()
+
+
+#테스트
+if __name__ == "__main__":
+    weights = {"녹지": 3.3, "안전": 3.3, "교통": 2.6, "상권": 3.2,
+               "의료": 3.0, "교육": 4.6, "문화": 2.6}
+    scores = {"녹지": 88, "안전": 84, "교통": 48, "상권": 68,
+              "의료": 70, "교육": 98, "문화": 25}
+
+    print(region_explain("노원구", "중계1동",
+                         query="애들 학원 보내기 좋은 곳",
+                         weights=weights, scores=scores))
+
