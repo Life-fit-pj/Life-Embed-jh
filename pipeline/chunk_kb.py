@@ -2,8 +2,8 @@
 할 일 : 청킹   
 """
 
-from core.config import DATA_DIR, CHUNK_COLUMNS, MIN_LENGTH
-from core.io import read_csv, save_csv
+from app.core.config import DATA_DIR, CHUNK_COLUMNS, MIN_LENGTH
+from app.core.io import read_csv, save_csv
 
 OUTPUT = DATA_DIR / "kb_chunk.csv"
 

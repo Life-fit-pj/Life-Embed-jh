@@ -9,7 +9,7 @@ pipeline/ 은 DB 를 만들고 채우는 역할,
 import re
 import sqlite3
 
-from core.config import DB_PATH, INDICATORS
+from app.core.config import DB_PATH, INDICATORS
 
 # check_same_thread=False 는 나중에 Flask 서버를 붙일 때 필요하다.
 # SQLite 연결은 기본적으로 만든 스레드에서만 쓸 수 있는데,

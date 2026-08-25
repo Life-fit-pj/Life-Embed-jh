@@ -6,8 +6,8 @@ import sqlite3
 # 파이썬은 "실행한 파일이 있는 폴더" 를 기준으로 모듈을 찾기 때문에,
 # 프로젝트 뿌리를 검색 경로에 직접 넣어 줘야 한다
 
-from core.config import DATA_DIR, DB_PATH
-from core.io import read_csv, count_rows
+from app.core.config import DATA_DIR, DB_PATH
+from app.core.io import read_csv, count_rows
 
 # 타입을 살펴볼 때 읽을 줄 수. 11만 줄을 전부 읽을 필요가 없다.
 SAMPLE_SIZE = 500

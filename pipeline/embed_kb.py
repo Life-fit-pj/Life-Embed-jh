@@ -7,9 +7,9 @@ import sqlite3
 import sys
 import time
 
-from core.config import DATA_DIR, DB_PATH, EMBED_MODEL
-from core.io import read_csv
-from core.llm import get_embedder
+from app.core.config import DATA_DIR, DB_PATH, EMBED_MODEL
+from app.core.io import read_csv
+from app.core.llm import get_embedder
 
 BATCH_SIZE = 32
 

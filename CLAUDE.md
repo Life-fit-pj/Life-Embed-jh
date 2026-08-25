@@ -2,41 +2,121 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-@AGENTS.md
+## Project overview
 
-## Project status
+**LIFE,FIT** — 서울 427개 행정동 중 사용자의 자연어 검색어(예: "애들 학원 보내기 좋은 곳")에 맞는 동네
+TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스의 백엔드 파이프라인이다.
+`app/features/`, `src/`, `docu/DESIGN.md`는 여전히 비어 있고, 실제 코드는 `app/core/`와 `pipeline/`에 있다.
 
-This repository is a fresh scaffold, not yet an implemented application. The directory
-layout below exists, but the source files in it are currently empty:
+프레임워크·빌드·린트·테스트 도구를 정의하는 매니페스트(`requirements.txt`, `pyproject.toml` 등)가 없다.
+검증은 각 파일 하단의 `if __name__ == "__main__":` 블록을 직접 실행해 눈으로 확인하는 방식으로 이루어진다.
 
-- `app/config.py` — empty
-- `app/core/` — empty directory
-- `app/features/` — empty directory
-- `pipeline/prep/` — empty directory
-- `src/` — empty directory
-- `docu/DESIGN.md` — empty
+## Setup & running
 
-There is no dependency manifest yet (no `requirements.txt`, `pyproject.toml`, or
-`package.json`), and no build, lint, or test tooling has been set up. `.gitignore` is a
-standard Python template, so the project is expected to be Python-based once code is
-added. Do not assume any framework, package structure, or commands beyond what actually
-exists in the repo — check for a manifest/config file before assuming how to
-install, run, lint, or test the project, since none of that is established yet.
+의존성은 매니페스트가 없으므로 코드에서 실제로 import하는 것 기준으로 설치해야 한다:
+`python-dotenv`, `langchain-anthropic`, `langchain-huggingface`(+ 내부적으로 `sentence-transformers` 필요), `numpy`.
 
-## Intended architecture (from directory scaffold)
+`.env`에 `ANTHROPIC_API_KEY`가 반드시 있어야 한다 — 없으면 `app/core/config.py`가 import 시점에
+`RuntimeError`를 던진다.
 
-Based on the empty directories already present, the project is structured as:
+### 실행 방법: 반드시 프로젝트 루트에서 `-m`으로 (해결됨)
 
-- `app/` — application layer (`core/` and `features/` subpackages, plus `config.py` for
-  configuration)
-- `pipeline/prep/` — data preparation / preprocessing pipeline
-- `src/` — additional source code
-- `data/` — local data files (see note below)
-- `docu/` — project design documentation
+과거에는 `core.*`/`pipeline.*`가 서로 다른 루트에 있는데 위치가 안 맞아 `ModuleNotFoundError`가 났다.
+지금은 전 파일이 `from app.core.xxx import ...` 형태로 통일되어, **프로젝트 루트가 sys.path에 있기만
+하면** `app.core.*`와 `pipeline.*` 둘 다 resolve된다 (`app/`은 `__init__.py` 없는 네임스페이스 패키지).
+
+- 실행은 항상 프로젝트 루트에서 모듈 경로로: `python -m pipeline.schema`, `python -m app.core.pipeline_api`
+  등. 직접 확인함 — `python -m pipeline.schema`가 정상적으로 `core.config`/`app.core.io`까지 다 resolve해
+  기존 DB 존재 여부를 묻는 프롬프트까지 도달한다.
+- **파일 경로로 직접 실행하면 여전히 안 된다**: `python pipeline/schema.py`는 `ModuleNotFoundError: No
+  module named 'app'`로 즉시 실패한다 (직접 확인함). 이건 버그가 아니라 `-m` 없이 스크립트를 실행하면
+  프로젝트 루트가 sys.path에 안 잡히는 파이썬의 일반적인 동작이므로, 스크립트를 돌려달라는 요청이 오면
+  항상 `python -m <점경로>` 형태로 실행할 것.
+- `app/core/pipeline_api.py`에 남아있는 `sys.path.insert(0, .../app)`는 이제 불필요하지만 해가 되지도
+  않는다 (import는 전부 `app.core.*`/`pipeline.*`로 이미 루트 기준이라 이 줄과 무관하게 동작함).
+
+### `config.py`의 ROOT 계산 (해결됨)
+
+`ROOT = Path(__file__).resolve().parent.parent.parent`로 고쳐져 프로젝트 루트를 정확히 가리킨다
+(`DATA_DIR` = 루트의 `data/`, `DB_PATH` = `data/life.db`). 직접 확인함 — `DB_PATH.exists()` True,
+`data/life.db`가 실제로 227MB로 채워져 있음 (표들이 다 적재된 상태). `config.py`에 이제 `DB_PATH`가
+없을 때 알림을 찍는 방어 코드도 추가되어 있다.
+
+### 아직 안 고쳐진 것 — `save_csv` 누락
+
+`pipeline/chunk_kb.py`와 `pipeline/sample_kb.py`는 여전히 `from app.core.io import save_csv`를 하지만,
+`app/core/io.py`에는 `save_csv`가 정의되어 있지 않다 (`read_csv`, `count_rows`만 있음. 직접 grep으로
+재확인함). 이 두 파일을 실제로 실행하면 이 시점에서 `ImportError`가 날 것이다.
+
+## Architecture
+
+### 계층 분리: `app/core/` (조회 계층) vs `pipeline/` (파이프라인 계층)
+
+- **`app/core/`** — 이미 만들어진 SQLite DB에서 데이터를 "꺼내기만" 하는 인프라 계층.
+  - `config.py` — 경로, `ANTHROPIC_API_KEY`, 모델 이름, 7개 지표 이름(`INDICATORS`), 페르소나
+    청킹 대상 칸(`CHUNK_COLUMNS`) 등 전역 설정.
+  - `db.py` — SQLite 조회 함수 모음 (`member_chunks`, `member_weights`, `region_densities`,
+    `kb_chunks`, `facilities`, `facility_counts`). 행정동 이름 표기 변형(`제1동` ↔ `1동`)도 여기서 처리.
+  - `io.py` — CSV 읽기 유틸(`read_csv`는 utf-8-sig → cp949 순으로 인코딩을 자동 시도).
+  - `llm.py` — 임베딩 모델(`HuggingFaceEmbeddings`, e5 계열)과 Claude(`ChatAnthropic`)를 만드는
+    유일한 곳. `to_passage`/`to_query`는 e5 모델이 요구하는 접두사를 붙인다 — 저장할 때와 검색할
+    때 접두사가 다르므로 반드시 짝 맞춰 써야 한다.
+  - `pipeline_api.py` — `pipeline/`의 각 단계를 순서대로 호출하는 통합 창구. `search(query)` 하나가
+    외부(서버)에 노출되는 진입점이다. 무거운 준비물(회원 벡터, 지역 점수)은 `get_ready()`가 처음
+    호출될 때만 만들고 캐시한다.
+  - `region_explain.py` — TOP 5 전체가 아니라 지도에서 클릭한 동네 하나만, 실제 시설 이름을 근거로
+    들어 설명하는 별도 LLM 호출.
+
+- **`pipeline/`** — DB를 만들고 채우고, 검색어를 추천 결과로 바꾸는 실제 로직.
+  1. `schema.py` — `data/*.csv`를 훑어 칸 타입(`INTEGER`/`FLOAT`/`DATE`/`TEXT`)과 PK/FK를 추론한 뒤
+     SQLite DB를 통째로 새로 만든다. 파일명 접두어(`kb_`, `member_persona`, `nemotron` 등)로 어떤
+     CSV를 표로 만들지 걸러낸다.
+  2. `sample_kb.py` — `seoul_persona_full.csv.gz`(18.5만 명)에서 구마다 100명씩 층화 추출 →
+     `kb_persona.csv` (지식베이스용, 2,500명).
+  3. `chunk_kb.py` — 페르소나 서술형 칸들(`CHUNK_COLUMNS`)을 문장 단위 청크로 쪼갬 → `kb_chunk.csv`.
+  4. `embed_kb.py` — 청크를 임베딩해 `kb_chunk` 테이블(vector 칸은 JSON 문자열)에 저장.
+  5. `embed_member.py` — `nemotron.csv` 앞 100명을 회원(`C001`~`C100`)으로 취급해 같은 방식으로
+     청킹·임베딩 → `member_chunk` 테이블.
+  6. `search_kb.py` — 저장된 벡터로 코사인 유사도(정규화되어 있어 내적으로 계산) 검색. 단독 CLI로도
+     쓸 수 있음.
+  7. `weights.py` — 검색어 → 7개 지표 가중치. **두 신호를 섞는다**: (B) Claude가 검색어를 읽고 만든
+     가중치 초안 + persona 묘사 문장, (A) 그 persona 문장과 벡터 유사도가 높은 회원들의 실제
+     가중치 평균. `CLAUDE_RATIO`(기본 0.7)로 blend. 검색어("장소")와 회원 벡터("사람 묘사")는
+     성격이 달라 그대로 비교하면 안 되므로, Claude가 만든 persona_query로 바꿔서 검색한다는 점이 핵심.
+  8. `recommend.py` — 가중치 → TOP 5. 밀도 원값을 그대로 곱하면 단위가 제각각이라, 모든 지표를
+     427개 동 중 백분위(0~100)로 바꾼 뒤 가중합한다. 절대점수만 쓰면 "골고루 높은 동네"가 항상
+     이기므로, `build_relative`로 "그 동네 안에서 이 지표가 상대적으로 강점/약점인 정도"도 같이
+     반영한다(`mix` 파라미터로 절대/상대 비율 조절). `sharpen` 지수로 가중치 편차를 증폭해 사용자가
+     중시한 지표가 실제로 순위를 좌우하게 만든다.
+  9. `explain.py` — TOP 5 + 지표 점수 + 지식베이스에서 찾은 유사 사례를 Claude에게 넘겨 사람이 읽을
+     설명문을 받는다. 프롬프트에서 "데이터에 있는 숫자만 쓰라"고 강하게 제한해 숫자 환각을 막는다.
+
+### 데이터 흐름 요약
+
+```
+CSV(data/) → schema.py → SQLite(life.db)
+                              ↑
+kb_persona.csv → chunk_kb.py → kb_chunk.csv → embed_kb.py → kb_chunk 테이블
+nemotron.csv ──────────────────────────────→ embed_member.py → member_chunk 테이블
+
+검색어 → weights.py(가중치) → recommend.py(TOP 5) → explain.py(설명문)
+       └─ pipeline_api.py.search() 가 이 셋을 순서대로 호출
+```
+
+### 도메인 규칙 (코드 곳곳에 흩어져 있어 놓치기 쉬움)
+
+- **7개 지표**는 `config.py`의 `INDICATORS = ["녹지","안전","교통","상권","의료","교육","문화"]`가
+  유일한 정의처다. `user_preferences` 테이블 칸 이름이자 `recommend.py`의 `INDICATOR_COLUMNS` 키와
+  반드시 일치해야 한다.
+- **임베딩 모델은 저장/검색 시 반드시 동일해야 한다** (`EMBED_MODEL`, 현재 `intfloat/multilingual-e5-small`,
+  차원 384). 모델을 바꾸면 이미 저장된 벡터를 전부 다시 만들어야 한다.
+- **e5 접두사 규칙**: 저장할 문서는 `passage:`, 검색 질의는 `query:`를 붙인다 (`to_passage`/`to_query`).
+- 행정동 이름 표기가 파일마다 다르다 (`고덕제1동` vs `고덕1동`). `db.py`의 `dong_variants()`가 "제N동"
+  방향으로만 변형을 만들어 양쪽을 다 시도한다 — 반대 방향 치환은 `홍제1동 → 홍1동` 같은 오류를 낳으므로
+  일부러 안 만든다.
 
 ## Data directory
 
-`data/` is untracked by git. As of this writing it does not contain usable data
-(`data/life.db` is present but empty). Do not assume specific schemas, tables, or file
-contents in `data/` without inspecting it directly first, as its contents may change or
-be absent.
+`data/`는 git으로 추적하지 않는다(`.gitignore`). CSV들과 `data/life.db`가 실제로 채워져 있다
+(`life.db`는 `schema.py`로 적재된 실제 DB, 현재 약 227MB). `data/`의 구체적인 스키마·칸 이름·행 수를
+가정하지 말고, 필요하면 직접 열어서 확인할 것 — 파일 구성이 바뀔 수 있다.

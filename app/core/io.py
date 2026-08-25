@@ -83,6 +83,23 @@ def count_rows(path):
         except UnicodeDecodeError:
             continue
     return 0
+
+
+def save_csv(rows, path):
+    """딕셔너리 목록을 CSV 로 저장한다."""
+    if not rows:
+        print("[중단] 저장할 줄이 없습니다!")
+        return
+
+    columns = list(rows[0].keys())
+
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    size = path.stat().st_size / 1024 / 1024
+    print(f"✅ {path.name} 저장 · {len(rows):,}줄 · {size:.1f} MB")
     
     
     

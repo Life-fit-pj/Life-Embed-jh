@@ -18,7 +18,7 @@ from pipeline.explain import explain, find_cases, with_scores
 from pipeline.recommend import load_regions, build_scores, build_relative, recommend
 from pipeline.weights import load_member_vectors, ask_claude, blend, find_similar_members
 
-from core.db import member_weights
+from app.core.db import member_weights
 
 # ── 준비물 보관함 ──────────────────────────────
 _ready = None

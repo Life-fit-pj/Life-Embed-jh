@@ -5,11 +5,21 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+# 이 파일이 app/core/ 안에 있으므로 뿌리까지 세 단계다
+#   .parent         app/core
+#   .parent.parent  app
+#   세 번째          프로젝트 뿌리
+ROOT = Path(__file__).resolve().parent.parent.parent
 
 # parent 를 두 번 올라가야 프로젝트 뿌리다
 DATA_DIR = ROOT / "data"
-DB_PATH = ROOT / "life.db"
+DB_PATH = DATA_DIR / "life.db"
+
+# sqlite3 는 파일이 없으면 조용히 새로 만든다.
+# 그래서 경로가 틀려도 오류가 안 나고, 표가 하나도 없는 빈 DB 로 돌아간다.
+# 죽이지는 않고 눈에 보이게만 한다
+if not DB_PATH.exists():
+    print(f"알림: DB 가 아직 없다 -> {DB_PATH}")
 
 # .env 를 읽어 환경변수로 올린다
 load_dotenv()

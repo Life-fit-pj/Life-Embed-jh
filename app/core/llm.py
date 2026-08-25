@@ -15,7 +15,7 @@ weights.py 나 explain.py 를 건드리지 않아도 된다.
 from langchain_anthropic import ChatAnthropic
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from core.config import API_KEY, EMBED_MODEL, MODEL
+from app.core.config import API_KEY, EMBED_MODEL, MODEL
 
 _embedder = None
 _llm = None
