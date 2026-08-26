@@ -8,8 +8,17 @@ pipeline/ 은 DB 를 만들고 채우는 역할,
 """
 import re
 import sqlite3
+import threading
 
 from app.core.config import DB_PATH, INDICATORS
+
+# 연결을 스레드마다 따로 만든다.
+#
+# SQLite 연결 하나를 여러 스레드가 동시에 쓰면 내부 상태가 엉켜
+# "bad parameter or other API misuse" 가 난다.
+# FastAPI 는 요청마다 다른 스레드에서 처리하므로 이 문제가 드러난다.
+# threading.local() 은 스레드별로 따로 보관되는 저장소다
+_local = threading.local()
 
 # check_same_thread=False 는 나중에 Flask 서버를 붙일 때 필요하다.
 # SQLite 연결은 기본적으로 만든 스레드에서만 쓸 수 있는데,
@@ -18,14 +27,21 @@ from app.core.config import DB_PATH, INDICATORS
 con = sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
+def get_con():
+    """이 스레드 전용 연결을 돌려준다. 없으면 만든다."""
+    if not hasattr(_local, "con"):
+        _local.con = sqlite3.connect(DB_PATH, check_same_thread=False)
+    return _local.con
+
+
 def query(sql, params=()):
     """여러 줄을 튜플 목록으로 돌려준다."""
-    return con.execute(sql, params).fetchall()
+    return get_con().execute(sql, params).fetchall()
 
 
 def one(sql, params=()):
     """한 줄만 돌려준다. 없으면 None."""
-    return con.execute(sql, params).fetchone()
+    return get_con().execute(sql, params).fetchone()
 
 
 def dicts(sql, params=()):
@@ -39,7 +55,7 @@ def dicts(sql, params=()):
     특히 Claude 에게 데이터를 넘길 때는 칸 이름이 있어야
     LLM 이 무엇을 보고 있는지 알 수 있다.
     """
-    cur = con.execute(sql, params)
+    cur = get_con().execute(sql, params)
     columns = [c[0] for c in cur.description]
     return [dict(zip(columns, row)) for row in cur.fetchall()]
 
@@ -108,7 +124,7 @@ def dong_variants(dong):
     out.add(re.sub(r"제(\d+)동$", r"\1동", base))
     
     # '고덕1동' → '고덕제1동'  (반대 방향도 준비)
-    out.add(re.sub(r"(?<!제)(\d+)동$", r"제\동", base))
+    out.add(re.sub(r"(?<!제)(\d+)동$", r"제\1동", base)) 
     
     return list(out)
     
@@ -211,6 +227,29 @@ def facility_counts(gu, dong):
     return counts
 
 
+def facility_categories(gu, dong, kind="학원", top=8):
+    """시설 종류 하나의 분류별 개수를 전부 센다.
+
+    facilities() 는 표본만 가져오므로 그걸로 분류를 세면 숫자가 왜곡된다.
+    "영어학원 몇 곳" 같은 질문에 답하려면 전체를 세야 한다
+    """
+    if kind not in FACILITY_TABLES:
+        return []
+
+    table, gu_col, dong_col, _, cat_col = FACILITY_TABLES[kind]
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+
+    return dicts(
+        f'SELECT "{cat_col}" AS category, COUNT(*) AS n '
+        f'FROM "{table}" '
+        f'WHERE TRIM("{gu_col}") = ? AND TRIM("{dong_col}") IN ({marks}) '
+        f'  AND "{cat_col}" IS NOT NULL AND TRIM("{cat_col}") != \'\' '
+        f'GROUP BY "{cat_col}" ORDER BY n DESC LIMIT ?',
+        (gu.strip(), *names, top),
+    )
+    
+    
 def to_percentile(column, value):
     """어떤 값이 427개 동 중 백분위 몇인지 계산한다.
 
@@ -230,19 +269,6 @@ def to_percentile(column, value):
 
 if __name__ =="__main__":
     print()
-    for gu, dong in [("노원구", "중계1동"), ("강남구", "대치1동"), ("강동구", "고덕제1동")]:
-        e = region_extras(gu, dong)
-        print(f"[{gu} {dong}]")
-        print(f"   쓰레기통 상위 {100 - (e.get('쓰레기통_백분위') or 0)}%")
-        print(f"   거주안정성 {e.get('거주안정성_점수')}")
-        print(f"   평균가구원수 {e.get('평균가구원수')} · 1인 {e.get('1인_비율')}%")
-        print(f"   소음(구) 주간 {e.get('소음_주간_구')}dB · 초미세먼지 {e.get('초미세먼지_구')}")
-        print(f"   이동률 {e.get('이동률_퍼센트')}% · 거주안정성 {e.get('거주안정성_점수')}")
-
-    print()
-    rows = query('SELECT 이동률_퍼센트, 거주안정성_점수 FROM master_dataset_v3')
-    mv = sorted(r[0] for r in rows if r[0] is not None)
-    st = sorted(r[1] for r in rows if r[1] is not None)
-    n = len(mv)
-    print(f"이동률    최소 {mv[0]:.1f} / 중앙 {mv[n//2]:.1f} / 최대 {mv[-1]:.1f}")
-    print(f"거주안정성 최소 {st[0]:.1f} / 중앙 {st[n//2]:.1f} / 최대 {st[-1]:.1f}")
+    print("중계1동 학원 분야:")
+    for r in facility_categories("노원구", "중계1동", "학원"):
+        print(f"   {r['category']:20s} {r['n']}")
