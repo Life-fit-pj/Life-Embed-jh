@@ -150,6 +150,50 @@ def facilities(gu, dong, kind=None, limit=10):
     return result
 
 
+def region_extras(gu, dong):
+    """슬라이더 7개 지표에 안 들어간 생활 여건 정보를 꺼낸다.
+
+    구 단위 값(소음·미세먼지 등)도 함께 돌려주지만,
+    화면에 표시할 때 반드시 "OO구 평균" 임을 밝혀야 한다.
+    행정동 값인 척하면 25개 값으로 수렴하는 문제를 숨기게 된다
+    """
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+
+    rows = dicts(
+        'SELECT 쓰레기통_밀도, 거주안정성_점수, 이동률_퍼센트, '
+        '       지하철역_수, 경찰관서_수, 소방관서_수, '
+        '       소음_주간_구, 소음_야간_구, 초미세먼지_구, 재해위험지구_구 '
+        'FROM master_dataset_v3 '
+        f'WHERE TRIM(구) = ? AND TRIM(행정동명) IN ({marks})',
+        (gu.strip(), *names),
+    )
+    if not rows:
+        return {}
+
+    row = rows[0]
+
+    # 세대원수는 별도 표에 있다
+    hh = dicts(
+        'SELECT 평균가구원수, "1인_비율" '
+        'FROM "행정동별_세대원수_전처리" '
+        f'WHERE TRIM(구) = ? AND TRIM(행정동명) IN ({marks})',
+        (gu.strip(), *names),
+    )
+    if hh:
+        row.update(hh[0])
+
+    # 밀도 원값(12.3개/km²)은 사용자에게 감이 오지 않는다.
+    # "상위 12%" 처럼 다른 동네와 비교한 위치로 바꾼다.
+    #
+    # 화면에는 "보행 편의" 로 표시한다 —
+    # 쓰레기통 개수로 "깨끗하다" 를 말하면 측정하지 않은 것을 주장하게 된다.
+    # 우리가 아는 건 "버릴 곳을 찾기 쉽다" 까지다
+    row["보행편의_백분위"] = to_percentile("쓰레기통_밀도", row.get("쓰레기통_밀도"))
+
+    return row
+
+
 def facility_counts(gu, dong):
     """행정동 하나의 시설 종류별 개수를 센다."""
     names = dong_variants(dong)
@@ -167,29 +211,38 @@ def facility_counts(gu, dong):
     return counts
 
 
-if __name__ =="__main__":
-    print("표 목록:")
-    for r in query("SELECT name FROM sqlite_master WHERE type='table' "
-                   "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
-        n = one(f'SELECT COUNT(*) FROM "{r[0]}"')[0]
-        print(f"   {r[0]:34s} {n:>8,}")
-    
-    print("======================")    
-    print()
-    print("전체 커버리지 검사:")
-    regions = dicts('SELECT 구, 행정동명 FROM master_dataset_v3')
-    empty = []
-    for r in regions:
-        if not facility_counts(r["구"], r["행정동명"]):
-            empty.append(f'{r["구"]} {r["행정동명"]}')
+def to_percentile(column, value):
+    """어떤 값이 427개 동 중 백분위 몇인지 계산한다.
 
-    print(f"   {len(regions) - len(empty)}/{len(regions)}개 동 조회 성공")
-    if empty:
-        print(f"   시설이 하나도 안 잡힌 동 {len(empty)}개:")
-        for name in empty[:15]:
-            print(f"      {name}")
-    
+    밀도 원값(12.3개/km²)은 사용자에게 의미가 없다.
+    "상위 30%" 처럼 다른 동네와 비교한 위치로 바꿔야 읽힌다
+    """
+    if value is None:
+        return None
+
+    total = one('SELECT COUNT(*) FROM master_dataset_v3')[0]
+    below = one(
+        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" <= ?',
+        (value,),
+    )[0]
+    return round(below / total * 100)
+
+
+if __name__ =="__main__":
     print()
-    print("master_dataset_v3 칸:")
-    for r in query("PRAGMA table_info(master_dataset_v3)"):
-        print(f"   {r[1]}")
+    for gu, dong in [("노원구", "중계1동"), ("강남구", "대치1동"), ("강동구", "고덕제1동")]:
+        e = region_extras(gu, dong)
+        print(f"[{gu} {dong}]")
+        print(f"   쓰레기통 상위 {100 - (e.get('쓰레기통_백분위') or 0)}%")
+        print(f"   거주안정성 {e.get('거주안정성_점수')}")
+        print(f"   평균가구원수 {e.get('평균가구원수')} · 1인 {e.get('1인_비율')}%")
+        print(f"   소음(구) 주간 {e.get('소음_주간_구')}dB · 초미세먼지 {e.get('초미세먼지_구')}")
+        print(f"   이동률 {e.get('이동률_퍼센트')}% · 거주안정성 {e.get('거주안정성_점수')}")
+
+    print()
+    rows = query('SELECT 이동률_퍼센트, 거주안정성_점수 FROM master_dataset_v3')
+    mv = sorted(r[0] for r in rows if r[0] is not None)
+    st = sorted(r[1] for r in rows if r[1] is not None)
+    n = len(mv)
+    print(f"이동률    최소 {mv[0]:.1f} / 중앙 {mv[n//2]:.1f} / 최대 {mv[-1]:.1f}")
+    print(f"거주안정성 최소 {st[0]:.1f} / 중앙 {st[n//2]:.1f} / 최대 {st[-1]:.1f}")
