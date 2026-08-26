@@ -44,7 +44,7 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
 
 def build_context(gu, dong, query, weights, scores):
     """Claude 에게 넘길 재료를 글로 정리한다."""
-    lines = [f"## 동네\n서울 {gu} {dong}", ""]
+    lines = [f"## 동네\n서울 {gu} {dong}', '"]
     
     if query:
         lines.append(f"## 사용자 검색어\n{query}")
@@ -52,7 +52,8 @@ def build_context(gu, dong, query, weights, scores):
     
     # 사용자가 중요하게 본 항목 (가중치 3.5 이상)
     high = [k for k, w in (weights or {}).items() if w >= 3.5]
-    lines.append(f"## 사용자가 중시한 항목\n{", ".join(high) if high else '뚜렷한 편중 없음'}")
+    high_text = ", ".join(high) if high else "뚜렷한 편중 없음"
+    lines.append(f"## 사용자가 중시한 항목\n{high_text}")
     lines.append("")
     
     lines.append("## 지표 점수 (서울 427개 동 중 백분위)")
@@ -95,6 +96,22 @@ def region_explain(gu, dong, query="", weights=None, scores=None):
         ("human", context),
     ]
     return get_llm(max_tokens=400).invoke(messages).content.strip()
+
+
+# 같은 동네·같은 검색어면 설명이 같으므로 만들어 둔 것을 다시 쓴다.
+# 핀을 누를 때마다 Claude 를 부르면 3~5초씩 걸리고 비용도 그만큼 든다.
+# 서버가 꺼지면 사라지는 단순한 사전이다 — 지금 규모에는 이걸로 충분하다
+_cache = {}
+
+
+def region_explain_cached(gu, dong, query="", weights=None, scores=None):
+    """설명을 만들되, 같은 요청이면 저장해 둔 것을 돌려준다."""
+    key = (gu, dong, query)
+
+    if key not in _cache:
+        _cache[key] = region_explain(gu, dong, query, weights, scores)
+
+    return _cache[key]
 
 
 #테스트
