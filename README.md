@@ -1,1 +1,183 @@
-# life-fit-embed
+# LIFE,FIT — 추천 엔진
+
+서울 427개 행정동 중 사용자의 자연어 검색어에 맞는 동네 TOP 5를 고르고,
+LLM이 근거를 들어 설명해 주는 파이프라인입니다.
+
+화면과 서버는 [life-fit-web](https://github.com/easty00/life-fit-web)에 있습니다.
+
+---
+
+## 무엇을 하는가
+
+```
+"애들 학원 보내기 좋은 곳"
+    ↓  weights.py      검색어 → 7개 지표 가중치
+       교육 4.6 / 나머지 2.6~3.3
+    ↓  recommend.py    가중치 → TOP 5
+       방이1동 · 중계1동 · 쌍문제4동 · 대치1동 · 염리동
+    ↓  explain.py      결과 → 사람이 읽을 설명문
+```
+
+기존 서비스가 "3인 가구 40대"처럼 인구통계로 나누는 것과 달리,
+**라이프스타일 선호도**로 동네를 고릅니다.
+
+---
+
+## 설치
+
+### 1. 패키지
+
+```bash
+py -m pip install python-dotenv numpy pandas
+py -m pip install langchain-anthropic langchain-huggingface sentence-transformers
+```
+
+### 2. API 키
+
+프로젝트 루트에 `.env` 파일을 만듭니다.
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+없으면 `app/core/config.py`가 import 시점에 `RuntimeError`를 냅니다.
+`.env`는 절대 깃에 올리지 마세요.
+
+### 3. DB 준비
+
+`data/life.db`(216MB)는 깃에 첨부되어있으나, 용량문제가 생기면 삭제 예정입니다. 삭제되어 존재하지 않을 경우 아래의 방안 둘 중 하나를 선택하세요.
+
+**(A) 파일 전달받기** — 권장. `data/`에 넣으면 끝입니다.
+
+**(B) 직접 만들기** — 약 6분
+
+```bash
+py -m pipeline.schema          # CSV → 표 생성 + 적재
+py -m pipeline.embed_kb        # 지식베이스 22,500청크 임베딩 (5분)
+py -m pipeline.embed_member    # 회원 900청크 임베딩 (30초)
+```
+
+`data/`에 원본 CSV들이 있어야 합니다.
+
+---
+
+## 실행 방법
+
+**반드시 프로젝트 루트에서 `-m`으로 실행합니다.**
+
+```bash
+py -m app.core.db              # DB 상태 확인
+py -m pipeline.weights         # 검색어 → 가중치
+py -m pipeline.recommend       # 가중치 → TOP 5
+py -m app.features.pipeline_api  # 전체 흐름 한 번에
+```
+
+`py pipeline/weights.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
+`-m` 없이 실행하면 프로젝트 루트가 검색 경로에 안 잡히기 때문입니다.
+
+---
+
+## 폴더 구조
+
+```
+life-fit-embed/
+├── app/
+│   ├── core/              인프라 계층 — 혼자서도 돈다
+│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표
+│   │   ├── db.py            SQLite 조회 함수 모음
+│   │   ├── io.py            CSV 읽기/쓰기 (utf-8 ↔ cp949 자동 판별)
+│   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳
+│   └── features/          서비스 계층 — core 를 엮는다
+│       ├── pipeline_api.py  search(query) 통합 창구
+│       └── region_explain.py  동네 하나를 시설명 근거로 설명
+├── pipeline/              한 번만 돌리는 준비 작업
+│   ├── schema.py            CSV → SQLite
+│   ├── sample_kb.py         18.5만 명 → 2,500명 층화추출
+│   ├── chunk_kb.py          페르소나 → 22,500청크
+│   ├── embed_kb.py          청크 → 벡터
+│   ├── embed_member.py      회원 100명 → 900청크 벡터
+│   ├── search_kb.py         벡터 검색 (테스트용 CLI)
+│   ├── weights.py           검색어 → 가중치
+│   ├── recommend.py         가중치 → TOP 5
+│   └── explain.py           TOP 5 → 설명문
+└── data/                  깃으로 관리하지 않음
+    ├── life.db              216MB
+    ├── master_dataset_v3.csv  427개 행정동 × 62칸
+    └── 전처리 CSV들          문화시설 · 의료 · 학원 · 공원 · 점포 등
+```
+
+---
+
+## 설계 원칙
+
+### 자치구(25개) 단위 변수를 순위 계산에 쓰지 않는다
+
+같은 구의 행정동이 전부 같은 값을 받아 구별할 정보가 없어집니다.
+모든 인프라 지표는 **행정동 단위 밀도(개수 ÷ km²)** 로 변환해 씁니다.
+
+소음·미세먼지처럼 구 단위밖에 없는 값은 참고 정보로만 쓰고,
+표시할 때 "○○구 평균"임을 반드시 밝힙니다.
+
+### 백분위로 바꾼 뒤 계산한다
+
+밀도 원값을 그대로 곱하면 단위가 제각각입니다
+(학원 1,263개/km² vs 공원 19개/km²). 그래서 모든 지표를
+427개 동 중 백분위(0~100)로 바꾼 뒤 가중합합니다.
+
+### 절대점수만 쓰면 "만능 동네"가 항상 이긴다
+
+골고루 높은 동네가 어떤 검색어를 넣어도 1위가 됩니다.
+`build_relative`로 "그 동네 안에서 이 지표가 상대적으로 강점인 정도"를
+같이 반영합니다(`mix` 파라미터로 비율 조절).
+
+### 가중치 편차를 증폭한다
+
+교육 4.6 vs 나머지 3.0은 비율로 1.5배뿐이라, 7개를 다 더하면
+교육이 전체의 20%밖에 차지하지 못해 순위를 못 바꿉니다.
+`sharpen=6`으로 평균 대비 편차를 지수로 키워, 사용자가 중시한 지표가
+실제로 순위를 좌우하게 만듭니다.
+
+### 검색어를 사람 묘사로 바꿔서 검색한다
+
+사용자 검색어는 "좋은 곳"처럼 **장소**를 찾는 문장인데,
+회원 벡터에 담긴 건 **사람**을 묘사한 문장입니다.
+성격이 다른 두 문장을 그대로 비교하면 엉뚱한 결과가 나옵니다.
+
+그래서 Claude가 검색어를 `persona_query`("초등학생 자녀를 키우며
+교육 환경을 중시하는 부모")로 바꾼 뒤 그 문장으로 검색합니다.
+
+---
+
+## 주의할 점
+
+**임베딩 모델을 바꾸면 벡터를 전부 다시 만들어야 합니다.**
+현재 `intfloat/multilingual-e5-small`(384차원). 다른 모델은 차원부터 다릅니다.
+
+**e5 접두사 규칙** — 저장할 문서는 `passage:`, 검색 질의는 `query:`를 붙입니다
+(`to_passage` / `to_query`). LangChain이 자동으로 붙여 주지 않습니다.
+
+**행정동 이름 표기가 파일마다 다릅니다.** `고덕제1동` vs `고덕1동`.
+`db.py`의 `dong_variants()`가 양쪽을 다 시도합니다.
+
+**`INDICATORS` 순서를 바꾸지 마세요.** 순서로 값을 꺼내는 코드가 있습니다.
+
+---
+
+## 데이터 출처
+
+| 데이터 | 출처 |
+|---|---|
+| 행정동 인프라 | 서울열린데이터광장 |
+| 주거 만족도 | 서울시 주거실태조사 마이크로데이터 (15,730명) |
+| 페르소나 | NVIDIA Nemotron-Personas-Korea |
+| 행정동 경계 | 통계청 SGIS |
+
+---
+
+## 아직 안 된 것
+
+- `region_extras` — 슬라이더 밖 정보(청결·거주 안정성·소음 등)
+- 학교·버스·CCTV가 `facilities`에 없음 (`ADM_CD` 조인 필요)
+- `explain.py` 프롬프트의 "없는 것" 목록이 낡음 (시설명이 생겼는데 없다고 씀)
+- 필터 지원 (`exclude_gu` — "강남 외" 같은 제외 조건)
+- `schema.py`의 4·5단계가 import 시점에 실행됨
