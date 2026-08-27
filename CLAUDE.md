@@ -36,7 +36,7 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
   항상 `python -m <점경로>` 형태로 실행할 것.
 - `pipeline_api.py`는 `app/core/`에서 `app/features/`로 이동했다. 안에 남아있는
   `sys.path.insert(0, .../app)`는 이제 불필요하지만 해가 되지도 않는다 (import는 전부
-  `app.core.*`/`app.features.*`/`pipeline.*`로 이미 루트 기준이라 이 줄과 무관하게 동작함).
+  `app.core.*`/`app.features.*`/`pipeline.*`로 이미 루트 기준이라 이 줄과 무관하게 동작함)..
 
 ### `config.py`의 ROOT 계산 (해결됨)
 
