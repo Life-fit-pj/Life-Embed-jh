@@ -22,7 +22,7 @@ if not DB_PATH.exists():
     print(f"알림: DB 가 아직 없다 -> {DB_PATH}")
 
 # .env 를 읽어 환경변수로 올린다
-load_dotenv()
+load_dotenv(ROOT / ".env")
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not API_KEY:

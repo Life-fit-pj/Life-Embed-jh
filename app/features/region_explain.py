@@ -43,7 +43,7 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
 
 def build_context(gu, dong, query, weights, scores):
     """Claude 에게 넘길 재료를 글로 정리한다."""
-    lines = [f"## 동네\n서울 {gu} {dong}', '"]
+    lines = [f"## 동네\n서울 {gu} {dong}"]
     
     if query:
         lines.append(f"## 사용자 검색어\n{query}")
