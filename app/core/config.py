@@ -9,10 +9,11 @@ from dotenv import load_dotenv
 #   .parent         app/core
 #   .parent.parent  app
 #   세 번째          프로젝트 뿌리
-ROOT = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parents[2]  # Life-Embed-jh 루트
+load_dotenv(BASE_DIR / ".env")
 
 # parent 를 두 번 올라가야 프로젝트 뿌리다
-DATA_DIR = ROOT / "data"
+DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "life.db"
 
 # sqlite3 는 파일이 없으면 조용히 새로 만든다.
