@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parents[2]  # Life-Embed-jh 루트
 load_dotenv(BASE_DIR / ".env")
 
-# parent 를 두 번 올라가야 프로젝트 뿌리다
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "life.db"
 
@@ -21,9 +20,6 @@ DB_PATH = DATA_DIR / "life.db"
 # 죽이지는 않고 눈에 보이게만 한다
 if not DB_PATH.exists():
     print(f"알림: DB 가 아직 없다 -> {DB_PATH}")
-
-# .env 를 읽어 환경변수로 올린다
-load_dotenv(ROOT / ".env")
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not API_KEY:
