@@ -14,11 +14,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline.explain import explain, find_cases, with_scores
+from pipeline.explain import explain, find_cases, load_kb_vectors, with_scores
 from pipeline.recommend import load_regions, build_scores, build_relative, recommend
 from pipeline.weights import load_member_vectors, ask_claude, blend, find_similar_members
 
 from app.core.db import member_weights
+from app.core.llm import get_embedder
 
 # ── 준비물 보관함 ──────────────────────────────
 _ready = None
@@ -30,7 +31,10 @@ def get_ready():
     if _ready is None :
         print("⏳ 파이프라인 준비 중...")
         
+        get_embedder()   # [E] 임베딩 모델도 여기서 한 번 올려둔다 — 첫 검색자만 로딩 비용을 떠안지 않도록
+                
         member_rows, member_vectors = load_member_vectors()
+        kb_rows, kb_vectors = load_kb_vectors()          # [A] 지식베이스 벡터도 여기서 한 번만
         names, values = load_regions()
         scores = build_scores(values)
         relative = build_relative(scores)
@@ -38,11 +42,14 @@ def get_ready():
         _ready = {
             "member_rows": member_rows,
             "member_vectors": member_vectors,
+            "kb_rows": kb_rows,
+            "kb_vectors": kb_vectors,
             "names": names,
             "scores": scores,
             "relative": relative,
         }
-        print(f"✅ 준비 완료 · 회원 청크 {len(member_rows)}개 · 행정동 {len(names)}개")
+        print(f"✅ 준비 완료 · 회원 청크 {len(member_rows)}개 · "
+              f"지식베이스 청크 {len(kb_rows)}개 · 행정동 {len(names)}개")
     return _ready
 
 
@@ -66,8 +73,9 @@ def search(query, top_k=5):
     # 2) 가중치 → TOP 5
     detailed = recommend_by_weights(weights, top_k=top_k)
 
+
     # 3) 설명문
-    cases = find_cases(persona_query)
+    cases = find_cases(persona_query, r["kb_rows"], r["kb_vectors"])   # 캐시된 걸 넘겨준다
     text = explain(query, weights, detailed, cases)
     
     return{

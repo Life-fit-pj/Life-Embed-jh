@@ -55,7 +55,7 @@ CLAUDE_RATIO = 0.7
 def load_member_vectors():
     """회원 청크 벡터를 전부 꺼낸다. numpy 배열로 만든다."""
     rows = member_chunks()
-    vectors = np.array([json.loads(r["vector"]) for r in rows], dtype="float32")
+    vectors = np.array([np.frombuffer(r["vector"], dtype="float32") for r in rows], dtype="float32")
     return rows, vectors
 
 

@@ -6,13 +6,13 @@ kb_chunk(지식베이스 2,500명)와 별개다.
 검색어와 비슷한 회원을 찾으면 그 사람의 가중치를 가져올 수 있다.
 """
 
-import json
 import sqlite3
 import time
+import numpy as np
 
 from app.core.config import DATA_DIR, DB_PATH, CHUNK_COLUMNS, MIN_LENGTH
 from app.core.io import read_csv
-from app.core.llm import get_embedder
+from app.core.llm import get_embedder, to_passage
 
 MEMBER_COUNT = 100
 
@@ -66,13 +66,9 @@ def create_table(cur) :
             customer_id TEXT,
             category    TEXT,
             text        TEXT,
-            vector      TEXT
+            vector      BLOB
         )
     """)
-
-
-def to_passage(text):
-    return f"passage: {text}"
 
 
 def embed_and_store(cur, chunks) :
@@ -89,7 +85,7 @@ def embed_and_store(cur, chunks) :
     
     values = [
         (c["customer_id"], c["category"], c["text"],
-         json.dumps(vec))
+         np.asarray(vec, dtype="float32").tobytes())
         for c, vec in zip(chunks, vectors)
     ]
     
