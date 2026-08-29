@@ -20,12 +20,6 @@ from app.core.config import DB_PATH, INDICATORS
 # threading.local() 은 스레드별로 따로 보관되는 저장소다
 _local = threading.local()
 
-# check_same_thread=False 는 나중에 Flask 서버를 붙일 때 필요하다.
-# SQLite 연결은 기본적으로 만든 스레드에서만 쓸 수 있는데,
-# 웹 서버는 요청마다 다른 스레드로 도는 경우가 있어서 막힌다
-
-con = sqlite3.connect(DB_PATH, check_same_thread=False)
-
 
 def get_con():
     """이 스레드 전용 연결을 돌려준다. 없으면 만든다."""
