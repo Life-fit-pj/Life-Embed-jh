@@ -14,10 +14,11 @@ from app.core.llm import get_llm, get_embedder, to_query
 
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니다.
-사용자의 검색어를 읽고 두 가지를 만드세요.
+사용자의 검색어를 읽고 세 가지를 만드세요.
 
 (1) 7개 지표의 중요도 (1~5점)
 (2) 그런 조건을 원하는 사람이 어떤 사람인지 묘사하는 한 문장
+(3) 검색어에 담긴 가격 조건 (없으면 전부 null)
 
 지표 설명:
 - 녹지: 공원, 산책로, 자연환경
@@ -41,10 +42,19 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니�
        -> "초등학생 자녀를 키우며 교육에 관심이 많은 사람"
    예) "번화가는 싫어요"
        -> "조용한 주택가에서 한적하게 지내는 것을 좋아하는 사람"
-4. 반드시 아래 JSON 형식으로만 답하세요. 설명이나 인사말을 붙이지 마세요.
+4. 가격 조건은 언급된 것만 채우세요. 짐작해서 채우지 마세요.
+   - 건물유형은 반드시 "단독다가구", "아파트", "연립다세대", "오피스텔" 중 하나 또는 null.
+     "빌라"는 "연립다세대", "원룸"은 "오피스텔"로 바꿔서 답하세요.
+   - 거래유형은 "매매", "전세", "월세" 중 하나 또는 null.
+   - 예산은 거래유형별로 가장 중요한 금액입니다: 매매=매매가, 전세=보증금, 월세=월세(월 임대료).
+     단위는 만원입니다 ("4억" -> 40000, "70만원" -> 70).
+   - 보증금은 월세를 말할 때, 보증금까지 같이 언급된 경우에만 채우세요. 그 외엔 항상 null.
+   - 가격 언급이 전혀 없으면 건물유형·거래유형·예산·보증금 전부 null 입니다.
+5. 반드시 아래 JSON 형식으로만 답하세요. 설명이나 인사말을 붙이지 마세요.
 
 {"녹지": 3, "안전": 3, "교통": 3, "상권": 3, "의료": 3, "교육": 3, "문화": 3,
- "persona_query": "..."}"""
+ "persona_query": "...",
+ "건물유형": null, "거래유형": null, "예산": null, "보증금": null}"""
 
 # Claude 초안과 회원 평균을 몇 대 몇으로 섞을지.
 # 0.7 이면 Claude 70%, 회원 30%
@@ -104,17 +114,32 @@ def ask_claude(query):
         data = json.loads(text)
     except json.JSONDecodeError:
         print(f"[경고] JSON 파싱 실패: {text[:80]}")
-        return {k: 3 for k in INDICATORS}, query       # 실패하면 전부 보통값
-    
+        weights = {k: 3 for k in INDICATORS}            # 실패하면 전부 보통값
+        weights.update({"건물유형": None, "거래유형": None, "예산": None, "보증금": None})
+        return weights, query
+
     # 7개가 다 있는지, 1~5 범위인지 검사한다
     weights = {}
     for key in INDICATORS:
         value = data.get(key, 3)
         weights[key] = max(1, min(5, int(value)))
-    
+
     # 문장이 없거나 비었으면 원래 검색어로 대체한다
     persona_query = (data.get("persona_query") or "").strip() or query
-    
+
+    # 가격 조건 — Claude 가 프롬프트를 안 지키고 다른 값을 줄 수도 있으니 한 번 더 검사한다.
+    # pipeline/housing.py 의 DEAL_COLUMNS 키와 정확히 맞아야 하기 때문이다
+    BUILDING_TYPES = {"단독다가구", "아파트", "연립다세대", "오피스텔"}
+    DEAL_TYPES = {"매매", "전세", "월세"}
+
+    건물유형 = data.get("건물유형")
+    거래유형 = data.get("거래유형")
+
+    weights["건물유형"] = 건물유형 if 건물유형 in BUILDING_TYPES else None
+    weights["거래유형"] = 거래유형 if 거래유형 in DEAL_TYPES else None
+    weights["예산"] = data.get("예산")
+    weights["보증금"] = data.get("보증금")
+
     return weights, persona_query
 
 

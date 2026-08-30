@@ -19,6 +19,7 @@ INDICATOR_COLUMNS = {
     "문화": ["문화시설_밀도", "도서관_밀도"],
 }
 
+
 def load_regions():
     """427개 동의 이름과, 매핑에 쓰이는 밀도 칸들을 꺼낸다."""
     # 매핑에 등장하는 칸을 전부 모은다 (중복 없이, 순서 유지)
@@ -39,7 +40,8 @@ def load_regions():
     
     return names, values
 
-def to_percentile(values) :
+
+def to_percentile(values, invert=False) :
     """숫자 묶음을 0~100 백분위로 바꾼다.
 
     "427개 동 중 몇 등인가" 를 점수로 만드는 것이다.
@@ -50,7 +52,12 @@ def to_percentile(values) :
     거기에 다시 argsort 를 하면 "각 값이 몇 등인지" 로 뒤집힌다.
     """
     order = values.argsort().argsort()
-    return order / (len(values) - 1) * 100
+    pct = order / (len(values) - 1) * 100
+    
+    return 100 - pct if invert else pct
+
+INDICATOR_INVERT = {"시세"}   # 이 지표들은 낮을수록 좋다
+
 
 def build_scores(values):
     """밀도 칸들을 7개 지표 점수(0~100)로 바꾼다.
@@ -61,10 +68,12 @@ def build_scores(values):
     scores = {}
     
     for indicator, cols in INDICATOR_COLUMNS.items():
-        parts = [to_percentile(values[c]) for c in cols]
+        invert = indicator in INDICATOR_INVERT
+        parts = [to_percentile(values[c], invert=invert) for c in cols]
         scores[indicator] = sum(parts) / len(parts)
-    
+        
     return scores
+
 
 def build_relative(scores):
     """각 동네에서 지표가 '특기'인 정도를 만든다.

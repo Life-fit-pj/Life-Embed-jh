@@ -12,7 +12,7 @@ import json
 import numpy as np
 
 from app.core.config import INDICATORS
-from app.core.db import kb_chunks
+from app.core.db import kb_chunks, region_densities
 from app.core.llm import get_llm, get_embedder, to_query
 
 
@@ -30,8 +30,10 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
    "많다/적다" 가 아니라 "다른 동네와 비교해 어느 위치인지" 로 설명하세요.
 
 3. 데이터에 없는 것을 물으면 없다고 답하세요.
-   없는 것: 집값, 전월세, 교육비, 물가, 생활비, 통학 시간, 지하철 노선명, 학교 이름, 구체적인 시설 이름, 유동인구, 소음 수치
-   
+   없는 것: 교육비, 물가, 생활비, 통학 시간, 지하철 노선명, 학교 이름, 구체적인 시설 이름, 유동인구, 소음 수치
+
+   시세(매매가·보증금·월세)는 아래 "참고 시세"에 준 값만 쓰세요. 이 값은 동네 전체의
+   중앙값이지 실제 매물 가격이 아니라는 점을 밝히세요.
    지역에 대한 통념(강남은 비싸다, 노원은 학원가다 등)도 쓰지 마세요.
    데이터에 없는 것은 알고 있어도 말하지 않습니다.
    
@@ -102,7 +104,7 @@ def with_scores(result, names, scores):
 
 
 # 프롬프트에 넣을 데이터 만들기
-def build_context(query, weights, detailed, cases):
+def build_context(query, weights, detailed, cases, housing=None):
     """Claude 에게 넘길 데이터를 글로 정리한다."""
     
     # 사용자가 중시한 지표 (가중치 3.5 이상)
@@ -124,13 +126,32 @@ def build_context(query, weights, detailed, cases):
     for c in cases:
         lines.append(f"[{c['district']} · {c['category']}] {c['text']}")
 
+    if housing:
+        from pipeline.housing import DEAL_COLUMNS, housing_fit_score
+        cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
+        lines.append("")
+        lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
+        for d in detailed:
+            gu, dong = d["name"].split(" ", 1)
+            rows = region_densities(list(cols.values()))   # 매번 다시 읽는 대신 get_ready() 캐싱 권장
+            row = next((r for r in rows if r["구"] == gu and r["행정동명"] == dong), None)
+            if row is None:
+                lines.append(f"{d['name']}: 시세 데이터 없음")
+                continue
+
+            fit = housing_fit_score(row, cols, housing["targets"])
+            # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
+            parts = [f"{field} {row[col]:,.0f}만원" for field, col in cols.items()]
+            lines.append(f"{d['name']}: {housing['건물유형']} {housing['거래유형']} " +
+                         " / ".join(parts) + f" (조건 일치도 {fit}점)")
+
     return "\n".join(lines)
 
 
 # 호출
-def explain(query,weights,detailed,cases):
+def explain(query, weights, detailed, cases, housing=None):
     """추천 결과를 설명문으로 만든다."""
-    context = build_context(query, weights, detailed, cases)
+    context = build_context(query, weights, detailed, cases, housing)
     
     messages = [
         ("system", SYSTEM_PROMPT),

@@ -10,6 +10,7 @@
 """
 
 import sys
+import numpy as np
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pipeline.explain import explain, find_cases, load_kb_vectors, with_scores
 from pipeline.recommend import load_regions, build_scores, build_relative, recommend
 from pipeline.weights import load_member_vectors, ask_claude, blend, find_similar_members
+from pipeline.housing import matching_regions
 
 from app.core.db import member_weights
 from app.core.llm import get_embedder
@@ -53,31 +55,52 @@ def get_ready():
     return _ready
 
 
-def recommend_by_weights(weights, top_k=5):
-    """가중치 → TOP 5. 슬라이더로 바로 올 때 쓴다 (검색어 없음)."""
+def recommend_by_weights(weights, top_k=5, housing=None):
+    """가중치 → TOP 5. housing 을 주면 그 조건에 맞는 동으로 먼저 추린다.
+
+    housing 예시(전세): {"건물유형": "아파트", "거래유형": "전세", "targets": {"예산": 65000}}
+    housing 예시(월세): {"건물유형": "아파트", "거래유형": "월세",
+                       "targets": {"예산": 70, "보증금": 5000}}   (단위: 만원)
+    """
     r = get_ready()
-    result = recommend(r["names"], r["scores"], r["relative"], weights, top_k=top_k)
-    return with_scores(result, r["names"], r["scores"])
+    names, scores, relative = r["names"], r["scores"], r["relative"]
+
+    if housing:
+        candidates = set(matching_regions(**housing))
+        keep = np.array([n in candidates for n in names])
+        names = [n for n, k in zip(names, keep) if k]
+        scores = {ind: arr[keep] for ind, arr in scores.items()}
+        relative = {ind: arr[keep] for ind, arr in relative.items()}
+
+    result = recommend(names, scores, relative, weights, top_k=top_k)
+    return with_scores(result, names, scores)
 
 
 def search(query, top_k=5):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구."""
     r = get_ready()
-    
+
     # 1) 검색어 → 가중치
     draft, persona_query = ask_claude(query)
     similar = find_similar_members(persona_query, r["member_rows"], r["member_vectors"])
     ids = [cid for cid, _ in similar]
     weights = blend(draft, member_weights(ids))
-    
-    # 2) 가중치 → TOP 5
-    detailed = recommend_by_weights(weights, top_k=top_k)
 
+    # 1-1) 검색어 → 가격 조건. 건물유형·거래유형·예산 셋 다 있어야 필터를 켠다
+    housing = None
+    if draft.get("건물유형") and draft.get("거래유형") and draft.get("예산"):
+        targets = {"예산": draft["예산"]}
+        if draft["거래유형"] == "월세" and draft.get("보증금"):
+            targets["보증금"] = draft["보증금"]
+        housing = {"건물유형": draft["건물유형"], "거래유형": draft["거래유형"], "targets": targets}
+
+    # 2) 가중치 → TOP 5 (가격 조건이 있으면 그 조건에 맞는 동으로 먼저 추린다)
+    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
 
     # 3) 설명문
     cases = find_cases(persona_query, r["kb_rows"], r["kb_vectors"])   # 캐시된 걸 넘겨준다
-    text = explain(query, weights, detailed, cases)
-    
+    text = explain(query, weights, detailed, cases, housing=housing)
+
     return{
         "query": query,
         "persona_query": persona_query,

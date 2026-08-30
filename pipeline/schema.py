@@ -35,6 +35,7 @@ EXCLUDE_PREFIX = (
     "member_persona",      # 다른 AI 에게 넘기려고 뽑은 파일
     "user_preferences_v",  # 버전 보관용
     "nemotron",            # 원본 11만 줄. 회원 100명은 06번이 CSV 를 직접 읽는다
+    "~$",                  # 엑셀이 CSV 를 열어둔 동안 만드는 잠금 임시 파일. 진짜 데이터가 아니다
 )
 
 # 매칭되지 않는 파일들 키 정리

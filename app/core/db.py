@@ -244,11 +244,12 @@ def facility_categories(gu, dong, kind="학원", top=8):
     )
     
     
-def to_percentile(column, value):
+def to_percentile(column, value, invert=False):
     """어떤 값이 427개 동 중 백분위 몇인지 계산한다.
 
     밀도 원값(12.3개/km²)은 사용자에게 의미가 없다.
     "상위 30%" 처럼 다른 동네와 비교한 위치로 바꿔야 읽힌다
+    invert=True 면 "낮을수록 높은 점수"로 뒤집는다 (시세처럼 작을수록 좋은 지표용)
     """
     if value is None:
         return None
@@ -258,7 +259,9 @@ def to_percentile(column, value):
         f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" <= ?',
         (value,),
     )[0]
-    return round(below / total * 100)
+    pct = round(below / total * 100)
+    
+    return 100 - pct if invert else pct
 
 
 if __name__ =="__main__":
