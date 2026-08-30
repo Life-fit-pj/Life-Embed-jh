@@ -759,3 +759,474 @@ from pipeline.housing import region_price_lines
 - **`tolerance=0.3`(±30%)은 감으로 잡은 값이다.** 너무 좁으면(예: ±10%) 후보가 자주 5개
   미만이 돼서 fallback만 계속 타게 되고, 너무 넓으면(예: ±50%) 필터를 건 의미가 없어진다.
   실제 시세 분포(동네·건물유형마다 편차가 다르다)를 보고 조정이 필요할 수 있다.
+
+---
+
+# 8. (2026-08-31) 6번 계획, 실제 코드엔 이미 반영돼 있었다 — 문서만 안 고쳐짐
+
+"LLM 서술에 시세가 충분히 안 들어간다"는 걱정이 있어서 6번(`chat.py`)부터 다시 열어봤다.
+그런데 위에 "아직 하나도 안 건드렸다"고 적어둔 것과 달리, **`app/features/chat.py`와
+`app/features/region_explain.py`를 실제로 열어보니 `region_price_lines`·`region_extras`·
+`housing` 인자가 이미 다 들어가 있었다.** `app/core/db.py`의 `to_percentile(..., invert=...)`,
+`pipeline/recommend.py`의 `INDICATOR_INVERT`, `pipeline/housing.py`(파일 자체),
+`app/features/pipeline_api.py`의 `search()`/`recommend_by_weights(..., housing=...)`도
+전부 코드에 그대로 있다. 즉 **1~7번 계획은 이미 전부 구현이 끝난 상태**다.
+
+이 문서(STUDY.md)의 "진행 상황"을 실제 코드보다 먼저 믿지 말라고 `CLAUDE.md`에 이미 적어둔
+바로 그 패턴이 여기서도 그대로 반복된 것 — 코드는 고쳤는데 이 문서의 서술은 안 따라간 것이다.
+**엔진 자체(Life-Embed-jh)의 시세 파이프라인은 문제가 없다.** 그런데도 사용자 입장에서
+"LLM 서술이 반영이 안 된다"고 느껴진다면, 원인은 이 저장소가 아니라 아래 9번처럼
+**웹(Life-Web)이 이 파이프라인을 아직 안 쓰고 있다는 것**이다.
+
+---
+
+# 9. 진짜 문제 — Life-Web이 이 시세 파이프라인을 하나도 안 쓰고 있다
+
+`Life-Web/services/engine.py`를 열어보고 확인했다. `search()`와 `recommend_by_weights()`를
+부르긴 하는데, **`housing` 인자를 한 번도 넘기지 않는다.**
+
+```python
+# Life-Web/services/engine.py (현재)
+def get_regions(user_prefs):
+    query = (user_prefs.get('query') or '').strip()
+
+    if query:
+        result = search(query, top_k=CANDIDATE_K)          # ← housing 인자 없음
+        ...
+    else:
+        weights = to_korean_weights(user_prefs)
+        regions = recommend_by_weights(weights, top_k=CANDIDATE_K)   # ← 여기도 없음
+        explanation = ""                                     # ← 슬라이더 경로는 설명문 자체가 없다
+
+    regions = apply_budget(regions, user_prefs, top_k=5)      # ← 완전히 별개의 옛날 시세 시스템
+    return weights, regions, explanation
+```
+
+`apply_budget()`(`Life-Web/services/price.py`)은 이 엔진의 `master_dataset_v3` 86칸을 전혀
+모른다 — 자기 저장소 안의 `data/시세_지역별.csv`를 따로 읽어서, "예산 초과분만큼 감점"하는
+완전히 다른 계산을 한다. 그 결과:
+
+- **화면의 건물유형·거래유형·예산 슬라이더 값이 이 엔진(`search`/`recommend_by_weights`)에는
+  전혀 전달되지 않는다.** 검색어 없이 슬라이더만 쓰는 경로에서는 `housing`이 항상 `None`이라
+  [2]의 목표가 근접 필터가 아예 작동하지 않고, `explain()` 자체를 안 부르니(`explanation = ""`
+  를 웹이 직접 박아둠) 이 경로엔 LLM 서술이 원래 없다.
+- 검색어 경로는 `search()` 내부에서 Claude가 **검색어 문장에서** 뽑아낸 조건만 `housing`으로
+  쓴다 — 화면 슬라이더에 사용자가 "아파트/전세/2억 3천"을 정확히 입력해놨어도, 검색어에 그
+  말이 없으면 이 엔진은 그 조건을 전혀 모른 채 TOP 5와 설명문을 만든다.
+- 그렇게 만들어진 TOP 5·설명문을, 웹이 자기 나름의 `apply_budget()`으로 **다시 한번**
+  점수를 깎고 순서를 바꾼다. 그 결과 **설명문이 말하는 순위와 화면에 실제로 뜨는 순위가
+  어긋날 수 있다** — 설명문은 `apply_budget()` 재정렬 전의 TOP 5를 근거로 쓰여졌기 때문이다.
+
+정리하면: 엔진은 "이 조건에 맞는 동네를 먼저 추리고, 그 안에서 순위를 매기고, 그 순위 그대로
+설명문을 쓴다"는 한 파이프라인으로 이미 다 짜여 있는데, 웹은 그 파이프라인을 부르지 않고
+자기가 옛날에 만든 "일단 추천받고, 나중에 가격으로 다시 감점"하는 별개의 파이프라인을
+덧씌우고 있다. **두 파이프라인이 같은 문제(가격 반영)를 각자 다른 데이터·다른 방식으로 풀고
+있어서, 하나를 고쳐도 다른 쪽엔 안 보이는 것** — 이게 사용자가 느낀 "괴리감"의 정체다.
+
+수정은 웹 쪽 작업이 대부분이라 `Life-Web/study.md`에 자세히 적어뒀다. 여기(엔진)서 먼저
+해줘야 할 준비물이 하나 있다 — 아래 10번.
+
+---
+
+# 10. (구현 완료, 2026-08-31) 엔진이 먼저 해줄 것 — `detailed`에 시세를 "문장"이 아니라 "구조화된 값"으로도 붙이기
+
+지금 `housing`이 있을 때 시세가 나가는 곳은 딱 하나 — `explain()`/`region_explain()`/`chat()`이
+Claude에게 넘기는 **프롬프트 문장 안**뿐이다. `with_scores()`가 만드는 `detailed`(`name`,
+`total`, `scores`)엔 시세가 전혀 없다. 그래서 웹이 "주변 시세" 탭처럼 화면에 숫자로 보여줄
+값이 필요해지면, 지금 구조로는 웹이 직접 시세를 다시 조회할 수밖에 없다 — 그게 지금 웹이
+`services/price.py`로 따로 조회하고 있는 이유 중 하나이기도 하다. `detailed` 자체에 구조화된
+값을 붙여주면 웹은 그걸 그대로 화면에 꽂기만 하면 된다.
+
+```python
+# pipeline/housing.py (추가)
+def attach_price(detailed, housing):
+    """detailed(동네별 dict 목록)에 그 동네의 시세를 구조화된 값으로 붙인다.
+
+    explain.py/region_explain.py/chat.py는 이 값을 "문장"으로만 만들어 프롬프트에
+    넣는데, 화면(예: 주변 시세 탭)에 표로 보여주려면 숫자 그대로도 필요하다.
+    """
+    if not housing:
+        for d in detailed:
+            d["price"] = None
+        return detailed
+
+    cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
+    if not cols:
+        for d in detailed:
+            d["price"] = None
+        return detailed
+
+    rows = region_densities(list(cols.values()))
+    by_name = {f"{r['구']} {r['행정동명']}": r for r in rows}
+
+    for d in detailed:
+        row = by_name.get(d["name"])
+        if row is None:
+            d["price"] = None
+            continue
+        d["price"] = {
+            "건물유형": housing["건물유형"],
+            "거래유형": housing["거래유형"],
+            **{field: row.get(col) for field, col in cols.items()},
+            "일치도": housing_fit_score(row, cols, housing["targets"]),
+        }
+    return detailed
+```
+
+호출부는 `recommend_by_weights()` 한 곳만 고치면 된다 — `search()`는 내부에서
+`recommend_by_weights()`를 그대로 부르므로 자동으로 같이 적용된다.
+
+```python
+# app/features/pipeline_api.py (원본)
+from pipeline.housing import matching_regions
+...
+def recommend_by_weights(weights, top_k=5, housing=None):
+    ...
+    result = recommend(names, scores, relative, weights, top_k=top_k)
+    return with_scores(result, names, scores)
+```
+
+```python
+# app/features/pipeline_api.py (수정)
+from pipeline.housing import matching_regions, attach_price
+...
+def recommend_by_weights(weights, top_k=5, housing=None):
+    ...
+    result = recommend(names, scores, relative, weights, top_k=top_k)
+    detailed = with_scores(result, names, scores)
+    return attach_price(detailed, housing)
+```
+
+## 웹이 요청할 가능성이 높은 두 번째 것 — `search()`에 `housing_override`
+
+지금 `search()`는 `housing`을 오직 Claude가 검색어 문장에서 뽑은 값으로만 만든다. 웹이
+화면 슬라이더 값(사용자가 명시적으로 입력한 조건)을 우선시하고 싶다면, 검색어 경로에도
+바깥에서 `housing`을 주입할 자리가 필요하다.
+
+```python
+# app/features/pipeline_api.py (수정 제안)
+def search(query, top_k=5, housing_override=None):
+    ...
+    draft, persona_query = ask_claude(query)
+    ...
+    housing = housing_override
+    if housing is None:
+        housing = None
+        if draft.get("건물유형") and draft.get("거래유형") and draft.get("예산"):
+            targets = {"예산": draft["예산"]}
+            if draft["거래유형"] == "월세" and draft.get("보증금"):
+                targets["보증금"] = draft["보증금"]
+            housing = {"건물유형": draft["건물유형"], "거래유형": draft["거래유형"], "targets": targets}
+    ...
+```
+
+`housing_override`를 주면 검색어에 가격 언급이 있어도 화면 슬라이더 값이 우선한다 —
+"화면에서 이미 명시적으로 고른 조건이, 검색어에서 애매하게 뽑아낸 조건보다 신뢰도가 높다"는
+판단이다. 이 판단 자체는 웹 쪽과 상의해서 결정할 것 (다른 우선순위를 원할 수도 있다).
+
+---
+
+# 11. (구현 완료, 2026-08-31) 목표가가 없을 때 — 접근 A를 "12개 컬럼 평균 백분위"로 실제로 켜기
+
+[1]에서 만든 `INDICATOR_INVERT = {"시세"}`는 지금 `recommend.py`에 선언만 돼 있고
+`INDICATOR_COLUMNS`엔 `"시세"` 키가 없어서 실제로는 한 번도 실행되지 않는다(죽은 코드).
+"건물·거래유형 고려안함"(Life-Web의 새 드롭다운, `housing`이 `None`으로 오는 경우)을 골랐을 때
+"저렴한 동네를 살짝 우대한다"를 실제로 켜려면 이 코드가 필요하다.
+
+## 왜 `INDICATOR_COLUMNS`에 그냥 추가하면 안 되는가
+
+가장 단순한 방법은 `INDICATOR_COLUMNS`에 `"시세": [12개 컬럼]`을 추가하는 것이지만, 그러면
+문제가 둘 생긴다.
+
+1. **`build_relative()`가 모든 요청에 영향을 받는다.** `build_relative()`는 "그 동네 7개
+   지표의 평균" 대비 강점/약점을 계산하는데, 8번째 지표가 여기 섞이면 이 평균 기준선이
+   `housing`이 있는 요청(목표가를 명시한 검색)에서도 조용히 바뀐다 — "고려안함"을 안 고른
+   사용자의 추천 결과까지 영향을 받게 되는데, 이건 원치 않는 부작용이다.
+2. **`config.py`의 `INDICATORS`(7개)와 `recommend.py`의 `INDICATOR_COLUMNS` 키가 정확히
+   일치해야 한다는 게 `CLAUDE.md`에 이미 문서화된 불변조건이다.** `"시세"`를 추가하면 이
+   불변조건이 깨진다 — `ask_claude()`의 JSON 스키마(7개 지표만 물어봄)도 다시 손봐야 하는
+   더 큰 변경으로 번진다.
+
+그래서 "시세"는 `INDICATOR_COLUMNS`에 안 넣고, **`housing`이 없을 때만 `recommend()` 호출
+직전에 임시로 얹는** 방식으로 분리한다.
+
+## 12개 컬럼 — `pipeline/housing.py`의 `DEAL_COLUMNS`를 그대로 재사용
+
+"4개 건물유형 × 3개 거래유형" 각각의 "예산" 컬럼(매매가/전세보증금/월세)이 정확히 12개다.
+이미 `DEAL_COLUMNS`에 다 들어있으므로 새로 정의할 필요가 없다.
+
+```python
+# pipeline/recommend.py (추가)
+from pipeline.housing import DEAL_COLUMNS
+
+PRICE_COLUMNS = [cols["예산"] for cols in DEAL_COLUMNS.values()]   # 12개
+```
+
+## 결측값 주의 — `or 0`을 그대로 쓰면 안 된다
+
+`load_regions()`의 기존 방식은 이렇다.
+
+```python
+# pipeline/recommend.py (원본) — load_regions()
+values[c] = np.array([r[c] or 0 for r in rows], dtype="float64")
+```
+
+기존 7개 지표(밀도)에서는 값이 없으면 진짜 "0개"라는 뜻이라 `or 0`이 맞다. **하지만 시세
+칼럼에서 값이 없다는 건 "그 동에 그 조합(예: 오피스텔+매매) 매물 자체가 없어 시세를
+못 구했다"는 뜻이지 "공짜"가 아니다.** `or 0`을 그대로 쓰면 시세가 없는 동이 `invert=True`
+계산에서 "가장 저렴한 동"으로 둔갑해 엉뚱하게 1등으로 뽑힐 수 있다 — 에러 없이 조용히
+틀리는, 이 프로젝트에서 여러 번 나온 것과 같은 유형의 버그다.
+
+```python
+# pipeline/recommend.py (추가) — 시세 칼럼 전용 로더
+def load_price_values(rows):
+    """시세 칼럼은 결측을 0이 아니라 그 칼럼의 중앙값으로 채운다.
+
+    0으로 채우면 '시세 없음'이 '공짜'로 둔갑해서 invert=True 계산에서
+    가장 저렴한 동네로 잘못 뽑히기 때문이다. 중앙값으로 채우면 최소한
+    "평범한 동네"로 취급돼 순위에 부당하게 유리해지지 않는다.
+    """
+    values = {}
+    for c in PRICE_COLUMNS:
+        raw = [r[c] for r in rows]
+        known = [v for v in raw if v is not None]
+        fallback = float(np.median(known)) if known else 0.0
+        values[c] = np.array([v if v is not None else fallback for v in raw], dtype="float64")
+    return values
+```
+
+`load_regions()`가 원래 쓰던 `rows`(→ `region_densities(cols)`가 돌려준 것)를 그대로
+넘겨받아 쓸 수 있으므로, `load_regions()` 자체를 고치기보다는 `get_ready()`에서 시세용
+`rows`를 한 번 더 조회해서(`region_densities(PRICE_COLUMNS)`) 이 함수에 넘기는 편이 기존
+코드를 덜 건드린다.
+
+## 시세 점수 계산 — 기존 `scores`/`relative`와 분리해서 보관
+
+```python
+# pipeline/recommend.py (추가)
+def build_price_score(values):
+    """12개 컬럼(4건물유형×3거래유형)의 평균 백분위. 낮을수록 높은 점수.
+
+    build_scores()/build_relative()에는 안 섞는다 — 섞으면 housing이 있는
+    요청(목표가가 명시된 검색)에서도 relative 기준선이 8개짜리로 바뀌어
+    기존 추천 결과가 미묘하게 달라지기 때문이다.
+    """
+    parts = [to_percentile(values[c], invert=True) for c in PRICE_COLUMNS]
+    return sum(parts) / len(parts)
+```
+
+## `get_ready()`, `recommend_by_weights()` 연결
+
+```python
+# app/features/pipeline_api.py (수정) — get_ready()
+from app.core.db import region_densities
+from pipeline.recommend import PRICE_COLUMNS, load_price_values, build_price_score
+...
+def get_ready():
+    global _ready
+    if _ready is None:
+        ...
+        names, values = load_regions()
+        scores = build_scores(values)
+        relative = build_relative(scores)
+
+        price_values = load_price_values(region_densities(PRICE_COLUMNS))
+        price_score = build_price_score(price_values)   # 427개 동, 0~100
+
+        _ready = {
+            ...,
+            "price_score": price_score,
+        }
+    return _ready
+```
+
+```python
+# app/features/pipeline_api.py (수정) — recommend_by_weights()
+DEFAULT_PRICE_WEIGHT = 3   # 다른 지표들의 "보통"과 같은 값. 굳이 저렴함을 강하게 밀지 않는다
+
+def recommend_by_weights(weights, top_k=5, housing=None):
+    r = get_ready()
+    names, scores, relative = r["names"], r["scores"], r["relative"]
+
+    if housing:
+        candidates = set(matching_regions(**housing))
+        keep = np.array([n in candidates for n in names])
+        names = [n for n, k in zip(names, keep) if k]
+        scores = {ind: arr[keep] for ind, arr in scores.items()}
+        relative = {ind: arr[keep] for ind, arr in relative.items()}
+    else:
+        # 목표가가 없을 때만 "시세는 낮을수록 좋다"를 8번째 신호로 얹는다.
+        # housing이 있으면 matching_regions()가 이미 목표가 근접도로 걸러내므로
+        # 여기서 또 "무조건 저렴한 게 좋다"를 더하면 그 판단과 충돌한다.
+        price = r["price_score"]
+        scores = {**scores, "시세": price}
+        # relative[k]는 recommend()에서 (relative[k]+50)으로 쓰이므로,
+        # mix 값과 무관하게 결과가 항상 price_score 그대로 나오도록 -50을 맞춰 넣는다.
+        relative = {**relative, "시세": price - 50}
+        weights = {**weights, "시세": weights.get("시세", DEFAULT_PRICE_WEIGHT)}
+
+    result = recommend(names, scores, relative, weights, top_k=top_k)
+    detailed = with_scores(result, names, scores)
+    return attach_price(detailed, housing)
+```
+
+`weights.get("시세", DEFAULT_PRICE_WEIGHT)` — 사용자가 슬라이더로 "시세" 중요도를 직접
+고를 UI가 없으므로 지금은 항상 기본값(3, "보통")이 들어간다. 나중에 "가격을 얼마나
+중요하게 볼지" 슬라이더를 따로 만들고 싶다면 이 자리에 그 값을 넣으면 된다.
+
+## 주의할 점
+
+- **`with_scores()`가 만드는 `d["scores"]`엔 "시세"가 안 보인다.** `with_scores()`는
+  `config.INDICATORS`(7개)만 순회하기 때문이다 — 의도한 동작이다(위 "왜 그냥 추가하면
+  안 되는가" 1번 참고). 화면이나 설명문에 "이 동네는 시세가 상위 O%다"처럼 보여주고
+  싶다면 `with_scores()`가 아니라 `attach_price()`(10번)의 `price` 안에 백분위를 별도로
+  넣는 걸 권장한다 — `d["scores"]`에 8번째 값을 억지로 끼워 넣으면 프론트가 "7개 지표"를
+  전제로 그리는 레이더 차트 등이 깨질 수 있다.
+- **`DEFAULT_PRICE_WEIGHT = 3`은 감으로 잡은 값이다.** 너무 높이면 "고려안함"을 골랐을
+  뿐인데 추천이 지나치게 저렴한 동네로 쏠릴 수 있다. 실제로 몇 개 검색어로 돌려보고 조정할 것.
+- **`region_densities(PRICE_COLUMNS)`를 `get_ready()`에서 한 번만 부르고 캐싱한다** —
+  요청마다 다시 조회하면 [A]에서 이미 고친 "매번 다시 읽어서 느려지는" 문제가 재발한다.
+
+---
+
+# 12. (구현 완료, 2026-08-31) C안 — 신뢰등급·거래건수·분포 정보를 웹 대신 엔진이 갖는다
+
+Life-Web은 그동안 `data/시세_지역별.csv`를 자기 저장소에 따로 두고 `services/price.py`로
+직접 조회해왔다. 그런데 이 CSV는 **`Life-Embed-jh/data/시세_지역별_전처리.csv`와 내용이
+사실상 같다** — 0번 절에서 이미 확인했듯, 후자는 전자와 같은 내용에 `행정동ID_8자리`
+칼럼만 추가된 것이다. 즉 같은 데이터가 두 저장소에 따로 복사돼 있던 것 — 하나를 고쳐도
+다른 쪽엔 반영이 안 되는 구조였다. `Life-Web/study.md`에서 이 CSV와 `price.py`를 정리하는
+방향(C안)으로 결정했으므로, 엔진이 이 정보까지 대신 조회해서 `attach_price()`에 실어주는
+쪽으로 옮긴다.
+
+## 0. 이미 되어 있는 것 — 표 자체는 이미 `life.db`에 있다
+
+[4]의 "DB 재생성 순서" 5번 확인 스크립트가 `"시세_지역별_전처리" in tables`를 이미
+확인했었다. 즉 **`schema.py`를 다시 손보거나 `MANUAL_FKS`([5])를 추가할 필요가 없다** —
+표는 이미 만들어져 있고, `구/동/건물용도/거래유형` 네 값으로 그냥 `SELECT`하면 된다
+(마스터 표와 정식으로 조인해서 쓸 일이 없으므로 [5]의 FK 등록은 여전히 "선택 사항"으로 남는다).
+
+## 1. `app/core/db.py`에 조회 함수 추가
+
+```python
+# app/core/db.py (추가)
+def region_price_detail(gu, dong, bldg, deal):
+    """시세_지역별_전처리 표에서 신뢰등급·거래건수·분포처럼
+    master_dataset_v3엔 없는 상세 정보를 꺼낸다.
+
+    master_dataset_v3의 24개 시세 칼럼엔 그 조합의 중앙값만 있다. 표본이 몇 건인지,
+    자치구·법정동 단위로 대체된 값인지(출처), 상하위 25~75% 분포가 얼마인지는
+    이 표에만 남아 있다(Life-Web이 예전에 따로 갖고 있던 시세_지역별.csv와 같은 내용).
+
+    동 이름 표기가 갈리는 문제(예: '신당제5동')는 dong_variants()로 그대로 재사용한다 —
+    Life-Web의 price.py가 자체 정규식(_norm)으로 따로 풀던 문제와 같은 문제라서다.
+    """
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+
+    rows = dicts(
+        'SELECT 거래건수, 신뢰등급, 출처, 면적_중앙값, '
+        '       매매가, 매매가_25, 매매가_75, 보증금, 보증금_25, 보증금_75, 월임대료 '
+        'FROM 시세_지역별_전처리 '
+        f'WHERE TRIM(자치구명) = ? AND TRIM(지역명) IN ({marks}) '
+        '      AND 건물용도 = ? AND 거래유형 = ?',
+        (gu.strip(), *names, bldg, deal),
+    )
+    return rows[0] if rows else None
+```
+
+> **확인 필요**: 위 컬럼 이름은 `Life-Web/services/price.py`가 쓰던 이름을 그대로 옮겨온
+> 것이다 — `시세_지역별_전처리.csv`를 직접 열어서 실제 헤더가 정확히 이 이름들인지
+> 대조할 것(특히 `자치구명`/`지역명`처럼 마스터 표의 `구`/`행정동명`과 이름이 다른 칸들).
+
+## 2. `pipeline/housing.py`의 `attach_price()` 확장 — 10번에서 만든 것에 이어서
+
+```python
+# pipeline/housing.py (10번에서 만든 attach_price()를 아래처럼 확장)
+from app.core.db import region_densities, region_price_detail
+
+def attach_price(detailed, housing):
+    if not housing:
+        for d in detailed:
+            d["price"] = None
+        return detailed
+
+    cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
+    if not cols:
+        for d in detailed:
+            d["price"] = None
+        return detailed
+
+    rows = region_densities(list(cols.values()))
+    by_name = {f"{r['구']} {r['행정동명']}": r for r in rows}
+
+    for d in detailed:
+        row = by_name.get(d["name"])
+        if row is None:
+            d["price"] = None
+            continue
+
+        gu, dong = d["name"].split(" ", 1)
+        detail = region_price_detail(gu, dong, housing["건물유형"], housing["거래유형"])
+
+        d["price"] = {
+            "건물유형": housing["건물유형"],
+            "거래유형": housing["거래유형"],
+            **{field: row.get(col) for field, col in cols.items()},   # 중앙값 (master_dataset_v3)
+            "일치도": housing_fit_score(row, cols, housing["targets"]),
+            # C안 — Life-Web이 따로 갖고 있던 신뢰도·분포 정보. 표에 없으면 전부 None
+            "거래건수": (detail or {}).get("거래건수"),
+            "신뢰등급": (detail or {}).get("신뢰등급"),
+            "출처": (detail or {}).get("출처"),
+            "금액_25": (detail or {}).get("매매가_25") or (detail or {}).get("보증금_25"),
+            "금액_75": (detail or {}).get("매매가_75") or (detail or {}).get("보증금_75"),
+        }
+    return detailed
+```
+
+이제 `search()`/`recommend_by_weights()`가 돌려주는 `detailed`의 `price` 하나에 중앙값·
+일치도(엔진 자체 계산)와 신뢰도·분포(옛 CSV 출처)가 전부 들어간다. **웹은 이 CSV를 더 이상
+직접 열 필요가 없다.**
+
+## 3. 정리 — Life-Web 쪽에서 지워도 되는 것
+
+- `Life-Web/data/시세_지역별.csv` — 삭제. 이 엔진의 `시세_지역별_전처리.csv`가 사실상 같은
+  내용을 대신한다.
+- `Life-Web/services/price.py` — `lookup()`/`over_ratio()`/`apply_budget()` 전부 더 이상
+  안 쓰인다. 구체적인 정리 순서는 `Life-Web/study.md`에 적어뒀다.
+
+## 주의할 점
+
+- **`region_price_detail()`은 동네 하나당 매번 새로 SELECT한다.** TOP 5(혹은 후보
+  `CANDIDATE_K`)만큼만 부르므로 지금 규모엔 문제없지만, `attach_price()`가 더 자주
+  불리게 되면 [4]의 `region_densities()` 캐싱 권장 사항과 같은 방식으로 최적화할 수 있다.
+- **`시세_지역별_전처리.csv`는 '동×건물유형×거래유형'별 한 줄짜리 표(5,124행)다.**
+  `master_dataset_v3`처럼 '동 하나 = 한 줄'이 아니므로, `region_densities()`와 같은
+  방식(전체 칼럼을 한 번에 넓게 조회)으로 재사용하면 안 되고, 반드시 `건물용도`/`거래유형`
+  조건을 걸어 한 줄만 골라내야 한다 — 위 SQL의 `WHERE` 절이 그 역할이다.
+- **`금액_25`/`금액_75`는 매매·전세에만 있고 월세엔 없다**(`Life-Web/services/price.py`의
+  원래 동작 그대로 옮겨온 것 — 월세는 보증금·월임대료 두 금액 자체가 이미 각각의 분포를
+  대신한다는 전제였다). 월세에도 분포를 보여주고 싶다면 CSV에 해당 칼럼이 있는지부터
+  확인할 것.
+
+---
+
+# 13. (2026-08-31) 10~12번, 실제로 코드에 반영하고 검증까지 끝냈다
+
+`db.py`, `pipeline/recommend.py`, `pipeline/housing.py`, `app/features/pipeline_api.py`를
+직접 고치고, 실제 `life.db`로 두 경로 다 돌려서 확인했다:
+
+- `housing` 없이 `recommend_by_weights()`를 부르면 모든 동네의 `d["price"]`가 `None`이면서도
+  순위에는 시세(낮을수록 유리, `DEFAULT_PRICE_WEIGHT=3`)가 조용히 반영된다.
+- `housing`을 주면 `d["price"]`에 중앙값·일치도뿐 아니라 거래건수·신뢰등급·출처·금액_25/75까지
+  다 채워진다. 월세 조합에서 금액_25/75가 `None`으로 나오는 것도 확인함 — 의도한 동작(12번
+  "주의할 점" 참고).
+- `search(query, housing_override=...)`도 확인함 — 검색어에 가격 언급이 없어도
+  `housing_override`가 그대로 적용된다.
+
+**이제 이 저장소(엔진) 쪽에서 더 할 일은 없다.** 남은 건 전부 `Life-Web` 쪽 작업(9번) —
+`housing`/`housing_override`를 실제로 넘기기, `apply_budget()`/자체 `시세_지역별.csv` 정리 —
+이고, 그건 `Life-Web/study.md`에서 다룬다. 이 문서(엔진 `STUDY.md`)와 실제 코드가 어긋났던
+사고(6번 vs 8번)가 있었으니, 이 문서를 다시 열 땐 항상 제일 마지막 번호 섹션부터 먼저 읽을 것
+— 앞쪽 번호는 그 시점 기준으로 쓰여서 이후 상황과 달라져 있을 수 있다. 파일·행 단위 변경
+내역은 `changelog_시세반영.md`에 정리해뒀다.

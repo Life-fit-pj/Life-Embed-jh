@@ -260,8 +260,32 @@ def to_percentile(column, value, invert=False):
         (value,),
     )[0]
     pct = round(below / total * 100)
-    
+
     return 100 - pct if invert else pct
+
+
+def region_price_detail(gu, dong, bldg, deal):
+    """시세_지역별_전처리 표에서 신뢰등급·거래건수·분포처럼
+    master_dataset_v3엔 없는 상세 정보를 꺼낸다.
+
+    master_dataset_v3의 24개 시세 칼럼엔 그 조합의 중앙값만 있다. 표본이 몇 건인지,
+    자치구·법정동 단위로 대체된 값인지(출처), 상하위 25~75% 분포가 얼마인지는
+    이 표에만 남아 있다.
+
+    동 이름 표기가 갈리는 문제(예: '신당제5동')는 dong_variants()로 그대로 재사용한다.
+    """
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+
+    rows = dicts(
+        'SELECT 거래건수, 신뢰등급, 출처, 면적_중앙값, '
+        '       매매가, 매매가_25, 매매가_75, 보증금, 보증금_25, 보증금_75, 월임대료 '
+        'FROM 시세_지역별_전처리 '
+        f'WHERE TRIM(자치구명) = ? AND TRIM(지역명) IN ({marks}) '
+        '      AND 건물용도 = ? AND 거래유형 = ?',
+        (gu.strip(), *names, bldg, deal),
+    )
+    return rows[0] if rows else None
 
 
 if __name__ =="__main__":

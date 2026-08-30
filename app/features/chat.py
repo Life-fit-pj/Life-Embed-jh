@@ -8,8 +8,9 @@ region_explain.py 는 동네 하나를 설명하고 끝난다.
 다른 점은 "무엇을 물었는지" 에 따라 필요한 동네만 골라 온다는 것이다.
 """
 
-from app.core.db import facilities, facility_counts, facility_categories
+from app.core.db import facilities, facility_counts, facility_categories, region_extras
 from app.core.llm import get_llm
+from pipeline.housing import region_price_lines
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도우미입니다.
 사용자는 방금 동네 추천을 받았고, 그에 대해 이어서 묻고 있습니다.
@@ -21,9 +22,15 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도�
 2. 점수는 서울 427개 행정동 중 백분위입니다. 98점 = 상위 2% 입니다.
 
 3. 데이터에 없는 것을 물으면 없다고 답하세요.
-   없는 것: 집값, 전월세, 관리비, 교육비, 통학 시간, 지하철 노선명,
-   학군 배정, 시설의 품질이나 평판, 주민 성향
+   없는 것: 관리비, 교육비, 통학 시간, 지하철 노선명, 학군 배정, 시설의 품질이나 평판, 주민 성향
    지역에 대한 통념(강남은 비싸다 등)도 쓰지 마세요.
+
+   시세(매매가·보증금·월세)는 아래 "시세" 항목에 준 값만 쓰세요 — 동네 전체 중앙값이지
+   실제 매물 가격이 아니라는 점을 밝히세요. 사용자가 특정 조건(예: "월세")을 물으면 그 항목만
+   골라 답하세요.
+
+   소음처럼 "생활여건" 항목은 구(자치구) 단위 평균입니다. 그 동네만의 값인 것처럼 말하지 말고
+   반드시 "OO구 평균으로는"이라고 밝히세요.
 
 4. 다른 동네를 새로 추천해 달라고 하면, 지금은 그 기능이 없다고 알리고
    왼쪽 슬라이더를 조절하거나 다시 검색해 달라고 안내하세요.
@@ -70,6 +77,21 @@ def build_context(regions, weights, question):
                     if len(cats) > 1:
                         cat_text = " · ".join(f"{c['category']} {c['n']}" for c in cats)
                         lines.append(f"       {kind} 분류: {cat_text}")
+
+            price_lines = region_price_lines(gu, dong)
+            if price_lines:
+                lines.append("     시세 (동네 전체 중앙값, 실제 매물가 아님):")
+                for pl in price_lines:
+                    lines.append(f"       {pl}")
+
+            extras = region_extras(gu, dong)
+            noise = extras.get("소음_주간_구"), extras.get("소음_야간_구")
+            if any(v is not None for v in noise):
+                lines.append(
+                    f"     생활여건({gu} 구 단위 평균): 소음 주간 {noise[0]} · 야간 {noise[1]}"
+                    + (f" · 거주안정성 {extras['거주안정성_점수']}점"
+                       if extras.get("거주안정성_점수") is not None else "")
+                )
 
     return "\n".join(lines)
 

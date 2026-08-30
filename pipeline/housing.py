@@ -6,7 +6,7 @@
 새 표를 만들 필요 없이 여기서 바로 걸러낸다.
 """
 
-from app.core.db import region_densities
+from app.core.db import region_densities, region_price_detail
 
 # {건물유형}_{거래유형}_{금액종류} 규칙 그대로 매핑한다.
 # 매매·전세는 금액이 하나("예산")뿐이지만, 월세는 다르다 — 보증금(목돈)과 월세(매달 나가는 돈)가
@@ -94,3 +94,81 @@ def matching_regions(건물유형, 거래유형, targets, tolerance=0.3, fallbac
         candidates = [r for r, s in sorted(scored, key=lambda x: -x[1])[:fallback]]
 
     return [f"{r['구']} {r['행정동명']}" for r in candidates]
+
+
+def region_price_lines(gu, dong):
+    """동네 하나의 시세 전부를 건물유형별 한 줄씩 문장으로 만든다.
+
+    housing_fit_score() 와 다르게 목표가와 비교하지 않는다 — chat.py 처럼 사용자가 어떤
+    조건("월세 얼마야?")을 물어볼지 미리 모르는 곳에서, 있는 그대로의 값을 전부 보여주고
+    Claude 가 질문에 맞는 걸 골라 답하게 하려는 용도다.
+    """
+    all_cols = sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()})
+    rows = region_densities(all_cols)
+    row = next((r for r in rows if r["구"] == gu and r["행정동명"] == dong), None)
+    if row is None:
+        return []
+
+    lines = []
+    for 건물유형 in ("단독다가구", "아파트", "연립다세대", "오피스텔"):
+        parts = []
+        for 거래유형 in ("매매", "전세", "월세"):
+            cols = DEAL_COLUMNS.get((건물유형, 거래유형))
+            if not cols:
+                continue
+            for field, col in cols.items():
+                value = row.get(col)
+                if value is None:
+                    continue
+                # "예산" 필드는 그 거래유형 자체를 라벨로 쓴다 (매매가→매매, 보증금→전세, 월세→월세)
+                label = 거래유형 if field == "예산" else field
+                parts.append(f"{label} {value:,.0f}만원")
+        if parts:
+            lines.append(f"{건물유형}: " + " · ".join(parts))
+    return lines
+
+
+def attach_price(detailed, housing):
+    """detailed(동네별 dict 목록)에 그 동네의 시세를 구조화된 값으로 붙인다.
+
+    explain.py/region_explain.py/chat.py 는 시세를 "문장"으로만 만들어 프롬프트에
+    넣는데, 화면(예: 주변 시세 탭)에 표로 보여주려면 숫자 그대로도 필요하다.
+
+    housing 이 없으면(가격 조건 없이 검색한 경우) d["price"] 는 전부 None 이다.
+    """
+    if not housing:
+        for d in detailed:
+            d["price"] = None
+        return detailed
+
+    cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
+    if not cols:
+        for d in detailed:
+            d["price"] = None
+        return detailed
+
+    rows = region_densities(list(cols.values()))
+    by_name = {f"{r['구']} {r['행정동명']}": r for r in rows}
+
+    for d in detailed:
+        row = by_name.get(d["name"])
+        if row is None:
+            d["price"] = None
+            continue
+
+        gu, dong = d["name"].split(" ", 1)
+        detail = region_price_detail(gu, dong, housing["건물유형"], housing["거래유형"])
+
+        d["price"] = {
+            "건물유형": housing["건물유형"],
+            "거래유형": housing["거래유형"],
+            **{field: row.get(col) for field, col in cols.items()},   # 중앙값 (master_dataset_v3)
+            "일치도": housing_fit_score(row, cols, housing["targets"]),
+            # 신뢰도·분포 정보. 시세_지역별_전처리에 그 조합이 없으면 전부 None
+            "거래건수": (detail or {}).get("거래건수"),
+            "신뢰등급": (detail or {}).get("신뢰등급"),
+            "출처": (detail or {}).get("출처"),
+            "금액_25": (detail or {}).get("매매가_25") or (detail or {}).get("보증금_25"),
+            "금액_75": (detail or {}).get("매매가_75") or (detail or {}).get("보증금_75"),
+        }
+    return detailed

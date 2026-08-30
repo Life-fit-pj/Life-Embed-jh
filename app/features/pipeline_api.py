@@ -16,11 +16,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pipeline.explain import explain, find_cases, load_kb_vectors, with_scores
-from pipeline.recommend import load_regions, build_scores, build_relative, recommend
+from pipeline.recommend import (
+    load_regions, build_scores, build_relative, recommend,
+    PRICE_COLUMNS, load_price_values, build_price_score,
+)
 from pipeline.weights import load_member_vectors, ask_claude, blend, find_similar_members
-from pipeline.housing import matching_regions
+from pipeline.housing import matching_regions, attach_price
 
-from app.core.db import member_weights
+from app.core.db import member_weights, region_densities
 from app.core.llm import get_embedder
 
 # ── 준비물 보관함 ──────────────────────────────
@@ -40,7 +43,10 @@ def get_ready():
         names, values = load_regions()
         scores = build_scores(values)
         relative = build_relative(scores)
-        
+
+        price_values = load_price_values(region_densities(PRICE_COLUMNS))
+        price_score = build_price_score(price_values)   # 427개 동, 0~100 — housing 없을 때만 쓴다
+
         _ready = {
             "member_rows": member_rows,
             "member_vectors": member_vectors,
@@ -49,10 +55,14 @@ def get_ready():
             "names": names,
             "scores": scores,
             "relative": relative,
+            "price_score": price_score,
         }
         print(f"✅ 준비 완료 · 회원 청크 {len(member_rows)}개 · "
               f"지식베이스 청크 {len(kb_rows)}개 · 행정동 {len(names)}개")
     return _ready
+
+
+DEFAULT_PRICE_WEIGHT = 3   # 다른 지표들의 "보통"과 같은 값. 굳이 저렴함을 강하게 밀지 않는다
 
 
 def recommend_by_weights(weights, top_k=5, housing=None):
@@ -71,13 +81,29 @@ def recommend_by_weights(weights, top_k=5, housing=None):
         names = [n for n, k in zip(names, keep) if k]
         scores = {ind: arr[keep] for ind, arr in scores.items()}
         relative = {ind: arr[keep] for ind, arr in relative.items()}
+    else:
+        # 목표가가 없을 때만 "시세는 낮을수록 좋다"를 8번째 신호로 얹는다.
+        # housing이 있으면 matching_regions()가 이미 목표가 근접도로 걸러내므로
+        # 여기서 또 "무조건 저렴한 게 좋다"를 더하면 그 판단과 충돌한다.
+        price = r["price_score"]
+        scores = {**scores, "시세": price}
+        # relative[k]는 recommend()에서 (relative[k]+50)으로 쓰이므로,
+        # mix 값과 무관하게 결과가 항상 price_score 그대로 나오도록 -50을 맞춰 넣는다.
+        relative = {**relative, "시세": price - 50}
+        weights = {**weights, "시세": weights.get("시세", DEFAULT_PRICE_WEIGHT)}
 
     result = recommend(names, scores, relative, weights, top_k=top_k)
-    return with_scores(result, names, scores)
+    detailed = with_scores(result, names, scores)
+    return attach_price(detailed, housing)
 
 
-def search(query, top_k=5):
-    """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구."""
+def search(query, top_k=5, housing_override=None):
+    """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
+
+    housing_override 를 주면 검색어에서 뽑아낸 가격 조건 대신 이 값을 그대로 쓴다 —
+    화면에서 사용자가 이미 명시적으로 고른 조건(건물유형·거래유형·예산·보증금)이,
+    검색어 문장에서 애매하게 뽑아낸 조건보다 신뢰도가 높다는 판단이다.
+    """
     r = get_ready()
 
     # 1) 검색어 → 가중치
@@ -86,9 +112,10 @@ def search(query, top_k=5):
     ids = [cid for cid, _ in similar]
     weights = blend(draft, member_weights(ids))
 
-    # 1-1) 검색어 → 가격 조건. 건물유형·거래유형·예산 셋 다 있어야 필터를 켠다
-    housing = None
-    if draft.get("건물유형") and draft.get("거래유형") and draft.get("예산"):
+    # 1-1) 검색어 → 가격 조건. housing_override 가 있으면 그걸 우선한다.
+    # 없으면 건물유형·거래유형·예산 셋 다 있어야 검색어에서 뽑은 조건으로 필터를 켠다
+    housing = housing_override
+    if housing is None and draft.get("건물유형") and draft.get("거래유형") and draft.get("예산"):
         targets = {"예산": draft["예산"]}
         if draft["거래유형"] == "월세" and draft.get("보증금"):
             targets["보증금"] = draft["보증금"]
