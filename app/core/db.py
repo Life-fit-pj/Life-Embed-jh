@@ -337,6 +337,44 @@ def region_price_detail(gu, dong, bldg, deal):
     return rows[0] if rows else None
 
 
+## 캐시를 버리는 코드
+
+def _run_update(table, where_sql, where_params, patch, allowed):
+    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
+
+    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지 (5-4)
+    """
+    fields = [name for name in patch if name in allowed]
+    if not fields:
+        return 0
+
+    sets = ", ".join(f'"{name}" = ?' for name in fields)
+    values = [patch[name] for name in fields]
+
+    get_con().execute(
+        f'UPDATE "{table}" SET {sets} WHERE {where_sql}',
+        (*values, *where_params),
+    )
+    get_con().commit()
+    return len(fields)
+
+
+def update_customer(customer_id, patch, allowed):
+    return _run_update("customers", "customer_id = ?", (customer_id,), patch, allowed)
+
+
+def update_preferences(customer_id, patch, allowed):
+    return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
+
+
+def update_region(gu, dong, patch, allowed):
+    """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+    where_sql = f'TRIM(구) = ? AND TRIM(행정동명) IN ({marks})'
+    return _run_update("master_dataset_v3", where_sql, (gu.strip(), *names), patch, allowed)
+
+
 if __name__ =="__main__":
     print()
     print("중계1동 학원 분야:")
