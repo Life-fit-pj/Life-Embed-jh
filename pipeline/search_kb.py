@@ -17,8 +17,10 @@ def load_vectors():
     rows = kb_chunks()
     
     # json.loads 로 글자를 다시 숫자 목록으로 되돌린다
-    vectors = np.array([json.loads(r["vector"]) for r in rows], dtype = "float32")
-    
+    vectors = np.array(
+        [np.frombuffer(r["vector"], dtype="float32") for r in rows]
+    )
+
     return rows, vectors
 
 

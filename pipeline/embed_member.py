@@ -6,13 +6,14 @@ kb_chunk(지식베이스 2,500명)와 별개다.
 검색어와 비슷한 회원을 찾으면 그 사람의 가중치를 가져올 수 있다.
 """
 
-import json
 import sqlite3
 import time
+import numpy as np
 
-from app.core.config import DATA_DIR, DB_PATH, CHUNK_COLUMNS, MIN_LENGTH
+from app.core.config import DATA_DIR, DB_PATH
 from app.core.io import read_csv
-from app.core.llm import get_embedder
+from app.core.llm import get_embedder, to_passage
+from app.core.chunking import make_chunks, MEMBER_KEYS
 
 MEMBER_COUNT = 100
 
@@ -38,25 +39,6 @@ def load_members(path, count=MEMBER_COUNT) :
     return rows
 
 
-def make_chunks(rows):
-    """회원 한 명을 칸별 청크로 쪼갠다. 03번과 같은 방식."""
-    chunks = []
-    
-    for row in rows :
-        for column in CHUNK_COLUMNS:
-            text = (row.get(column) or "").strip()
-            
-            if len(text) < MIN_LENGTH:
-                continue
-            
-            chunks.append({
-                "customer_id" : row["customer_id"],
-                "category" : column,        # 어느 칸에서 나왔는지
-                "text" : text,
-            })
-    
-    return chunks
-
 def create_table(cur) :
     """회원 청크와 벡터를 담을 표"""
     
@@ -66,13 +48,9 @@ def create_table(cur) :
             customer_id TEXT,
             category    TEXT,
             text        TEXT,
-            vector      TEXT
+            vector      BLOB
         )
     """)
-
-
-def to_passage(text):
-    return f"passage: {text}"
 
 
 def embed_and_store(cur, chunks) :
@@ -89,7 +67,7 @@ def embed_and_store(cur, chunks) :
     
     values = [
         (c["customer_id"], c["category"], c["text"],
-         json.dumps(vec))
+         np.asarray(vec, dtype="float32").tobytes())
         for c, vec in zip(chunks, vectors)
     ]
     
@@ -104,7 +82,7 @@ def embed_and_store(cur, chunks) :
 
 if __name__ == "__main__":
     members = load_members(SOURCE)
-    chunks = make_chunks(members)
+    chunks = make_chunks(members, MEMBER_KEYS)
     print(f"✅ 청크 {len(chunks)}개")
 
     con = sqlite3.connect(DB_PATH)

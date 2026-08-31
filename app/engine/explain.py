@@ -12,7 +12,7 @@ import json
 import numpy as np
 
 from app.core.config import INDICATORS
-from app.core.db import kb_chunks
+from app.core.db import kb_chunks, region_densities
 from app.core.llm import get_llm, get_embedder, to_query
 
 
@@ -30,8 +30,13 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
    "많다/적다" 가 아니라 "다른 동네와 비교해 어느 위치인지" 로 설명하세요.
 
 3. 데이터에 없는 것을 물으면 없다고 답하세요.
-   없는 것: 집값, 전월세, 교육비, 물가, 생활비, 통학 시간, 지하철 노선명, 학교 이름, 구체적인 시설 이름, 유동인구, 소음 수치
-   
+   없는 것: 교육비, 물가, 생활비, 통학 시간, 지하철 노선명, 학교 이름, 구체적인 시설 이름, 유동인구, 소음 수치
+
+   시세(매매가·보증금·월세)는 아래 "참고 시세"에 준 값만 쓰세요. 이 값은 동네 전체의
+   중앙값이지 실제 매물 가격이 아니라는 점을 밝히세요.
+   괄호로 신뢰등급·거래건수·분포가 붙어 있으면 참고하세요 — 거래건수가 적거나 신뢰등급이
+   낮으면(예: "낮음") 그 시세는 표본이 적어 참고용이라고 밝히세요. 분포(예: "28,000~
+   42,000만원")는 실제 매물 가격이 그 폭 안에 퍼져 있다는 뜻으로 설명하세요.
    지역에 대한 통념(강남은 비싸다, 노원은 학원가다 등)도 쓰지 마세요.
    데이터에 없는 것은 알고 있어도 말하지 않습니다.
    
@@ -49,6 +54,37 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
 존댓말로, 전체 8문장 이내로 짧게 쓰세요."""
 
 
+# 지식베이스에서 사례 찾기
+# load_member_vectors() 와 동일한 패턴으로 분리
+def load_kb_vectors():
+    """지식베이스 청크 벡터를 전부 꺼낸다. numpy 배열로 만든다."""
+    rows = kb_chunks()
+    vectors = np.array(
+        [np.frombuffer(r["vector"], dtype="float32") for r in rows]
+    )
+    return rows, vectors
+
+
+def find_cases(persona_query, rows, vectors, top_k=3):
+    """검색 문장과 비슷한 지식베이스 청크를 찾는다.
+
+    rows, vectors 는 get_ready() 가 미리 만들어 캐시해둔 것을 받는다.
+    이 함수 안에서 다시 불러오지 않는다 — 그게 느려지는 원인이었다.
+    """
+    q = np.array(get_embedder().embed_query(to_query(persona_query)), dtype="float32")
+    scores = vectors @ q
+
+    top = scores.argsort()[::-1][:top_k]
+
+    return [
+        {
+            "district": rows[i]["district"].replace("서울-", ""),
+            "category": rows[i]["category"],
+            "text": rows[i]["text"][:200],
+            "score": float(scores[i]),
+        }
+        for i in top
+    ]
 
 # 추천 결과에 지표 수치 붙이기
 def with_scores(result, names, scores):
@@ -70,34 +106,8 @@ def with_scores(result, names, scores):
     return detailed
 
 
-# 지식베이스에서 사례찾기
-def find_cases(persona_query, top_k=3):
-    """검색 문장과 비슷한 지식베이스 청크를 찾는다.
-
-    회원 100명이 아니라 지식베이스 2,500명에서 찾는다.
-    가중치를 얻으려는 게 아니라, 답변에 쓸 사례를 얻으려는 것이다
-    """
-    rows = kb_chunks()
-    vectors = np.array([json.loads(r["vector"]) for r in rows], dtype="float32")
-    
-    q = np.array(get_embedder().embed_query(to_query(persona_query)), dtype="float32")
-    scores = vectors @ q
-    
-    top = scores.argsort()[::-1][:top_k]
-    
-    return [
-        {
-            "district": rows[i]["district"].replace("서울-",""),
-            "category": rows[i]["category"],
-            "text": rows[i]["text"][:200],
-            "score": float(scores[i]),
-        }
-        for i in top
-    ]
-
-
 # 프롬프트에 넣을 데이터 만들기
-def build_context(query, weights, detailed, cases):
+def build_context(query, weights, detailed, cases, housing=None):
     """Claude 에게 넘길 데이터를 글로 정리한다."""
     
     # 사용자가 중시한 지표 (가중치 3.5 이상)
@@ -119,13 +129,34 @@ def build_context(query, weights, detailed, cases):
     for c in cases:
         lines.append(f"[{c['district']} · {c['category']}] {c['text']}")
 
+    if housing:
+        from app.engine.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
+        cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
+        lines.append("")
+        lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
+        for d in detailed:
+            gu, dong = d["name"].split(" ", 1)
+            rows = region_densities(list(cols.values()))   # 매번 다시 읽는 대신 get_ready() 캐싱 권장
+            row = next((r for r in rows if r["구"] == gu and r["행정동명"] == dong), None)
+            if row is None:
+                lines.append(f"{d['name']}: 시세 데이터 없음")
+                continue
+
+            fit = housing_fit_score(row, cols, housing["targets"])
+            # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
+            parts = [f"{field} {row[col]:,.0f}만원" for field, col in cols.items()]
+            # 신뢰등급·거래건수·분포 — master_dataset_v3엔 없고 시세_지역별_전처리에만 있다
+            note = region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])
+            lines.append(f"{d['name']}: {housing['건물유형']} {housing['거래유형']} " +
+                         " / ".join(parts) + f" (조건 일치도 {fit}점){note}")
+
     return "\n".join(lines)
 
 
 # 호출
-def explain(query,weights,detailed,cases):
+def explain(query, weights, detailed, cases, housing=None):
     """추천 결과를 설명문으로 만든다."""
-    context = build_context(query, weights, detailed, cases)
+    context = build_context(query, weights, detailed, cases, housing)
     
     messages = [
         ("system", SYSTEM_PROMPT),
@@ -143,7 +174,7 @@ if __name__ == "__main__" :
     weights = {"녹지": 3.2, "안전": 3.3, "교통": 2.7, "상권": 3.2,
                "의료": 2.9, "교육": 4.6, "문화": 2.6}
     
-    from pipeline.recommend import load_regions, build_scores, build_relative, recommend
+    from app.engine.recommend import load_regions, build_scores, build_relative, recommend
 
     names, values = load_regions()
     scores = build_scores(values)
@@ -151,7 +182,8 @@ if __name__ == "__main__" :
     result = recommend(names, scores, relative, weights)
     
     detailed = with_scores(result, names, scores)
-    cases = find_cases(persona_query)
+    kb_rows, kb_vectors = load_kb_vectors()
+    cases = find_cases(persona_query, kb_rows, kb_vectors)
     
     print(f"⏳ 설명 생성 중...\n")
     print(explain(query, weights, detailed, cases))
