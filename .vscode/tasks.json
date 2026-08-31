@@ -1,0 +1,67 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "1. DB 생성 (schema)",
+            "detail": "data/*.csv 를 훑어 칸 타입·PK/FK 를 추론하고 life.db 를 통째로 새로 만든다.",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "pipeline.schema"],
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
+            "label": "2. 지식베이스 표본 추출 (sample_kb)",
+            "detail": "18.5만 명에서 구마다 100명씩 층화추출해 kb_persona.csv(2,500명)를 만든다.",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "pipeline.sample_kb"],
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
+            "label": "3. 조각 만들기 (chunk_kb)",
+            "detail": "kb_persona.csv 의 서술형 칸을 문장 단위로 잘라 kb_chunk.csv 를 만든다.",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "pipeline.chunk_kb"],
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
+            "label": "4. 지식베이스 임베딩 (embed_kb)",
+            "detail": "kb_chunk.csv 의 조각을 벡터로 만들어 kb_chunk 테이블에 저장한다.",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "pipeline.embed_kb"],
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
+            "label": "5. 회원 임베딩 (embed_member)",
+            "detail": "nemotron.csv 앞 100명을 회원(C001~C100)으로 청킹·임베딩해 member_chunk 테이블에 저장한다.",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "pipeline.embed_member"],
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
+            "label": "전체 재구축 (schema -> sample_kb -> chunk_kb -> embed_kb -> embed_member)",
+            "detail": "CSV 원본이 바뀌었을 때 쓴다. 1~5를 순서대로 실행한다.",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "1. DB 생성 (schema)",
+                "2. 지식베이스 표본 추출 (sample_kb)",
+                "3. 조각 만들기 (chunk_kb)",
+                "4. 지식베이스 임베딩 (embed_kb)",
+                "5. 회원 임베딩 (embed_member)"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
