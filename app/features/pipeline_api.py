@@ -134,6 +134,7 @@ def search(query, top_k=5, housing_override=None):
         "weights": weights,
         "regions": detailed,
         "explanation": text,
+        "housing": housing,   # 검색어에서 뽑아낸(또는 화면에서 넘어온) 조건. 가격 언급이 없었으면 None
     }
 
 if __name__ == "__main__" :
