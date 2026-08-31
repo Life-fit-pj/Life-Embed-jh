@@ -34,6 +34,10 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
    학군 배정, 시설의 품질이나 평판
    지역에 대한 통념(강남은 비싸다 등)도 쓰지 마세요.
 
+   "참고 시세"가 있으면 그 값(중앙값)만 쓰고 실제 매물 가격이 아니라는 점을 밝히세요.
+   괄호로 신뢰등급·거래건수·분포가 붙어 있으면 참고하세요 — 거래건수가 적거나 신뢰등급이
+   낮으면 표본이 적어 참고용이라고 밝히세요.
+
 5. 약점이 있으면 솔직히 덧붙이세요. 장점만 나열하지 마세요.
 
 6. 시설 분류는 "많은 순서" 만 주어집니다. "입시 학원 23곳" 처럼 쓰지 마세요. "입시·보습 계열이 많다" 로 쓰세요.
@@ -84,7 +88,7 @@ def build_context(gu, dong, query, weights, scores, housing=None):
                 lines.append(f"    많은 분류 순: {top}")
     
     if housing:
-        from pipeline.housing import DEAL_COLUMNS, housing_fit_score
+        from pipeline.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
@@ -98,9 +102,10 @@ def build_context(gu, dong, query, weights, scores, housing=None):
             fit = housing_fit_score(row, cols, housing["targets"])
             # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
             parts = [f"{field} {row[col]:,.0f}만원" for field, col in cols.items()]
+            note = region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])
             lines.append(
                 f"{housing['건물유형']} {housing['거래유형']} " + " / ".join(parts) +
-                f" (조건 일치도 {fit}점)"
+                f" (조건 일치도 {fit}점){note}"
             )
 
     return "\n".join(lines)

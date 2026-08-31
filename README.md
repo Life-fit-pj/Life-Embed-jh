@@ -13,13 +13,17 @@ LLM이 근거를 들어 설명해 주는 파이프라인입니다.
 "애들 학원 보내기 좋은 곳"
     ↓  weights.py      검색어 → 7개 지표 가중치
        교육 4.6 / 나머지 2.6~3.3
+    ↓  (housing.py)    건물유형·거래유형·예산이 검색어에 있으면 그 조건에 맞는 동으로 먼저 추림
     ↓  recommend.py    가중치 → TOP 5
        방이1동 · 중계1동 · 쌍문제4동 · 대치1동 · 염리동
-    ↓  explain.py      결과 → 사람이 읽을 설명문
+    ↓  explain.py      결과 → 사람이 읽을 설명문 (시세·조건 일치도 포함)
 ```
 
 기존 서비스가 "3인 가구 40대"처럼 인구통계로 나누는 것과 달리,
 **라이프스타일 선호도**로 동네를 고릅니다.
+
+추천을 받은 뒤에는 지도 핀 하나를 설명하거나(`region_explain.py`),
+후속 질문에 답하는(`chat.py`) 두 가지 창구가 더 있습니다.
 
 ---
 
@@ -28,7 +32,7 @@ LLM이 근거를 들어 설명해 주는 파이프라인입니다.
 ### 1. 패키지
 
 ```bash
-py -m pip install python-dotenv numpy pandas
+py -m pip install python-dotenv numpy
 py -m pip install langchain-anthropic langchain-huggingface sentence-transformers
 ```
 
@@ -45,7 +49,10 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ### 3. DB 준비
 
-`data/life.db`(216MB)는 깃에 첨부되어있으나, 용량문제가 생기면 삭제 예정입니다. 삭제되어 존재하지 않을 경우 아래의 방안 둘 중 하나를 선택하세요.
+`data/life.db`(약 73MB)는 깃에 첨부되어있으나, 용량문제가 생기면 삭제 예정입니다. 삭제되어 존재하지 않을 경우 아래의 방안 둘 중 하나를 선택하세요.
+
+Git LFS로 관리되므로, 체크아웃 직후 이 파일이 133바이트 안팎이면(`version https://git-lfs...`로
+시작하는 텍스트) 실제 DB가 아니라 LFS 포인터입니다 — `git lfs pull`을 먼저 실행하세요.
 
 **(A) 파일 전달받기** — 권장. `data/`에 넣으면 끝입니다.
 
@@ -70,6 +77,7 @@ py -m app.core.db              # DB 상태 확인
 py -m pipeline.weights         # 검색어 → 가중치
 py -m pipeline.recommend       # 가중치 → TOP 5
 py -m app.features.pipeline_api  # 전체 흐름 한 번에
+py -m app.features.region_explain  # 동네 하나 설명 (시설명 근거)
 ```
 
 `py pipeline/weights.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
@@ -89,7 +97,8 @@ life-fit-embed/
 │   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳
 │   └── features/          서비스 계층 — core 를 엮는다
 │       ├── pipeline_api.py  search(query) 통합 창구
-│       └── region_explain.py  동네 하나를 시설명 근거로 설명
+│       ├── region_explain.py  동네 하나를 시설명 근거로 설명
+│       └── chat.py          추천 뒤 후속 질문에 답변
 ├── pipeline/              한 번만 돌리는 준비 작업
 │   ├── schema.py            CSV → SQLite
 │   ├── sample_kb.py         18.5만 명 → 2,500명 층화추출
@@ -99,10 +108,12 @@ life-fit-embed/
 │   ├── search_kb.py         벡터 검색 (테스트용 CLI)
 │   ├── weights.py           검색어 → 가중치
 │   ├── recommend.py         가중치 → TOP 5
+│   ├── housing.py           건물유형·거래유형·예산 → 시세 근접 필터·신뢰등급/거래건수/분포
 │   └── explain.py           TOP 5 → 설명문
-└── data/                  깃으로 관리하지 않음
-    ├── life.db              216MB
-    ├── master_dataset_v3.csv  427개 행정동 × 62칸
+└── data/                  깃으로 관리하지 않음 (life.db·nemotron.csv 등은 Git LFS)
+    ├── life.db              약 73MB
+    ├── master_dataset_v3.csv  427개 행정동 × 86칸 (밀도 62칸 + 시세 24칸)
+    ├── 시세_지역별_전처리.csv  동×건물유형×거래유형별 신뢰등급·거래건수·분포
     └── 전처리 CSV들          문화시설 · 의료 · 학원 · 공원 · 점포 등
 ```
 
@@ -136,6 +147,16 @@ life-fit-embed/
 교육이 전체의 20%밖에 차지하지 못해 순위를 못 바꿉니다.
 `sharpen=6`으로 평균 대비 편차를 지수로 키워, 사용자가 중시한 지표가
 실제로 순위를 좌우하게 만듭니다.
+
+### 예산은 "낮을수록 좋다"가 아니라 "목표가에 가까울수록 좋다"
+
+처음엔 시세를 "무조건 낮을수록 좋다"로 볼 뻔했지만, 목표가를 구체적으로 준 경우
+(예: "전세 4억 정도")엔 다릅니다. 강남처럼 비싼 동네에서도 그중 저렴한 집을 찾는
+사람만 있는 게 아니라, 일부러 그 가격대 매물을 찾는 사람도 있기 때문입니다.
+
+그래서 목표가가 있으면 `housing.py`가 목표가 대비 ±30%(`tolerance`) 안의 동만
+후보로 남기고, 그 안에서 기존 7개 지표로 순위를 매깁니다. 목표가가 없을 때만
+"시세는 낮을수록 좋다"를 8번째 참고 신호로 살짝 얹습니다(`DEFAULT_PRICE_WEIGHT`).
 
 ### 검색어를 사람 묘사로 바꿔서 검색한다
 
@@ -176,8 +197,10 @@ life-fit-embed/
 
 ## 아직 안 된 것
 
-- `region_extras` — 슬라이더 밖 정보(청결·거주 안정성·소음 등)
-- 학교·버스·CCTV가 `facilities`에 없음 (`ADM_CD` 조인 필요)
-- `explain.py` 프롬프트의 "없는 것" 목록이 낡음 (시설명이 생겼는데 없다고 씀)
+- 학교·버스·CCTV는 `master_dataset_v3`의 밀도(개수/km²)로만 순위 계산에 쓰이고,
+  `facilities`(시설 "이름" 목록)엔 아직 없음 — 문화시설·의료·학원·공원·점포 5종만 있음
 - 필터 지원 (`exclude_gu` — "강남 외" 같은 제외 조건)
-- `schema.py`의 4·5단계가 import 시점에 실행됨
+- `schema.py`의 4·5단계(CSV 스캔·타입 추론·FK 추론)가 `if __name__` 없이 모듈 최상위에서
+  실행됨 — `import pipeline.schema`만 해도 즉시 돈다
+- 월세는 시세 25~75% 분포를 못 보여줌 — 원본 `시세_지역별_전처리.csv`에 `월임대료`용
+  25/75 분위 칼럼 자체가 없음(매매가·보증금엔 있음). 신뢰등급·거래건수는 월세도 정상 표시됨

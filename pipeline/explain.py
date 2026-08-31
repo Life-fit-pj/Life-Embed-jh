@@ -34,6 +34,9 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
 
    시세(매매가·보증금·월세)는 아래 "참고 시세"에 준 값만 쓰세요. 이 값은 동네 전체의
    중앙값이지 실제 매물 가격이 아니라는 점을 밝히세요.
+   괄호로 신뢰등급·거래건수·분포가 붙어 있으면 참고하세요 — 거래건수가 적거나 신뢰등급이
+   낮으면(예: "낮음") 그 시세는 표본이 적어 참고용이라고 밝히세요. 분포(예: "28,000~
+   42,000만원")는 실제 매물 가격이 그 폭 안에 퍼져 있다는 뜻으로 설명하세요.
    지역에 대한 통념(강남은 비싸다, 노원은 학원가다 등)도 쓰지 마세요.
    데이터에 없는 것은 알고 있어도 말하지 않습니다.
    
@@ -127,7 +130,7 @@ def build_context(query, weights, detailed, cases, housing=None):
         lines.append(f"[{c['district']} · {c['category']}] {c['text']}")
 
     if housing:
-        from pipeline.housing import DEAL_COLUMNS, housing_fit_score
+        from pipeline.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
@@ -142,8 +145,10 @@ def build_context(query, weights, detailed, cases, housing=None):
             fit = housing_fit_score(row, cols, housing["targets"])
             # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
             parts = [f"{field} {row[col]:,.0f}만원" for field, col in cols.items()]
+            # 신뢰등급·거래건수·분포 — master_dataset_v3엔 없고 시세_지역별_전처리에만 있다
+            note = region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])
             lines.append(f"{d['name']}: {housing['건물유형']} {housing['거래유형']} " +
-                         " / ".join(parts) + f" (조건 일치도 {fit}점)")
+                         " / ".join(parts) + f" (조건 일치도 {fit}점){note}")
 
     return "\n".join(lines)
 

@@ -96,12 +96,53 @@ def matching_regions(건물유형, 거래유형, targets, tolerance=0.3, fallbac
     return [f"{r['구']} {r['행정동명']}" for r in candidates]
 
 
+def _format_price_note(detail):
+    """신뢰등급·거래건수·분포(상하위 25~75%)를 괄호 문장 조각으로 만든다.
+
+    detail 은 region_price_detail() 의 결과(dict 또는 None)다. 시세_지역별_전처리에
+    그 조합이 아예 없으면 detail 이 None 이라 빈 문자열을 돌려준다 — 그러면 호출부에서
+    그냥 아무것도 안 붙은 것처럼 자연스럽게 문장이 끝난다.
+    """
+    if not detail:
+        return ""
+
+    bits = []
+    if detail.get("신뢰등급"):
+        bits.append(f"신뢰 {detail['신뢰등급']}")
+    if detail.get("거래건수") is not None:
+        bits.append(f"거래 {detail['거래건수']}건")
+
+    # 매매는 매매가_25/75, 전세·월세는 보증금_25/75 — 월세엔 이 칼럼 자체가 없다
+    lo = detail.get("매매가_25")
+    hi = detail.get("매매가_75")
+    if lo is None or hi is None:
+        lo, hi = detail.get("보증금_25"), detail.get("보증금_75")
+    if lo is not None and hi is not None:
+        bits.append(f"분포 {lo:,.0f}~{hi:,.0f}만원")
+
+    if detail.get("출처") and detail["출처"] != "해당지역":
+        bits.append(f"{detail['출처']} 값 대체")
+
+    return f" ({' · '.join(bits)})" if bits else ""
+
+
+def region_price_note(gu, dong, 건물유형, 거래유형):
+    """동네·건물유형·거래유형 하나에 대한 신뢰등급·거래건수·분포를 문장 조각으로 돌려준다.
+
+    시세_지역별_전처리에 그 조합이 없으면(예: 표본 자체가 없는 동) 빈 문자열이다.
+    """
+    return _format_price_note(region_price_detail(gu, dong, 건물유형, 거래유형))
+
+
 def region_price_lines(gu, dong):
     """동네 하나의 시세 전부를 건물유형별 한 줄씩 문장으로 만든다.
 
     housing_fit_score() 와 다르게 목표가와 비교하지 않는다 — chat.py 처럼 사용자가 어떤
     조건("월세 얼마야?")을 물어볼지 미리 모르는 곳에서, 있는 그대로의 값을 전부 보여주고
     Claude 가 질문에 맞는 걸 골라 답하게 하려는 용도다.
+
+    금액 뒤엔 그 (건물유형, 거래유형) 조합의 신뢰등급·거래건수·분포를 괄호로 덧붙인다 —
+    "매매 95,250만원" 만으로는 표본이 42건인지 2건인지 알 수 없어서다.
     """
     all_cols = sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()})
     rows = region_densities(all_cols)
@@ -116,13 +157,17 @@ def region_price_lines(gu, dong):
             cols = DEAL_COLUMNS.get((건물유형, 거래유형))
             if not cols:
                 continue
+            note = region_price_note(gu, dong, 건물유형, 거래유형)
             for field, col in cols.items():
                 value = row.get(col)
                 if value is None:
                     continue
                 # "예산" 필드는 그 거래유형 자체를 라벨로 쓴다 (매매가→매매, 보증금→전세, 월세→월세)
                 label = 거래유형 if field == "예산" else field
-                parts.append(f"{label} {value:,.0f}만원")
+                # 신뢰등급·거래건수·분포는 거래유형 단위 정보라 "예산" 필드 하나에만 붙인다
+                # (보증금·월세 두 필드가 각각 note를 달면 같은 정보가 중복돼 문장이 지저분해진다)
+                suffix = note if field == "예산" else ""
+                parts.append(f"{label} {value:,.0f}만원{suffix}")
         if parts:
             lines.append(f"{건물유형}: " + " · ".join(parts))
     return lines
