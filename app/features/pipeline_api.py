@@ -15,13 +15,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline.explain import explain, find_cases, load_kb_vectors, with_scores
-from pipeline.recommend import (
+from app.engine.explain import explain, find_cases, load_kb_vectors, with_scores
+from app.engine.recommend import (
     load_regions, build_scores, build_relative, recommend,
     PRICE_COLUMNS, load_price_values, build_price_score,
 )
-from pipeline.weights import load_member_vectors, ask_claude, blend, find_similar_members
-from pipeline.housing import matching_regions, attach_price
+from app.engine.weights import load_member_vectors, ask_claude, blend, find_similar_members
+from app.engine.housing import matching_regions, attach_price
 
 from app.core.db import member_weights, region_densities
 from app.core.llm import get_embedder

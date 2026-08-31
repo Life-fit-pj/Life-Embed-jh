@@ -88,7 +88,7 @@ def build_context(gu, dong, query, weights, scores, housing=None):
                 lines.append(f"    많은 분류 순: {top}")
     
     if housing:
-        from pipeline.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
+        from app.engine.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")

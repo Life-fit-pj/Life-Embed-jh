@@ -7,8 +7,7 @@
 import numpy as np
 
 from app.core.llm import get_embedder, to_passage
-from pipeline.chunk_kb import make_chunks as make_kb_chunks
-from pipeline.embed_member import make_chunks as make_member_chunks
+from app.core.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
 
 
 # 임베딩해서 저장하는, 두 함수가 공통으로 하는 부분만 뽑은 것
@@ -24,7 +23,7 @@ def resync_kb_person(con, uuid, row):
     row 는 kb_persona.csv 한 줄과 같은 모양이어야 한다
     (uuid, district, 그리고 config.CHUNK_COLUMNS 에 있는 칸들을 전부 갖고 있어야 함).
     """
-    chunks = make_kb_chunks([row])
+    chunks = make_chunks([row], KB_KEYS)
     vectors = _embed(chunks)
 
     cur = con.cursor()
@@ -43,7 +42,7 @@ def resync_member(con, customer_id, row):
 
     row 는 nemotron.csv 한 줄 + customer_id 가 들어간 모양이어야 한다.
     """
-    chunks = make_member_chunks([row])
+    chunks = make_chunks([row], MEMBER_KEYS)
     vectors = _embed(chunks)
 
     cur = con.cursor()

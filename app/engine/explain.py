@@ -130,7 +130,7 @@ def build_context(query, weights, detailed, cases, housing=None):
         lines.append(f"[{c['district']} · {c['category']}] {c['text']}")
 
     if housing:
-        from pipeline.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
+        from app.engine.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
@@ -174,7 +174,7 @@ if __name__ == "__main__" :
     weights = {"녹지": 3.2, "안전": 3.3, "교통": 2.7, "상권": 3.2,
                "의료": 2.9, "교육": 4.6, "문화": 2.6}
     
-    from pipeline.recommend import load_regions, build_scores, build_relative, recommend
+    from app.engine.recommend import load_regions, build_scores, build_relative, recommend
 
     names, values = load_regions()
     scores = build_scores(values)

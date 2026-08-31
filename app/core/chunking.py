@@ -16,6 +16,8 @@ chunk_kb.py(지식베이스)와 embed_member.py(회원)가 텍스트를 청크�
 
 import re
 
+from app.core.config import CHUNK_COLUMNS, MIN_LENGTH
+
 # 토큰 수를 정확히 재려면 임베딩 모델의 tokenizer 가 필요한데,
 # 그러려면 무거운 모델을 청킹 단계에서부터 올려야 한다.
 # 대신 글자 수로 넉넉하게 안전 마진을 두고 근사한다.
@@ -25,6 +27,8 @@ MAX_LENGTH = 350
 # 문장이 끝나는 지점(. ! ?) 뒤에 공백이 오면 그 자리에서 나눈다
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
+KB_KEYS = ("uuid", "district")
+MEMBER_KEYS = ("customer_id",)      # ← 값이 하나일 때 쉼표를 빼면 튜플이 아니다
 
 def split_long_text(text, max_length=MAX_LENGTH):
     """긴 텍스트를 max_length 글자 이하 조각 여러 개로 쪼갠다.
@@ -53,6 +57,32 @@ def split_long_text(text, max_length=MAX_LENGTH):
                 pieces.append(sentence[i:i + max_length])
 
     return pieces
+
+
+def make_chunks(rows, keep):
+    """페르소나 한 명을 칸별 청크로 쪼갠다.
+
+    keep 은 청크마다 베껴 담을 칸 이름들. KB_KEYS 또는 MEMBER_KEYS 를 준다.
+    """
+    chunks = []
+
+    for row in rows:
+        for column in CHUNK_COLUMNS:
+            text = (row.get(column) or "").strip()
+
+            if len(text) < MIN_LENGTH:
+                continue
+
+            for piece in split_long_text(text):
+                if len(piece) < MIN_LENGTH:
+                    continue
+
+                chunk = {name: row[name] for name in keep}
+                chunk["category"] = column
+                chunk["text"] = piece
+                chunks.append(chunk)
+
+    return chunks
 
 
 if __name__ == "__main__":

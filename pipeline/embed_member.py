@@ -10,10 +10,10 @@ import sqlite3
 import time
 import numpy as np
 
-from app.core.config import DATA_DIR, DB_PATH, CHUNK_COLUMNS, MIN_LENGTH
+from app.core.config import DATA_DIR, DB_PATH
 from app.core.io import read_csv
 from app.core.llm import get_embedder, to_passage
-from pipeline.chunking import split_long_text
+from app.core.chunking import make_chunks, MEMBER_KEYS
 
 MEMBER_COUNT = 100
 
@@ -38,33 +38,6 @@ def load_members(path, count=MEMBER_COUNT) :
     print(f"✅ 회원 {len(rows)}명 읽음 (C001 ~ C{str(len(rows)).zfill(3)})")
     return rows
 
-
-def make_chunks(rows):
-    """회원 한 명을 칸별 청크로 쪼갠다. 03번과 같은 방식.
-
-    칸 하나가 너무 길면 split_long_text() 가 한 번 더 쪼갠다 - chunk_kb.py
-    와 반드시 같은 방식으로 쪼개야 나중에 두 벡터를 같은 기준으로 비교할 수 있다.
-    """
-    chunks = []
-
-    for row in rows :
-        for column in CHUNK_COLUMNS:
-            text = (row.get(column) or "").strip()
-
-            if len(text) < MIN_LENGTH:
-                continue
-
-            for piece in split_long_text(text):
-                if len(piece) < MIN_LENGTH:
-                    continue
-
-                chunks.append({
-                    "customer_id" : row["customer_id"],
-                    "category" : column,        # 어느 칸에서 나왔는지
-                    "text" : piece,
-                })
-
-    return chunks
 
 def create_table(cur) :
     """회원 청크와 벡터를 담을 표"""
@@ -109,7 +82,7 @@ def embed_and_store(cur, chunks) :
 
 if __name__ == "__main__":
     members = load_members(SOURCE)
-    chunks = make_chunks(members)
+    chunks = make_chunks(members, MEMBER_KEYS)
     print(f"✅ 청크 {len(chunks)}개")
 
     con = sqlite3.connect(DB_PATH)

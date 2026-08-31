@@ -10,7 +10,7 @@ region_explain.py 는 동네 하나를 설명하고 끝난다.
 
 from app.core.db import facilities, facility_counts, facility_categories, region_extras
 from app.core.llm import get_llm
-from pipeline.housing import region_price_lines
+from app.engine.housing import region_price_lines
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도우미입니다.
 사용자는 방금 동네 추천을 받았고, 그에 대해 이어서 묻고 있습니다.

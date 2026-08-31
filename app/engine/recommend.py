@@ -8,7 +8,7 @@
 import numpy as np
 
 from app.core.db import region_densities
-from pipeline.housing import DEAL_COLUMNS
+from app.engine.housing import DEAL_COLUMNS
 
 INDICATOR_COLUMNS = {
     "녹지" : ["공원_밀도"],
