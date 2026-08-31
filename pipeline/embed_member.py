@@ -11,9 +11,9 @@ import time
 import numpy as np
 
 from app.core.config import DATA_DIR, DB_PATH
-from app.core.io import read_csv
-from app.core.llm import get_embedder, to_passage
-from app.core.chunking import make_chunks, MEMBER_KEYS
+from pipeline.io import read_csv
+from app.adapters.llm import get_embedder, to_passage
+from pipeline.prep.chunking import make_chunks, MEMBER_KEYS
 
 MEMBER_COUNT = 100
 

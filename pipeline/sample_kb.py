@@ -13,7 +13,7 @@ import random
 from collections import defaultdict
 
 from app.core.config import DATA_DIR
-from app.core.io import save_csv
+from pipeline.io import save_csv
 
 # 구마다 몇 명씩 뽑을지. 최소 구(중구)가 2,539명이라 100명은 여유 있다
 PER_DISTRICT = 100

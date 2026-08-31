@@ -6,8 +6,8 @@
 
 import numpy as np
 
-from app.core.llm import get_embedder, to_passage
-from app.core.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
+from app.adapters.llm import get_embedder, to_passage
+from pipeline.prep.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
 
 
 # 임베딩해서 저장하는, 두 함수가 공통으로 하는 부분만 뽑은 것
