@@ -100,6 +100,55 @@ def kb_chunks():
     )
 
 
+def customer_list():
+    """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
+    return dicts("SELECT customer_id, name, age, city, city_dong FROM customers ORDER BY customer_id")
+
+
+def customer_one(customer_id):
+    """customers 표에서 회원 한 명. 없으면 None"""
+    rows = dicts("SELECT * FROM customers WHERE customer_id = ?", (customer_id,))
+    return rows[0] if rows else None
+
+
+def customer_preferences(customer_id):
+    """user_preferences 표에서 한 명의 가중치 7개. 없으면 None"""
+    cols = ", ".join(INDICATORS)
+    rows = dicts(
+        f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return rows[0] if rows else None
+
+
+def customer_persona(customer_id):
+    """member_chunk 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다"""
+    rows = dicts(
+        "SELECT category, text FROM member_chunk WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return {r["category"]: r["text"] for r in rows}
+
+
+def region_list():
+    """master_dataset_v3 의 구, 행정동명 427개"""
+    return dicts("SELECT 구, 행정동명 FROM master_dataset_v3 ORDER BY 구, 행정동명")
+
+
+def region_one(gu, dong, columns):
+    """행정동 하나의 지정한 칸들만 꺼낸다"""
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+    quoted = ", ".join(f'"{c}"' for c in columns)
+
+    rows = dicts(
+        f'SELECT 구, 행정동명, {quoted} FROM master_dataset_v3 '
+        f'WHERE TRIM(구) = ? AND TRIM(행정동명) IN ({marks})',
+        (gu.strip(), *names),
+    )
+    return rows[0] if rows else None
+
+
 def dong_variants(dong):
     """행정동 이름의 표기 변형을 만든다.
 
@@ -293,3 +342,10 @@ if __name__ =="__main__":
     print("중계1동 학원 분야:")
     for r in facility_categories("노원구", "중계1동", "학원"):
         print(f"   {r['category']:20s} {r['n']}")
+    
+    print(len(customer_list()))              # 100 이 나와야 함
+    print(customer_one("C001"))              # 딕셔너리 하나
+    print(customer_preferences("C001"))      # {"녹지": ..., "안전": ..., ...}
+    print(customer_persona("C001"))          # 칸 9개짜리 딕셔너리
+    print(len(region_list()))                # 427
+    print(region_one("강남구", "역삼1동", ["공원_밀도"]))
