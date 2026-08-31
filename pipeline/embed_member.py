@@ -13,6 +13,7 @@ import numpy as np
 from app.core.config import DATA_DIR, DB_PATH, CHUNK_COLUMNS, MIN_LENGTH
 from app.core.io import read_csv
 from app.core.llm import get_embedder, to_passage
+from pipeline.chunking import split_long_text
 
 MEMBER_COUNT = 100
 
@@ -39,22 +40,30 @@ def load_members(path, count=MEMBER_COUNT) :
 
 
 def make_chunks(rows):
-    """회원 한 명을 칸별 청크로 쪼갠다. 03번과 같은 방식."""
+    """회원 한 명을 칸별 청크로 쪼갠다. 03번과 같은 방식.
+
+    칸 하나가 너무 길면 split_long_text() 가 한 번 더 쪼갠다 - chunk_kb.py
+    와 반드시 같은 방식으로 쪼개야 나중에 두 벡터를 같은 기준으로 비교할 수 있다.
+    """
     chunks = []
-    
+
     for row in rows :
         for column in CHUNK_COLUMNS:
             text = (row.get(column) or "").strip()
-            
+
             if len(text) < MIN_LENGTH:
                 continue
-            
-            chunks.append({
-                "customer_id" : row["customer_id"],
-                "category" : column,        # 어느 칸에서 나왔는지
-                "text" : text,
-            })
-    
+
+            for piece in split_long_text(text):
+                if len(piece) < MIN_LENGTH:
+                    continue
+
+                chunks.append({
+                    "customer_id" : row["customer_id"],
+                    "category" : column,        # 어느 칸에서 나왔는지
+                    "text" : piece,
+                })
+
     return chunks
 
 def create_table(cur) :

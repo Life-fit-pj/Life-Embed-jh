@@ -61,8 +61,10 @@
   상세 정보는 없다.
 - **LLM 프롬프트 연동** — `pipeline/explain.py`(TOP5 설명), `app/features/region_explain.py`
   (동네 하나 설명), `app/features/chat.py`(후속 질문)가 각각 시세 중앙값·조건 일치도·
-  신뢰등급·거래건수·분포를 문장으로 만들어 Claude에게 넘긴다(신뢰등급·거래건수·분포는
-  2026-08-31에 추가 — 아래 "14." 참고).
+  신뢰등급·거래건수·분포를 문장으로 만들어 Claude에게 넘긴다. 신뢰등급·거래건수·분포는
+  2026-08-31에 `pipeline/housing.py`의 `_format_price_note()`/`region_price_note()`로
+  추가했고, SYSTEM_PROMPT에도 "표본이 적거나 신뢰등급이 낮으면 참고용이라고 밝히라"는
+  지침을 같이 넣었다.
 - **검색어 → 가격 조건 추출** — `pipeline/weights.py`의 `ask_claude()`가 "전세 4억 정도"류
   검색어에서 건물유형·거래유형·예산·보증금을 뽑는다. `search(query, housing_override=...)`로
   화면 슬라이더 값이 검색어보다 우선하도록 override할 수 있다.
@@ -90,110 +92,181 @@
   (단독다가구/아파트/연립다세대/오피스텔) 네 가지로 정규화해야 한다.
 - **월세는 분포(`매매가_25/75`, `보증금_25/75`)가 항상 빠진다.** `시세_지역별_전처리`에
   월세용 25/75 칼럼이 없기 때문이다 — 원본 데이터 자체의 한계.
+- **가격 신뢰등급·거래건수·분포 note(`region_price_note()`)는 조합마다 새로 쿼리한다.**
+  `chat.py`는 동네 하나당 최대 12번(건물유형4×거래유형3 중 값 있는 조합만) 호출하는데,
+  TOP5 규모(최대 60쿼리/요청)에선 문제없지만 호출이 훨씬 잦아지면 `region_densities()`
+  캐싱과 같은 방식으로 최적화할 수 있다.
+- **note에서 `출처`가 "해당지역"이면 아예 생략한다.** 그 동네 자체 표본이 있다는 뜻이라
+  따로 알릴 필요가 없어서다. "자치구"/"법정동" 값으로 대체된 경우만 문장에 남긴다.
 
 ---
 
-# 14. (2026-08-31) 신뢰등급·거래건수·분포를 LLM 프롬프트 텍스트에도 노출
+# 15. (2026-08-31) persona 청크 2차 분할 폴백 추가
 
-## 문제
+## 왜 필요한가
 
-`attach_price()`는 `d["price"]`에 신뢰등급·거래건수·금액_25/75(분포)를 구조화된 값으로 이미
-담고 있었다. 그런데 이건 프론트엔드가 화면에 표로 그릴 때 쓰는 값이고, **Claude에게 넘기는
-프롬프트 문장에는 안 들어가 있었다.** `explain.py`/`region_explain.py`/`chat.py` 세 곳 다
-시세를 "문장"으로 만들 때 중앙값(`master_dataset_v3`)과 `housing_fit_score()`(조건 일치도)만
-썼다 — 신뢰등급·거래건수·분포는 계산은 해뒀는데 Claude가 설명문이나 챗봇 답변에서 실제로
-언급할 방법이 없었던 것.
+임베딩 모델(`intfloat/multilingual-e5-small`, `app/core/config.py`)의 입력 한도는 512
+토큰이다. `HuggingFaceEmbeddings`는 이걸 넘으면 에러 없이 **조용히 뒷부분을 잘라버린다**
+(silent truncation). `pipeline/chunk_kb.py`의 `make_chunks()`는 `MIN_LENGTH`(20자, 하한)만
+검사하고 상한 검사가 없었다 — 칼럼 텍스트 하나가 통째로 청크 하나가 됐다.
 
-## 고친 것 — `pipeline/housing.py`에 문장 조각 만드는 함수 추가
+실측해보니(`data/kb_persona.csv`의 `CHUNK_COLUMNS` 9개 칼럼 기준) 현재 데이터는 칼럼 전체
+길이가 최대 268자로 512토큰까지 여유가 많아 지금 당장 잘리는 사례는 없다. 문제는 **앞으로
+회원가입 시 서술형 답변을 자유 입력으로 받을 계획**이라는 점이다. 이 경우 글자 수를 강제할
+수 없고, 특히 실사용자는 마침표 없이 길게 이어 쓰는 경우가 흔해서 문장 경계로만 나누는
+방식은 뚫릴 수 있다.
 
-```python
-# pipeline/housing.py (추가)
-def _format_price_note(detail):
-    """신뢰등급·거래건수·분포(상하위 25~75%)를 괄호 문장 조각으로 만든다."""
-    if not detail:
-        return ""
-    bits = []
-    if detail.get("신뢰등급"):
-        bits.append(f"신뢰 {detail['신뢰등급']}")
-    if detail.get("거래건수") is not None:
-        bits.append(f"거래 {detail['거래건수']}건")
+## 고친 것 — `pipeline/chunking.py` 새로 만들고, 두 파일이 같이 쓰게 함
 
-    lo = detail.get("매매가_25")
-    hi = detail.get("매매가_75")
-    if lo is None or hi is None:
-        lo, hi = detail.get("보증금_25"), detail.get("보증금_75")
-    if lo is not None and hi is not None:
-        bits.append(f"분포 {lo:,.0f}~{hi:,.0f}만원")
-
-    if detail.get("출처") and detail["출처"] != "해당지역":
-        bits.append(f"{detail['출처']} 값 대체")
-
-    return f" ({' · '.join(bits)})" if bits else ""
-
-
-def region_price_note(gu, dong, 건물유형, 거래유형):
-    """동네·건물유형·거래유형 하나의 신뢰등급·거래건수·분포를 문장 조각으로 돌려준다."""
-    return _format_price_note(region_price_detail(gu, dong, 건물유형, 거래유형))
-```
-
-`region_price_detail()`은 `app/core/db.py`에 이미 만들어져 있던 걸 그대로 재사용한다 — 새
-쿼리 방식을 따로 안 만들었다.
-
-## 세 호출부에 붙이기
-
-`explain.py`/`region_explain.py`는 "참고 시세" 줄을 만드는 곳에서 `housing_fit_score()` 뒤에
-`region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])`를 한 번 더 불러 문장
-끝에 붙였다.
+`chunk_kb.py`(지식베이스)와 `embed_member.py`(회원)의 `make_chunks()`는 코드가 완전히
+똑같았다(주석에도 "03번과 같은 방식"이라고 적혀 있었음). 그래서 텍스트 쪼개는 로직은 새 파일
+`pipeline/chunking.py` 하나에만 만들고, 두 파일이 그 함수를 가져다 쓰게 했다 — 한쪽만
+고치고 한쪽을 빠뜨리는 실수를 막기 위해서다(`app/core/llm.py`의 `to_passage`/`to_query`를
+한 곳에 모은 것과 같은 이유).
 
 ```python
-# pipeline/explain.py (build_context(), housing 블록 — 수정)
-fit = housing_fit_score(row, cols, housing["targets"])
-parts = [f"{field} {row[col]:,.0f}만원" for field, col in cols.items()]
-note = region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])
-lines.append(f"{d['name']}: {housing['건물유형']} {housing['거래유형']} " +
-             " / ".join(parts) + f" (조건 일치도 {fit}점){note}")
+# pipeline/chunking.py (새 파일)
+import re
+
+# 토큰 수를 정확히 재려면 임베딩 모델 tokenizer 가 필요한데, 그러려면 무거운
+# 모델을 청킹 단계에서부터 올려야 한다. 대신 글자 수로 넉넉하게 안전 마진을
+# 두고 근사한다 (한국어는 토큰:글자 비율이 문장마다 달라 딱 맞추기 어렵다)
+MAX_LENGTH = 350
+
+# 문장이 끝나는 지점(. ! ?) 뒤에 공백이 오면 그 자리에서 나눈다
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def split_long_text(text, max_length=MAX_LENGTH):
+    """긴 텍스트를 max_length 글자 이하 조각 여러 개로 쪼갠다.
+
+    1단계 — 문장 단위로 나눈다. 문장 하나가 max_length 안이면 그대로 둔다.
+    2단계 — 마침표가 없어서 문장이 안 나뉘는 경우(사용자가 마침표 없이
+            길게 이어 쓴 경우), 그 조각만 글자 수로 강제로 잘라낸다.
+    """
+    text = text.strip()
+    if len(text) <= max_length:
+        return [text]
+
+    pieces = []
+    for sentence in _SENTENCE_END.split(text):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        if len(sentence) <= max_length:
+            pieces.append(sentence)
+        else:
+            # 문장 분리로도 못 줄인 조각 -> 글자 수로 강제 분할
+            for i in range(0, len(sentence), max_length):
+                pieces.append(sentence[i:i + max_length])
+
+    return pieces
 ```
 
-`chat.py`가 쓰는 `region_price_lines()`는 동네 하나당 최대 12개(건물유형4×거래유형3) 조합을
-다 보여주므로, "예산" 필드(매매가→매매, 보증금→전세, 월세→월세) 하나에만 note를 붙였다 —
-보증금·월세 두 필드가 각각 붙이면 같은 정보가 중복돼 문장이 지저분해지기 때문이다.
+## 두 호출부에 붙이기
 
-결과 예시(`region_price_lines("노원구", "중계1동")`):
+`chunk_kb.py`의 `make_chunks()` — 원본은 칼럼 텍스트 하나를 그대로 청크 하나로 만들었다.
 
+```python
+# pipeline/chunk_kb.py (원본)
+for column in CHUNK_COLUMNS:
+    text = (row.get(column) or "").strip()
+    if len(text) < MIN_LENGTH:
+        continue
+    chunks.append({
+        "uuid": row["uuid"],
+        "district": row["district"],
+        "category": column,
+        "text": text,
+    })
 ```
-아파트: 매매 82,000만원 (신뢰 높음 · 거래 289건 · 분포 60,000~118,000만원) ·
-        전세 50,000만원 (신뢰 높음 · 거래 317건 · 분포 34,000~68,000만원) ·
-        월세 86만원 (신뢰 높음 · 거래 238건) · 보증금 5,000만원
+
+이걸 `split_long_text()`로 한 번 더 통과시키도록 고쳤다. 텍스트가 짧으면 `split_long_text`가
+`[text]`(원소 1개짜리 리스트)를 그대로 돌려주므로, 짧은 텍스트는 예전과 똑같이 청크 1개가
+나온다 — 동작이 바뀌는 건 350자를 넘는 긴 텍스트뿐이다.
+
+```python
+# pipeline/chunk_kb.py (수정)
+from pipeline.chunking import split_long_text
+...
+for column in CHUNK_COLUMNS:
+    text = (row.get(column) or "").strip()
+    if len(text) < MIN_LENGTH:
+        continue
+    for piece in split_long_text(text):
+        if len(piece) < MIN_LENGTH:
+            continue
+        chunks.append({
+            "uuid": row["uuid"],
+            "district": row["district"],
+            "category": column,
+            "text": piece,
+        })
 ```
 
-## SYSTEM_PROMPT도 같이 고쳤다
+`pipeline/embed_member.py`의 `make_chunks()`도 `customer_id` 버전으로 똑같이 고쳤다.
 
-문장에 신뢰등급·거래건수·분포가 새로 나타나는데 Claude에게 그게 뭔지, 어떻게 다뤄야 하는지
-설명이 없으면 무시하거나 엉뚱하게 해석할 수 있다. 세 파일 SYSTEM_PROMPT에 공통으로 추가한
-내용:
+`chunk_index`(몇 번째 조각인지) 필드는 추가하지 않았다 — 지금은 디버깅 편의 정도의
+가치라 범위를 최소로 유지했다. 나중에 "어떤 조각이 검색에 걸렸는지" 추적할 일이 생기면
+그때 추가해도 된다.
 
-> 괄호로 신뢰등급·거래건수·분포가 붙어 있으면 참고하세요 — 거래건수가 적거나 신뢰등급이
-> 낮으면 표본이 적어 참고용이라고 밝히세요.
+## 왜 집계 로직(`weights.py`)은 안 건드렸나
 
-`explain.py`엔 분포 해석 방법("실제 매물 가격이 그 폭 안에 퍼져 있다는 뜻")도 한 줄 더
-추가했다. `region_explain.py`는 원래 "시세" 관련 지침이 SYSTEM_PROMPT에 아예 없던 걸 이번에
-같이 채워 넣었다(중앙값·실제 매물가 아님·신뢰등급 안내를 규칙 4에 추가).
+`pipeline/weights.py`의 `find_similar_members()`는 이미 "한 사람이 청크 여러 개로 걸릴 수
+있다"를 전제로 `customer_id` 기준 최고 점수만 남기는 방식으로 짜여 있었다(주석에도 그렇게
+적혀 있음). 칼럼 하나가 청크 여러 개로 늘어나도 이 구조는 그대로 맞아떨어져서, 실제로 고칠
+곳은 `chunk_kb.py`/`embed_member.py` 두 곳(정확히는 `pipeline/chunking.py` 한 곳 + 호출부
+두 곳)으로 끝났다.
 
 ## 검증
 
-`region_price_note()`, `region_price_lines()`, `explain.build_context()`,
-`region_explain.build_context()`를 노원구 중계1동으로 직접 돌려 확인함 — 신뢰등급·거래건수·
-분포·출처(자치구/법정동 값 대체 여부)가 전부 문장에 정상적으로 붙는다. `attach_price()`
-(구조화된 값)는 이번에 안 건드렸다 — 이미 같은 정보를 갖고 있었으므로 중복 작업이 아니라
-문장 표현 계층 하나만 추가한 것이다.
+- `python -m pipeline.chunking` — 문장 있는 긴 텍스트는 문장 단위로, 마침표 없는 긴 텍스트는
+  350자씩 강제로 잘리는 걸 확인.
+- `python -m pipeline.chunk_kb` 재실행 — 결과가 여전히 "2,500명 → 청크 22,500개"로 변경 전과
+  동일. 현재 데이터엔 350자 넘는 칼럼이 없어서(최대 268자) 분할이 실제로 일어나지 않았고,
+  기존 출력과 완전히 같다는 뜻 — 회귀 없이 안전장치만 추가된 것을 확인.
+- `embed_member.load_members`/`make_chunks`를 5명 샘플로 직접 불러 청크가 정상 생성되는 것도
+  확인(전체 임베딩은 시간이 걸려 생략).
+
+## 실측 근거 (2026-08-31 확인)
+
+`data/kb_persona.csv`의 `persona`/`professional_persona`/`sports_persona`/
+`arts_persona`/`travel_persona` 5개 칼럼을 마침표 기준으로 쪼개 문장 길이를 재봤다.
+
+```
+총 문장(청크 후보) 수: 20,245
+최대 문장 길이(글자): 166
+평균: 79.9
+중앙값: 78
+150자 넘는 문장 수: 8
+300자 넘는 문장 수: 0
+```
+
+즉 지금 LLM이 생성한 정형화된 페르소나 텍스트만 놓고 보면 문장 하나가 500토큰을 넘는 경우는
+사실상 없다. 이 폴백이 필요한 이유는 지금 데이터 때문이 아니라, **아직 들어오지 않은 회원
+서술형 입력**을 대비하기 위함이라는 걸 기억할 것 — 지금 데이터로 테스트해서는 2차 폴백이
+동작할 일이 없으니, 검증할 때는 일부러 마침표 없이 긴 텍스트를 만들어 넣어봐야 한다.
 
 ## 주의할 점
 
-- **`region_price_note()`는 `region_price_lines()` 안에서 조합마다 새로 쿼리한다.**
-  `chat.py`는 동네 하나당 최대 12번(4건물유형×3거래유형 중 값이 있는 조합만) 호출한다 — TOP5
-  규모(최대 60쿼리/요청)에선 문제없지만, 호출이 훨씬 잦아지면 `region_densities()` 캐싱과
-  같은 방식으로 최적화할 수 있다.
-- **`출처`가 "해당지역"이면 note에서 아예 생략한다.** 그 동네 자체 표본이 있다는 뜻이라
-  따로 알릴 필요가 없어서다. "자치구"/"법정동" 값으로 대체된 경우만 문장에 남긴다.
-- **월세는 분포가 항상 빠진다.** 위 "여전히 유효한 주의사항"에 적어둔 원본 데이터 한계가
-  그대로 적용된다.
+- **문장 분리 정규식만으로는 안전하지 않다.** 마침표를 안 찍는 입력(모바일 사용자가 흔히
+  그렇다)은 문장 분리기에 "문장 하나"로 잡혀서 그대로 한도를 넘길 수 있다 — 그래서 2차
+  강제 분할 폴백이 "혹시 몰라 넣는 것"이 아니라 핵심 안전장치다.
+- **`intfloat/multilingual-e5-small`을 다른 모델로 바꾸면 토큰 한도(512)와 글자/토큰 비율이
+  같이 바뀐다.** 상수를 하드코딩한다면 어디 한 곳(`config.py`)에만 두고, 모델 변경 시 같이
+  검토할 것.
+
+## 다음에 할 일 — 회원가입으로 들어올 새 회원은 아직 청킹 대상이 아니다
+
+지금 `pipeline/embed_member.py`는 `nemotron.csv`(테스트용 대용량 데이터) 앞 100명을
+"회원"으로 미리 정해두고, 실행할 때마다 `member_chunk` 표를 통째로 지우고 처음부터 다시
+만드는 **일괄 배치** 방식이다(`__main__`의 `DELETE FROM member_chunk` 부분).
+
+실제로 회원가입 기능이 생기면, 신규 회원 한 명이 서술형 답변을 낼 때마다 그 텍스트만
+쪼개서(`split_long_text()` 그대로 재사용 가능) 임베딩하고 `member_chunk`에 **한 줄만
+추가(INSERT)**해야 한다 — 지금처럼 전체를 지우고 다시 만들면 이미 가입한 다른 회원들의
+데이터까지 매번 날아간다. 즉 오늘 만든 `split_long_text()`는 그대로 재사용할 수 있지만,
+`embed_member.py`의 "지우고 전부 다시 만들기" 흐름 자체는 회원가입 기능을 만들 때 별도로
+"한 명만 추가하는" 함수로 새로 짜야 한다. 이건 이번 작업 범위 밖이라 코드는 아직 안
+건드렸다 — 회원가입 기능을 실제로 만들 때 이 섹션을 참고할 것.
