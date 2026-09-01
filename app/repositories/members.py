@@ -8,6 +8,6 @@ def member_chunks():
     pass
 
 
-def member_weigths(customer_ids: list):
+def member_weights(customer_ids: list):
     """회원들의 가중치 7개를 꺼낸다."""
     pass

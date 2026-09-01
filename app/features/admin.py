@@ -89,3 +89,11 @@ def update_region(gu, dong, patch):
     db_update_region(gu, dong, patch, REGION_FIELDS)
     _clear_caches()
     return get_region(gu, dong)
+
+def preview_member(customer_id):
+    """이 회원의 희망조건으로 추천 TOP 5를 뽑아본다. 아무것도 안 고친다."""
+    prefs = customer_preferences(customer_id)
+    if prefs is None:
+        return None
+    from app.features.pipeline_api import recommend_by_weights   # ← 함수 안 import
+    return recommend_by_weights(dict(prefs), top_k=5)
