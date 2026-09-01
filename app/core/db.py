@@ -262,9 +262,46 @@ def region_price_detail(gu, dong, bldg, deal):
     )
     return rows[0] if rows else None
 
+_like_ready = False
+
+def ensure_likes():
+    """likes 테이블이 없으면 만든다."""
+    global _like_ready
+    if _like_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS likes (
+            anon_id TEXT NOT NULL,
+            구 TEXT NOT NULL,
+            행정동명 TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (anon_id, 구, 행정동명)
+        )
+    """)
+    get_con().commit()
+    _likes_ready = True
+
+def add_like(anon_id, gu, dong):
+    """좋아요 추가. 이미 있을 경우 무시"""
+    ensure_likes()
+    get_con().execute("""
+        INSERT OR IGNORE INTO likes (anon_id, 구, 행정동명) VALUES (?, ?, ?)
+    """,(anon_id,gu,dong),)
+    get_con().commit()
+
+def remove_like(anon_id, gu, dong):
+    """좋아요 취소."""
+    ensure_likes()
+    get_con().execute("""
+        DELETE FROM likes WHERE anon_id = ? AND 구 = ? AND 행정동명 =?
+    """, (anon_id, gu, dong),)
 
 if __name__ =="__main__":
     print()
+    add_like("test", "노원구", "중계1동")
+    print(dicts("SELECT * FROM likes"))
+    remove_like("test", "노원구", "중계1동")
+    print(dicts("SELECT * FROM likes"))
     print("중계1동 학원 분야:")
     for r in facility_categories("노원구", "중계1동", "학원"):
         print(f"   {r['category']:20s} {r['n']}")
