@@ -1,17 +1,16 @@
-"""
-SQLite 조회 기능을 여기 모아둔다.
+""" SQLite 조회 기능을 여기 모아둔다.
 
-pipeline/ 은 DB 를 만들고 채우는 역할,
-이 파일은 이미 만들어진 표에서 데이터를 꺼내는 역할만 한다.
+    pipeline/ 은 DB 를 만들고 채우는 역할,
+    이 파일은 이미 만들어진 표에서 데이터를 꺼내는 역할만 한다.
 
-나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
+    나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
 """
-import re
+
 import sqlite3
 import threading
 
 from app.core.config import DB_PATH, INDICATORS
-
+from app.domain.dong import dong_variants
 # 연결을 스레드마다 따로 만든다.
 #
 # SQLite 연결 하나를 여러 스레드가 동시에 쓰면 내부 상태가 엉켜
@@ -98,30 +97,6 @@ def kb_chunks():
     return dicts(
         "SELECT chunk_id, uuid, district, category, text, vector FROM kb_chunk"
     )
-
-
-def dong_variants(dong):
-    """행정동 이름의 표기 변형을 만든다.
-
-    통계청은 '고덕제1동', 일상 표기는 '고덕1동' 이다.
-    전처리 파일마다 어느 쪽을 쓰는지 다르므로 둘 다 시도한다.
-
-    단순 치환은 위험하다.
-      '홍제제1동' → '홍제1동'  (정상)
-      '홍제1동'   → '홍1동'    (오류)
-    그래서 '제' 를 없애는 방향으로만 만들고, 반대는 만들지 않는다
-    """
-    base = str(dong).strip()
-    out = {base}
-    
-    # '고덕제1동' → '고덕1동'  (맨 뒤의 '제N동' 만 건드린다)
-    out.add(re.sub(r"제(\d+)동$", r"\1동", base))
-    
-    # '고덕1동' → '고덕제1동'  (반대 방향도 준비)
-    out.add(re.sub(r"(?<!제)(\d+)동$", r"제\1동", base)) 
-    
-    return list(out)
-    
     
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
