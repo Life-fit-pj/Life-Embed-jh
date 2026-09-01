@@ -148,6 +148,9 @@ def region_one(gu, dong, columns):
     return rows[0] if rows else None
 
 
+# dong_variants 는 app.domain.dong 에서 import 한다 (12번째 줄) — 여기서 다시 정의하지 않는다
+
+
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
 #   (표 이름, 구 칸, 동 칸, 시설명 칸, 분류 칸)
@@ -327,6 +330,7 @@ def region_price_detail(gu, dong, bldg, deal):
 
 _like_ready = False
 
+# => 좋아요
 def ensure_likes():
     """likes 테이블이 없으면 만든다."""
     global _like_ready
@@ -342,7 +346,7 @@ def ensure_likes():
         )
     """)
     get_con().commit()
-    _likes_ready = True
+    _like_ready = True
 
 def add_like(anon_id, gu, dong):
     """좋아요 추가. 이미 있을 경우 무시"""
@@ -358,6 +362,76 @@ def remove_like(anon_id, gu, dong):
     get_con().execute("""
         DELETE FROM likes WHERE anon_id = ? AND 구 = ? AND 행정동명 =?
     """, (anon_id, gu, dong),)
+    get_con().commit()
+
+# => 검색
+_search_history_ready = False
+
+def ensure_search_history():
+    """search_history 테이블이 없으면 만든다."""
+    global _search_history_ready
+    if _search_history_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS search_history (
+            anon_id TEXT NOT NULL,
+            query TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _search_history_ready = True
+
+def add_search_history(anon_id, query):
+    """검색어 기록 추가. 같은 검색어라도 매번 새 줄로 남긴다(likes와 달리 유니크 제약 없음)"""
+    ensure_search_history()
+    get_con().execute("""
+        INSERT INTO search_history (anon_id, query) VALUES (?, ?)
+    """, (anon_id, query),)
+    get_con().commit()
+
+def list_search_history(anon_id, limit=20):
+    """최근 검색어부터 반환."""
+    ensure_search_history()
+    return dicts("""
+        SELECT query, created_at FROM search_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
+
+# => 채팅
+_chat_history_ready = False
+
+def ensure_chat_history():
+    """chat_history 테이블이 없으면 만든다."""
+    global _chat_history_ready
+    if _chat_history_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            anon_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _chat_history_ready = True
+
+def add_chat_history(anon_id, question, answer):
+    """채팅 질문/답변 기록 추가."""
+    ensure_chat_history()
+    get_con().execute("""
+        INSERT INTO chat_history (anon_id, question, answer) VALUES (?, ?, ?)
+    """, (anon_id, question, answer),)
+    get_con().commit()
+
+def list_chat_history(anon_id, limit=20):
+    """최근 대화부터 반환."""
+    ensure_chat_history()
+    return dicts("""
+        SELECT question, answer, created_at FROM chat_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
 
 ## 캐시를 버리는 코드
 
@@ -398,18 +472,8 @@ def update_region(gu, dong, patch, allowed):
 
 
 if __name__ =="__main__":
+    # ── 좋아요 ──
     print()
-    add_like("test", "노원구", "중계1동")
-    print(dicts("SELECT * FROM likes"))
-    remove_like("test", "노원구", "중계1동")
-    print(dicts("SELECT * FROM likes"))
     print("중계1동 학원 분야:")
     for r in facility_categories("노원구", "중계1동", "학원"):
         print(f"   {r['category']:20s} {r['n']}")
-    
-    print(len(customer_list()))              # 100 이 나와야 함
-    print(customer_one("C001"))              # 딕셔너리 하나
-    print(customer_preferences("C001"))      # {"녹지": ..., "안전": ..., ...}
-    print(customer_persona("C001"))          # 칸 9개짜리 딕셔너리
-    print(len(region_list()))                # 427
-    print(region_one("강남구", "역삼1동", ["공원_밀도"]))
