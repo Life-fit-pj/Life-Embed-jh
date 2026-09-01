@@ -91,9 +91,10 @@ def _validate(patch: dict) -> None:
 
 # 캐시비우기
 def _clear_caches():
-    from app.features import pipeline_api, region_explain
+    from app.features import pipeline_api, region_explain, privacy
     pipeline_api._ready = None
     region_explain._cache.clear()
+    privacy.reset()          # 이름이 바뀌었을 수 있다
 
 
 def clear_caches() -> dict:
@@ -169,12 +170,14 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
     for cid, (score, category, text) in ranked:     # ← 튜플 안에 튜플이라 이렇게 푼다
         if cid == customer_id:
             continue
+        from app.features.privacy import mask_text          # 함수 안 import
         out.append({
             "customer_id": cid,
             "score": round(score, 3),
             "category": category,
-            "text": text[:120],
+            "text": mask_text(text)[:120],                   # 가린 뒤에 자른다
         })
+
     return out[:top_k]
 
 
@@ -200,3 +203,21 @@ def health() -> dict:
         "cache_warm": pipeline_api._ready is not None,   # 캐시가 채워져 있나
         "error": error,
     }
+
+
+def privacy_preview(customer_id: str) -> dict | None:
+    """이 회원의 페르소나 9칸을 원본과 가린 것으로 나란히 준다.
+
+    무엇이 '안' 가려지는지 눈으로 확인하는 용도다. 아무것도 안 고친다.
+    """
+    persona = customer_persona(customer_id)
+    if not persona:
+        return None
+
+    from app.features.privacy import mask_text          # 함수 안 import
+
+    masked = {name: mask_text(text) for name, text in persona.items()}
+    changed = sum(1 for name in persona if persona[name] != masked[name])
+    # 결과가 `0`이면 아무것도 안 가려졌다는 뜻
+    
+    return {"raw": persona, "masked": masked, "changed": changed}
