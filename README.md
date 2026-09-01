@@ -32,9 +32,14 @@ LLM이 근거를 들어 설명해 주는 파이프라인입니다.
 ### 1. 패키지
 
 ```bash
-py -m pip install python-dotenv numpy
-py -m pip install langchain-anthropic langchain-huggingface sentence-transformers
+py -m pip install -r requirements.txt
 ```
+
+버전이 고정돼 있습니다 — numpy 2.5.1 · python-dotenv 1.2.2 · langchain-anthropic 1.6.1 ·
+langchain-huggingface 1.2.2 · sentence-transformers 5.7.0.
+
+빌드·린트·테스트 도구를 정의하는 매니페스트(`pyproject.toml` 등)는 아직 없습니다.
+검증은 각 파일 맨 아래 `if __name__ == "__main__":` 블록을 직접 돌려서 눈으로 확인합니다.
 
 ### 2. API 키
 
@@ -46,6 +51,12 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 없으면 `app/core/config.py`가 import 시점에 `RuntimeError`를 냅니다.
 `.env`는 절대 깃에 올리지 마세요.
+
+쓰는 모델도 `config.py`에 있습니다 — 설명문 LLM은 `claude-haiku-4-5-20251001`(`MODEL`),
+임베딩은 `intfloat/multilingual-e5-small`(`EMBED_MODEL`, 384차원).
+
+> 서버 쪽 관리자 토큰(`ADMIN_TOKEN`, `ADMIN_WRITE_ENABLED`)은 여기가 아니라
+> 이웃 저장소 `Life-Web`의 `.env`에 있습니다. 두 파일은 용도가 다릅니다.
 
 ### 3. DB 준비
 
@@ -73,12 +84,18 @@ py -m pipeline.embed_member    # 회원 900청크 임베딩 (30초)
 **반드시 프로젝트 루트에서 `-m`으로 실행합니다.**
 
 ```bash
-py -m app.core.db              # DB 상태 확인
-py -m pipeline.weights         # 검색어 → 가중치
-py -m pipeline.recommend       # 가중치 → TOP 5
-py -m app.features.pipeline_api  # 전체 흐름 한 번에
+py -m app.core.db                  # DB 상태 확인
+py -m app.engine.weights           # 검색어 → 가중치
+py -m app.engine.recommend         # 가중치 → TOP 5
+py -m app.engine.explain           # TOP 5 → 설명문
+py -m app.features.pipeline_api    # 전체 흐름 한 번에
 py -m app.features.region_explain  # 동네 하나 설명 (시설명 근거)
+py -m app.features.chat            # 추천 뒤 후속 질문
+py -m pipeline.search_kb           # 저장된 벡터로 검색만 (디버깅용)
 ```
+
+추천 알고리즘은 2026-08~09에 `pipeline/`에서 `app/engine/`으로 옮겼습니다 —
+`py -m pipeline.weights` / `pipeline.recommend`는 더 이상 없습니다.
 
 `py pipeline/weights.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
 `-m` 없이 실행하면 프로젝트 루트가 검색 경로에 안 잡히기 때문입니다.
@@ -88,15 +105,16 @@ py -m app.features.region_explain  # 동네 하나 설명 (시설명 근거)
 ## 폴더 구조
 
 ```
-life-fit-embed/
+Life-Embed-jh/
 ├── app/
 │   ├── core/              인프라 계층 — 혼자서도 돈다
-│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표
-│   │   └── db.py            SQLite 조회 함수 모음
+│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표 · 청킹 대상 칸
+│   │   └── db.py            SQLite 연결·조회 함수 모음 (회원 SQL도 아직 여기 있음)
 │   ├── domain/            DB·네트워크를 모르는 순수 함수
-│   │   └── dong.py          행정동 이름 표기 변형 (dong_variants)
+│   │   ├── dong.py          행정동 이름 표기 변형 (dong_variants)
+│   │   └── masking.py       전화·이메일·이름·주소·연락처 문장 가리기 규칙
 │   ├── adapters/          외부 모델 어댑터
-│   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳
+│   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳 (to_passage/to_query)
 │   ├── engine/            추천 알고리즘
 │   │   ├── weights.py       검색어 → 가중치
 │   │   ├── recommend.py     가중치 → TOP 5
@@ -107,9 +125,10 @@ life-fit-embed/
 │   │   ├── pipeline_api.py  search(query) 통합 창구
 │   │   ├── region_explain.py  동네 하나를 시설명 근거로 설명
 │   │   ├── chat.py          추천 뒤 후속 질문에 답변
-│   │   └── admin.py         관리자 조회·수정 창구
-│   └── repositories/      회원 단건 조회/수정
-│       └── members.py
+│   │   ├── admin.py         관리자 조회·수정·대시보드 창구
+│   │   └── privacy.py       DB 이름·지역명을 masking.py 규칙에 물려 주는 얇은 층
+│   └── repositories/
+│       └── members.py       ⚠ 미완성 스텁 — 함수 본문이 전부 `pass`, 아무도 import 안 함
 ├── pipeline/              한 번만 돌리는 준비 작업
 │   ├── schema.py            CSV → SQLite
 │   ├── sample_kb.py         18.5만 명 → 2,500명 층화추출
@@ -117,14 +136,63 @@ life-fit-embed/
 │   ├── embed_kb.py          청크 → 벡터
 │   ├── embed_member.py      회원 100명 → 900청크 벡터
 │   ├── search_kb.py         벡터 검색 (테스트용 CLI)
+│   ├── migrate_vector_blob.py  옛 JSON 벡터 칸 → float32 BLOB 1회성 변환
 │   ├── io.py                CSV 읽기/쓰기 (utf-8 ↔ cp949 자동 판별)
-│   └── prep/chunking.py     청킹 로직 (chunk_kb·embed_member 공용)
+│   └── prep/chunking.py     청킹 로직 (chunk_kb · embed_member · resync 공용)
+├── docs/                  DESIGN.md · WORK.md — 아직 빈 파일
+├── eval/golden.py         정답셋 평가 — 아직 빈 파일
+├── test/                  test-chunk · test-embed · test-masking · test-safety — 아직 빈 파일
+├── src/                   빈 폴더 (안 씀)
 └── data/                  깃으로 관리하지 않음 (life.db·nemotron.csv 등은 Git LFS)
     ├── life.db              약 73MB
     ├── master_dataset_v3.csv  427개 행정동 × 86칸 (밀도 62칸 + 시세 24칸)
     ├── 시세_지역별_전처리.csv  동×건물유형×거래유형별 신뢰등급·거래건수·분포
     └── 전처리 CSV들          문화시설 · 의료 · 학원 · 공원 · 점포 등
 ```
+
+`app/`에는 `__init__.py`가 없는 네임스페이스 패키지가 섞여 있어, **저장소 루트가
+검색 경로에 있어야** `app.*` / `pipeline.*`이 resolve됩니다. 위 `-m` 규칙이 그래서 필요합니다.
+
+**계층 방향에서 한 곳만 예외입니다** — `app/engine/resync.py`가 `pipeline/prep/chunking.py`를
+import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적재와 관리자 재임베딩
+양쪽에서 똑같아야 해서 사본을 두지 않고 한 곳을 공유합니다. 청킹을 고칠 때 `pipeline/`만
+보고 판단하면 관리자 수정 경로가 같이 바뀐 걸 놓칩니다.
+
+---
+
+## 관리자 창구 (`app/features/admin.py`)
+
+`Life-Web`의 관리자 화면이 부르는 함수들입니다. 조회는 화이트리스트로 칸을 제한하고,
+수정은 값 범위를 검사한 뒤(`_validate`) 저장합니다.
+
+| 하는 일 | 함수 |
+|---|---|
+| 조회 | `list_members` · `get_member` · `list_regions` · `get_region` (지표 12개 + 427동 백분위) |
+| 수정 | `update_member` · `update_region` |
+| 참고 | `preview_member`(희망조건으로 TOP 5 미리보기) · `similar_members`(페르소나가 비슷한 회원) |
+| 점검 | `health`(DB·캐시 상태) · `dashboard`(연령·성별·7지표 평균·청크 분포) · `recent_logs` |
+| 개인정보 | `privacy_preview`(원본 ↔ 가린 것 나란히, `changed`가 0이면 아무것도 안 가려진 것) |
+| 캐시 | `clear_caches` |
+
+**회원을 고칠 때는 세 곳이 항상 같이 움직여야 합니다.**
+① DB 값 → ② 페르소나를 고쳤다면 벡터 재생성(`resync_member`) → ③ 캐시 비우기(`_clear_caches`).
+하나라도 빠지면 "화면엔 새 값인데 추천은 옛날 것"이 됩니다. 수정 이력은 `admin_log` 표에
+남습니다(`write_admin_log`, 표가 없으면 `ensure_admin_log`가 만듭니다).
+
+### 개인정보 마스킹
+
+내보내기 전에 페르소나 문장에서 전화번호·이메일·회원 이름·자치구/행정동 주소를 가리고,
+연락 수단이 적힌 문장("카톡 아이디 abc123으로 주세요")은 문장째 걷어냅니다.
+
+- `app/domain/masking.py` — 규칙만 있는 순수 함수. DB를 모르고, 이름 목록을 밖에서 받습니다.
+- `app/features/privacy.py` — DB에서 이름·지역명을 읽어 그 규칙에 물려 주는 얇은 층.
+  앱은 `mask_text()` 하나만 부릅니다. 회원 이름이 바뀌면 `privacy.reset()`으로 캐시를 버립니다
+  (`admin._clear_caches()`가 이미 부릅니다).
+
+**완벽하지 않습니다.** 목표는 "실수로 통째로 흘러나가는 것"을 막는 것이고,
+무엇이 안 가려지는지는 `privacy_preview()`로 눈으로 확인해야 합니다.
+자치구 이름은 두 글자 이상만 줄임말로 잡습니다 — `중구` → `중`은 집중·중요·도중을
+921회 오탐해서 뺐습니다.
 
 ---
 
@@ -229,6 +297,10 @@ life-fit-embed/
   실행됨 — `import pipeline.schema`만 해도 즉시 돈다
 - 월세는 시세 25~75% 분포를 못 보여줌 — 원본 `시세_지역별_전처리.csv`에 `월임대료`용
   25/75 분위 칼럼 자체가 없음(매매가·보증금엔 있음). 신뢰등급·거래건수는 월세도 정상 표시됨
+- `app/repositories/members.py`는 함수 본문이 전부 `pass`인 스텁 — 회원 SQL은 아직
+  `app/core/db.py`에 있음. 있는 줄 알고 부르면 에러 없이 `None`이 돌아옴
+- `docs/DESIGN.md` · `docs/WORK.md` · `eval/golden.py` · `test/*.py`는 파일만 있고 내용이 비어 있음
+  (평가 정답셋과 자동 테스트가 아직 없다는 뜻) · `src/`는 빈 폴더
 ---
 
 ## 논의 필요
