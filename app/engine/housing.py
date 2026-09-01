@@ -217,3 +217,23 @@ def attach_price(detailed, housing):
             "금액_75": (detail or {}).get("매매가_75") or (detail or {}).get("보증금_75"),
         }
     return detailed
+
+
+def price_gap_text(row, cols, targets):
+    """목표가 대비 얼마나 높/낮은지를 문장 조각으로 만든다.
+
+    price_fit_score() 는 abs() 를 써서 방향을 버린다 — 목표보다 5% 싼 동네와
+    5% 비싼 동네가 같은 점수를 받는다. 점수만 프롬프트에 주면 Claude 가
+    "조금 높은 편"인지 "원하시는 가격대보다 저렴"인지 구별할 수 없다.
+    """
+    bits = []
+    for field, col in cols.items():
+        price, target = row.get(col), targets.get(field)
+        if price is None or not target:
+            continue
+        diff = (price - target) / target * 100
+        if abs(diff) < 5:
+            bits.append(f"{field} 목표와 비슷")
+        else:
+            bits.append(f"{field} 목표보다 {abs(diff):.0f}% {'높음' if diff > 0 else '낮음'}")
+    return ", ".join(bits)

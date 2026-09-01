@@ -1,6 +1,7 @@
 from app.core.db import (
     customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
+    column_percentile,
 )
 from app.core.config import INDICATORS, CHUNK_COLUMNS
 from app.engine.recommend import INDICATOR_COLUMNS
@@ -37,9 +38,17 @@ def list_members():
     return customer_list()
 
 
-def get_region(gu, dong):
-    """행정동 하나의 지표 12개. 없으면 None"""
-    return region_one(gu, dong, REGION_FIELDS)
+def get_region(gu: str, dong: str) -> dict | None:
+    """행정동 하나의 지표 12개 + 427개 동 중 백분위. 없으면 None"""
+    row = region_one(gu, dong, REGION_FIELDS)
+    if row is None:
+        return None
+    return {
+        "구": row["구"],
+        "행정동명": row["행정동명"],
+        "values": {name: row[name] for name in REGION_FIELDS},
+        "percentiles": {name: column_percentile(name, row[name]) for name in REGION_FIELDS},
+    }
 
 
 def list_regions():

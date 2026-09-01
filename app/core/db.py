@@ -148,29 +148,6 @@ def region_one(gu, dong, columns):
     return rows[0] if rows else None
 
 
-def dong_variants(dong):
-    """행정동 이름의 표기 변형을 만든다.
-
-    통계청은 '고덕제1동', 일상 표기는 '고덕1동' 이다.
-    전처리 파일마다 어느 쪽을 쓰는지 다르므로 둘 다 시도한다.
-
-    단순 치환은 위험하다.
-      '홍제제1동' → '홍제1동'  (정상)
-      '홍제1동'   → '홍1동'    (오류)
-    그래서 '제' 를 없애는 방향으로만 만들고, 반대는 만들지 않는다
-    """
-    base = str(dong).strip()
-    out = {base}
-    
-    # '고덕제1동' → '고덕1동'  (맨 뒤의 '제N동' 만 건드린다)
-    out.add(re.sub(r"제(\d+)동$", r"\1동", base))
-    
-    # '고덕1동' → '고덕제1동'  (반대 방향도 준비)
-    out.add(re.sub(r"(?<!제)(\d+)동$", r"제\1동", base)) 
-    
-    return list(out)
-    
-    
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
 #   (표 이름, 구 칸, 동 칸, 시설명 칸, 분류 칸)
@@ -247,7 +224,7 @@ def region_extras(gu, dong):
     # 화면에는 "보행 편의" 로 표시한다 —
     # 쓰레기통 개수로 "깨끗하다" 를 말하면 측정하지 않은 것을 주장하게 된다.
     # 우리가 아는 건 "버릴 곳을 찾기 쉽다" 까지다
-    row["보행편의_백분위"] = to_percentile("쓰레기통_밀도", row.get("쓰레기통_밀도"))
+    row["보행편의_백분위"] = column_percentile("쓰레기통_밀도", row.get("쓰레기통_밀도"))
 
     return row
 
@@ -292,22 +269,35 @@ def facility_categories(gu, dong, kind="학원", top=8):
     )
     
     
-def to_percentile(column, value, invert=False):
-    """어떤 값이 427개 동 중 백분위 몇인지 계산한다.
+def column_percentile(column, value, invert=False):
+    """어떤 칸의 값 하나가 427개 동 중 백분위 몇인지 계산한다.
 
     밀도 원값(12.3개/km²)은 사용자에게 의미가 없다.
     "상위 30%" 처럼 다른 동네와 비교한 위치로 바꿔야 읽힌다
     invert=True 면 "낮을수록 높은 점수"로 뒤집는다 (시세처럼 작을수록 좋은 지표용)
+
+    이름에 "column" 이 붙은 이유 —
+    app/engine/recommend.py 의 to_percentile 은 427개를 한꺼번에 받는 배치용이고,
+    이쪽은 칸 이름과 값 하나를 받는 단건용이다. 둘 다 필요하지만 이름이 같으면
+    어느 쪽을 고쳐야 하는지 헷갈린다 (dong_variants 사본 사고와 같은 구조).
+    동점 처리 규칙은 recommend.py 와 반드시 같아야 한다 — 두 값이 화면에서
+    똑같이 "상위 N%" 로 나란히 표시되기 때문이다.
     """
     if value is None:
         return None
 
     total = one('SELECT COUNT(*) FROM master_dataset_v3')[0]
     below = one(
-        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" <= ?',
+        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" < ?',
         (value,),
     )[0]
-    pct = round(below / total * 100)
+    same = one(
+        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" = ?',
+        (value,),
+    )[0]
+
+    rank = below + (same - 1) / 2        # 동점 그룹의 평균 순위 — recommend.py 와 같은 규칙
+    pct = round(rank / (total - 1) * 100)
 
     return 100 - pct if invert else pct
 
