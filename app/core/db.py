@@ -1,17 +1,16 @@
-"""
-SQLite 조회 기능을 여기 모아둔다.
+""" SQLite 조회 기능을 여기 모아둔다.
 
-pipeline/ 은 DB 를 만들고 채우는 역할,
-이 파일은 이미 만들어진 표에서 데이터를 꺼내는 역할만 한다.
+    pipeline/ 은 DB 를 만들고 채우는 역할,
+    이 파일은 이미 만들어진 표에서 데이터를 꺼내는 역할만 한다.
 
-나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
+    나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
 """
-import re
+
 import sqlite3
 import threading
 
 from app.core.config import DB_PATH, INDICATORS
-
+from app.domain.dong import dong_variants
 # 연결을 스레드마다 따로 만든다.
 #
 # SQLite 연결 하나를 여러 스레드가 동시에 쓰면 내부 상태가 엉켜
@@ -98,30 +97,6 @@ def kb_chunks():
     return dicts(
         "SELECT chunk_id, uuid, district, category, text, vector FROM kb_chunk"
     )
-
-
-def dong_variants(dong):
-    """행정동 이름의 표기 변형을 만든다.
-
-    통계청은 '고덕제1동', 일상 표기는 '고덕1동' 이다.
-    전처리 파일마다 어느 쪽을 쓰는지 다르므로 둘 다 시도한다.
-
-    단순 치환은 위험하다.
-      '홍제제1동' → '홍제1동'  (정상)
-      '홍제1동'   → '홍1동'    (오류)
-    그래서 '제' 를 없애는 방향으로만 만들고, 반대는 만들지 않는다
-    """
-    base = str(dong).strip()
-    out = {base}
-    
-    # '고덕제1동' → '고덕1동'  (맨 뒤의 '제N동' 만 건드린다)
-    out.add(re.sub(r"제(\d+)동$", r"\1동", base))
-    
-    # '고덕1동' → '고덕제1동'  (반대 방향도 준비)
-    out.add(re.sub(r"(?<!제)(\d+)동$", r"제\1동", base)) 
-    
-    return list(out)
-    
     
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
@@ -244,11 +219,12 @@ def facility_categories(gu, dong, kind="학원", top=8):
     )
     
     
-def to_percentile(column, value):
+def to_percentile(column, value, invert=False):
     """어떤 값이 427개 동 중 백분위 몇인지 계산한다.
 
     밀도 원값(12.3개/km²)은 사용자에게 의미가 없다.
     "상위 30%" 처럼 다른 동네와 비교한 위치로 바꿔야 읽힌다
+    invert=True 면 "낮을수록 높은 점수"로 뒤집는다 (시세처럼 작을수록 좋은 지표용)
     """
     if value is None:
         return None
@@ -258,7 +234,33 @@ def to_percentile(column, value):
         f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" <= ?',
         (value,),
     )[0]
-    return round(below / total * 100)
+    pct = round(below / total * 100)
+
+    return 100 - pct if invert else pct
+
+
+def region_price_detail(gu, dong, bldg, deal):
+    """시세_지역별_전처리 표에서 신뢰등급·거래건수·분포처럼
+    master_dataset_v3엔 없는 상세 정보를 꺼낸다.
+
+    master_dataset_v3의 24개 시세 칼럼엔 그 조합의 중앙값만 있다. 표본이 몇 건인지,
+    자치구·법정동 단위로 대체된 값인지(출처), 상하위 25~75% 분포가 얼마인지는
+    이 표에만 남아 있다.
+
+    동 이름 표기가 갈리는 문제(예: '신당제5동')는 dong_variants()로 그대로 재사용한다.
+    """
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+
+    rows = dicts(
+        'SELECT 거래건수, 신뢰등급, 출처, 면적_중앙값, '
+        '       매매가, 매매가_25, 매매가_75, 보증금, 보증금_25, 보증금_75, 월임대료 '
+        'FROM 시세_지역별_전처리 '
+        f'WHERE TRIM(자치구명) = ? AND TRIM(지역명) IN ({marks}) '
+        '      AND 건물용도 = ? AND 거래유형 = ?',
+        (gu.strip(), *names, bldg, deal),
+    )
+    return rows[0] if rows else None
 
 
 if __name__ =="__main__":

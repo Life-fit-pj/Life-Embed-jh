@@ -7,7 +7,7 @@ import sqlite3
 # 프로젝트 뿌리를 검색 경로에 직접 넣어 줘야 한다
 
 from app.core.config import DATA_DIR, DB_PATH
-from app.core.io import read_csv, count_rows
+from pipeline.io import read_csv, count_rows
 
 # 타입을 살펴볼 때 읽을 줄 수. 11만 줄을 전부 읽을 필요가 없다.
 SAMPLE_SIZE = 500
@@ -35,6 +35,7 @@ EXCLUDE_PREFIX = (
     "member_persona",      # 다른 AI 에게 넘기려고 뽑은 파일
     "user_preferences_v",  # 버전 보관용
     "nemotron",            # 원본 11만 줄. 회원 100명은 06번이 CSV 를 직접 읽는다
+    "~$",                  # 엑셀이 CSV 를 열어둔 동안 만드는 잠금 임시 파일. 진짜 데이터가 아니다
 )
 
 # 매칭되지 않는 파일들 키 정리

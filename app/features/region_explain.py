@@ -11,8 +11,8 @@ explain.py 는 TOP 5 전체를 한 번에 설명한다.
 
 from collections import Counter
 
-from app.core.db import facilities, facility_counts
-from app.core.llm import get_llm
+from app.core.db import facilities, facility_counts, region_densities
+from app.adapters.llm import get_llm
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
 사용자가 지도에서 특정 동네를 눌렀습니다. 그 동네가 왜 이 사람에게 맞는지
@@ -30,9 +30,13 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
    중요도가 낮은 항목은 굳이 언급하지 마세요.
 
 4. 데이터에 없는 것은 알고 있어도 말하지 마세요.
-   없는 것: 집값, 전월세, 교육비, 물가, 통학 시간, 지하철 노선명,
+   없는 것: 교육비, 물가, 통학 시간, 지하철 노선명,
    학군 배정, 시설의 품질이나 평판
    지역에 대한 통념(강남은 비싸다 등)도 쓰지 마세요.
+
+   "참고 시세"가 있으면 그 값(중앙값)만 쓰고 실제 매물 가격이 아니라는 점을 밝히세요.
+   괄호로 신뢰등급·거래건수·분포가 붙어 있으면 참고하세요 — 거래건수가 적거나 신뢰등급이
+   낮으면 표본이 적어 참고용이라고 밝히세요.
 
 5. 약점이 있으면 솔직히 덧붙이세요. 장점만 나열하지 마세요.
 
@@ -41,9 +45,9 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
 존댓말로, 3문장을 넘기지 마세요."""
 
 
-def build_context(gu, dong, query, weights, scores):
+def build_context(gu, dong, query, weights, scores, housing=None):
     """Claude 에게 넘길 재료를 글로 정리한다."""
-    lines = [f"## 동네\n서울 {gu} {dong}', '"]
+    lines = [f"## 동네\n서울 {gu} {dong}"]
     
     if query:
         lines.append(f"## 사용자 검색어\n{query}")
@@ -82,14 +86,35 @@ def build_context(gu, dong, query, weights, scores):
                 # "많은 순서" 로만 알려 준다
                 top = ", ".join(c for c, _ in cats.most_common(3))
                 lines.append(f"    많은 분류 순: {top}")
+    
+    if housing:
+        from app.engine.housing import DEAL_COLUMNS, housing_fit_score, region_price_note
+        cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
+        lines.append("")
+        lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
+
+        rows = region_densities(list(cols.values())) if cols else []
+        row = next((r for r in rows if r["구"] == gu and r["행정동명"] == dong), None)
+
+        if row is None:
+            lines.append("시세 데이터 없음")
+        else:
+            fit = housing_fit_score(row, cols, housing["targets"])
+            # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
+            parts = [f"{field} {row[col]:,.0f}만원" for field, col in cols.items()]
+            note = region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])
+            lines.append(
+                f"{housing['건물유형']} {housing['거래유형']} " + " / ".join(parts) +
+                f" (조건 일치도 {fit}점){note}"
+            )
 
     return "\n".join(lines)
 
 
-def region_explain(gu, dong, query="", weights=None, scores=None):
+def region_explain(gu, dong, query="", weights=None, scores=None, housing=None):
     """동네 하나에 대한 설명문을 만든다."""
-    context = build_context(gu, dong, query, weights, scores)
-    
+    context = build_context(gu, dong, query, weights, scores, housing)
+
     messages = [
         ("system", SYSTEM_PROMPT),
         ("human", context),
@@ -103,12 +128,21 @@ def region_explain(gu, dong, query="", weights=None, scores=None):
 _cache = {}
 
 
-def region_explain_cached(gu, dong, query="", weights=None, scores=None):
+def _housing_key(housing):
+    """housing 딕셔너리를 캐시 키에 쓸 수 있는 (해시 가능한) 형태로 바꾼다."""
+    if not housing:
+        return None
+    targets = tuple(sorted(housing["targets"].items()))
+    return (housing["건물유형"], housing["거래유형"], targets)
+
+
+def region_explain_cached(gu, dong, query="", weights=None, scores=None, housing=None):
     """설명을 만들되, 같은 요청이면 저장해 둔 것을 돌려준다."""
-    key = (gu, dong, query)
+    # housing 이 다르면 같은 동네·검색어라도 설명(특히 참고 시세)이 달라지므로 키에 포함한다
+    key = (gu, dong, query, _housing_key(housing))
 
     if key not in _cache:
-        _cache[key] = region_explain(gu, dong, query, weights, scores)
+        _cache[key] = region_explain(gu, dong, query, weights, scores, housing)
 
     return _cache[key]
 

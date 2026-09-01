@@ -8,6 +8,7 @@
 import numpy as np
 
 from app.core.db import region_densities
+from app.engine.housing import DEAL_COLUMNS
 
 INDICATOR_COLUMNS = {
     "녹지" : ["공원_밀도"],
@@ -18,6 +19,7 @@ INDICATOR_COLUMNS = {
     "교육": ["학교_밀도", "학원_밀도"],
     "문화": ["문화시설_밀도", "도서관_밀도"],
 }
+
 
 def load_regions():
     """427개 동의 이름과, 매핑에 쓰이는 밀도 칸들을 꺼낸다."""
@@ -39,7 +41,8 @@ def load_regions():
     
     return names, values
 
-def to_percentile(values) :
+
+def to_percentile(values, invert=False) :
     """숫자 묶음을 0~100 백분위로 바꾼다.
 
     "427개 동 중 몇 등인가" 를 점수로 만드는 것이다.
@@ -50,7 +53,12 @@ def to_percentile(values) :
     거기에 다시 argsort 를 하면 "각 값이 몇 등인지" 로 뒤집힌다.
     """
     order = values.argsort().argsort()
-    return order / (len(values) - 1) * 100
+    pct = order / (len(values) - 1) * 100
+    
+    return 100 - pct if invert else pct
+
+INDICATOR_INVERT = {"시세"}   # 이 지표들은 낮을수록 좋다
+
 
 def build_scores(values):
     """밀도 칸들을 7개 지표 점수(0~100)로 바꾼다.
@@ -61,10 +69,49 @@ def build_scores(values):
     scores = {}
     
     for indicator, cols in INDICATOR_COLUMNS.items():
-        parts = [to_percentile(values[c]) for c in cols]
+        invert = indicator in INDICATOR_INVERT
+        parts = [to_percentile(values[c], invert=invert) for c in cols]
         scores[indicator] = sum(parts) / len(parts)
-    
+
     return scores
+
+
+# ── 목표가 없을 때(접근 A) 시세를 8번째 신호로 쓰기 위한 재료 ──────────────
+# INDICATOR_COLUMNS 에는 안 넣는다 — build_relative() 의 "동네 자기 평균" 기준선이
+# housing 이 있는 요청에도 영향을 받게 되는 부작용이 있어서, 별도로 분리해서 계산한다.
+
+# "4개 건물유형 × 3개 거래유형" 각각의 "예산" 칼럼(매매가/전세보증금/월세) = 12개.
+# DEAL_COLUMNS 를 그대로 재사용한다 — 새로 정의할 필요가 없다
+PRICE_COLUMNS = [cols["예산"] for cols in DEAL_COLUMNS.values()]
+
+
+def load_price_values(rows):
+    """시세 칼럼은 결측을 0이 아니라 그 칼럼의 중앙값으로 채운다.
+
+    기존 7개 지표(밀도)는 결측=0이 맞다("그 동엔 진짜 0개"라는 뜻). 하지만 시세 칼럼의
+    결측은 "그 조합(예: 오피스텔+매매) 매물 자체가 없어 시세를 못 구했다"는 뜻이지
+    "공짜"가 아니다. 0으로 채우면 invert=True 계산에서 가장 저렴한 동네로 둔갑해
+    엉뚱하게 1등으로 뽑힐 수 있다. 중앙값으로 채우면 최소한 "평범한 동네"로 취급된다.
+    """
+    values = {}
+    for c in PRICE_COLUMNS:
+        raw = [r[c] for r in rows]
+        known = [v for v in raw if v is not None]
+        fallback = float(np.median(known)) if known else 0.0
+        values[c] = np.array([v if v is not None else fallback for v in raw], dtype="float64")
+    return values
+
+
+def build_price_score(values):
+    """12개 컬럼(4건물유형×3거래유형)의 평균 백분위. 낮을수록 높은 점수.
+
+    build_scores()/build_relative() 에는 안 섞는다 — 섞으면 housing 이 있는 요청
+    (목표가가 명시된 검색)에서도 relative 기준선이 8개짜리로 바뀌어 기존 추천 결과가
+    미묘하게 달라지기 때문이다.
+    """
+    parts = [to_percentile(values[c], invert=True) for c in PRICE_COLUMNS]
+    return sum(parts) / len(parts)
+
 
 def build_relative(scores):
     """각 동네에서 지표가 '특기'인 정도를 만든다.
