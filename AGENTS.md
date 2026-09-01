@@ -7,8 +7,10 @@
 
 **LIFE,FIT** — 서울 427개 행정동 중 사용자의 자연어 검색어(예: "애들 학원 보내기 좋은 곳")에 맞는 동네
 TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스의 백엔드 파이프라인이다.
-`src/`, `docu/DESIGN.md`는 여전히 비어 있다. 실제 코드는 `app/core/`(조회 인프라), `app/features/`
-(검색·설명·채팅 창구), `pipeline/`(DB 적재·추천 로직) 세 곳에 있다.
+`src/`, `docu/DESIGN.md`는 여전히 비어 있다. 실제 코드는 `app/` 아래 다섯 계층
+(`core` 설정·SQL / `domain` 순수 함수 / `adapters` 외부 모델 / `engine` 추천 알고리즘 /
+`features` 창구)과 `pipeline/`(CSV → DB 적재)에 있다. 추천 로직은 `pipeline/`이 아니라
+`app/engine/`에 있다 — 2026-08~09에 옮겼다.
 
 프레임워크·빌드·린트·테스트 도구를 정의하는 매니페스트(`requirements.txt`, `pyproject.toml` 등)가 없다.
 검증은 각 파일 하단의 `if __name__ == "__main__":` 블록을 직접 실행해 눈으로 확인하는 방식으로 이루어진다.
@@ -77,12 +79,20 @@ API, Key 등 민감정보가 포함된 데이터는 .env폴더에서 별도로 �
 > app/features/   pipeline_api.py, admin.py,      위 계층을 엮는 진입점. search()가 메인 API,
 >                 region_explain.py, chat.py       region_explain/chat이 클릭·후속질문 응답,
 >                                                  admin.py는 관리자 조회·수정 창구
-> app/repositories/ members.py                    회원 단건 조회/수정용 저장소 계층
+> app/repositories/ members.py                    ⚠ 미완성 스텁 — 함수 본문이 전부 `pass`이고
+>                                                  아무 데서도 import하지 않는다. 회원 SQL은
+>                                                  아직 app/core/db.py 에 있다. 있는 줄 알고
+>                                                  쓰면 조용히 None 이 돌아온다
 > pipeline/       schema.py, sample_kb.py,         CSV -> life.db와 벡터 테이블을 만드는 적재
 >                 chunk_kb.py, embed_kb.py,         파이프라인. 배포에는 안 따라감. io.py(CSV 읽기/
 >                 embed_member.py, search_kb.py,   쓰기), prep/chunking.py(청킹 로직)도 여기 소속
 >                 io.py, prep/chunking.py
 > ```
+
+**계층 방향에서 한 곳만 예외다.** `app/engine/resync.py`가 `pipeline/prep/chunking.py`를
+import한다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적재와 관리자 재임베딩
+양쪽에서 **똑같아야** 하기 때문에 사본을 두지 않고 한 곳을 공유하는 것이다. 청킹 로직을
+고칠 때는 `pipeline/`만 보고 판단하지 말 것 — 관리자 수정 경로가 같이 바뀐다.
 
 ## Logging
 
