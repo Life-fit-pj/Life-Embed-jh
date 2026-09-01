@@ -317,6 +317,7 @@ def region_price_detail(gu, dong, bldg, deal):
 
 _like_ready = False
 
+# => 좋아요
 def ensure_likes():
     """likes 테이블이 없으면 만든다."""
     global _like_ready
@@ -349,6 +350,75 @@ def remove_like(anon_id, gu, dong):
         DELETE FROM likes WHERE anon_id = ? AND 구 = ? AND 행정동명 =?
     """, (anon_id, gu, dong),)
     get_con().commit()
+
+# => 검색
+_search_history_ready = False
+
+def ensure_search_history():
+    """search_history 테이블이 없으면 만든다."""
+    global _search_history_ready
+    if _search_history_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS search_history (
+            anon_id TEXT NOT NULL,
+            query TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _search_history_ready = True
+
+def add_search_history(anon_id, query):
+    """검색어 기록 추가. 같은 검색어라도 매번 새 줄로 남긴다(likes와 달리 유니크 제약 없음)"""
+    ensure_search_history()
+    get_con().execute("""
+        INSERT INTO search_history (anon_id, query) VALUES (?, ?)
+    """, (anon_id, query),)
+    get_con().commit()
+
+def list_search_history(anon_id, limit=20):
+    """최근 검색어부터 반환."""
+    ensure_search_history()
+    return dicts("""
+        SELECT query, created_at FROM search_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
+
+# => 채팅
+_chat_history_ready = False
+
+def ensure_chat_history():
+    """chat_history 테이블이 없으면 만든다."""
+    global _chat_history_ready
+    if _chat_history_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            anon_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _chat_history_ready = True
+
+def add_chat_history(anon_id, question, answer):
+    """채팅 질문/답변 기록 추가."""
+    ensure_chat_history()
+    get_con().execute("""
+        INSERT INTO chat_history (anon_id, question, answer) VALUES (?, ?, ?)
+    """, (anon_id, question, answer),)
+    get_con().commit()
+
+def list_chat_history(anon_id, limit=20):
+    """최근 대화부터 반환."""
+    ensure_chat_history()
+    return dicts("""
+        SELECT question, answer, created_at FROM chat_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
 
 ## 캐시를 버리는 코드
 
