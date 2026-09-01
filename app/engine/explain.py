@@ -114,7 +114,7 @@ def build_context(query, weights, detailed, cases, housing=None):
     high = [k for k, w in weights.items() if w >= 3.5]
     
     lines = [f"## 사용자 검색어\n{query}", ""]
-    lines.append(f"## 분석된 관심사\n{", ".join(high) if high else '뚜렷한 관심사 없음'}")
+    lines.append(f"## 분석된 관심사\n{', '.join(high) if high else '뚜렷한 관심사 없음'}")
     lines.append(f"가중치: " + ", ".join(f"{k} {w}" for k, w in weights.items()))
     lines.append("")
     lines.append("## 추천 결과 (점수는 서울 427개 동 중 백분위)")
