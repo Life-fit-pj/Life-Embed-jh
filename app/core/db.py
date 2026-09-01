@@ -6,8 +6,10 @@
     나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
 """
 
+import json
 import sqlite3
 import threading
+from datetime import datetime
 
 from app.core.config import DB_PATH, INDICATORS
 from app.domain.dong import dong_variants
@@ -469,6 +471,31 @@ def update_region(gu, dong, patch, allowed):
     marks = ", ".join("?" * len(names))
     where_sql = f'TRIM(구) = ? AND TRIM(행정동명) IN ({marks})'
     return _run_update("master_dataset_v3", where_sql, (gu.strip(), *names), patch, allowed)
+
+
+def ensure_admin_log() -> None:
+    """관리자 수정 이력 표. 없으면 만든다 (있으면 아무 일도 안 한다)."""
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS admin_log (
+            log_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            target     TEXT,      -- 'member' 또는 'region'
+            target_id  TEXT,      -- 'C001' 또는 '강남구 역삼1동'
+            patch      TEXT,      -- 보낸 값 그대로 (JSON 문자열)
+            changed_at TEXT       -- 언제
+        )
+    """)
+    get_con().commit()
+
+
+def write_admin_log(target: str, target_id: str, patch: dict) -> None:
+    """수정 한 건을 남긴다."""
+    ensure_admin_log()
+    get_con().execute(
+        "INSERT INTO admin_log (target, target_id, patch, changed_at) VALUES (?, ?, ?, ?)",
+        (target, target_id, json.dumps(patch, ensure_ascii=False),
+         datetime.now().isoformat(timespec="seconds")),
+    )
+    get_con().commit()
 
 
 if __name__ =="__main__":

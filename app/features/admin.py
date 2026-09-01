@@ -1,8 +1,9 @@
 from app.core.db import (
     customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
-    column_percentile,
+    column_percentile, write_admin_log,
 )
+
 from app.core.config import INDICATORS, CHUNK_COLUMNS
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
@@ -111,6 +112,7 @@ def update_member(customer_id, patch):
         row["customer_id"] = customer_id              # ③ resync 가 요구하는 칸
         resync_member(get_con(), customer_id, row)    # ④ 벡터 재생성
 
+    write_admin_log("member", customer_id, patch)
     _clear_caches()
     return get_member(customer_id)
 
@@ -122,6 +124,7 @@ def update_region(gu, dong, patch):
     _validate(patch) 
     
     db_update_region(gu, dong, patch, REGION_FIELDS)
+    write_admin_log("region", f"{gu} {dong}", patch)
     _clear_caches()
     return get_region(gu, dong)
 
