@@ -1,7 +1,7 @@
 from app.core.db import (
     customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
-    column_percentile, write_admin_log,
+    column_percentile, write_admin_log, ensure_admin_log, dicts, one,
 )
 
 from app.core.config import INDICATORS, CHUNK_COLUMNS
@@ -221,3 +221,108 @@ def privacy_preview(customer_id: str) -> dict | None:
     # 결과가 `0`이면 아무것도 안 가려졌다는 뜻
     
     return {"raw": persona, "masked": masked, "changed": changed}
+
+# ── 대시보드 ─────────────────────────────────────
+# 관리자 첫 화면에 뿌릴 숫자들. 화면이 표를 여덟 번 부르는 대신
+# 여기서 한 번에 세서 한 덩어리로 넘긴다.
+# 모든 항목은 {"label": ..., "value": ...} 목록으로 통일한다 —
+# 그래야 화면 쪽 차트 함수 하나로 전부 그릴 수 있다.
+
+def _pairs(sql, params=()) -> list:
+    """(이름, 개수) 두 칸짜리 SELECT 결과를 label/value 목록으로 바꾼다."""
+    cur = get_con().execute(sql, params)
+    return [{"label": str(a), "value": b} for a, b in cur.fetchall()]
+
+
+def recent_logs(limit: int = 8) -> list:
+    """관리자 수정 이력 최근 몇 건. 무엇을 고쳤는지 칸 이름까지 보여 준다."""
+    import json
+    ensure_admin_log()
+    rows = dicts(
+        "SELECT target, target_id, patch, changed_at FROM admin_log "
+        "ORDER BY log_id DESC LIMIT ?", (limit,),
+    )
+    out = []
+    for r in rows:
+        try:
+            fields = list(json.loads(r["patch"]).keys())
+        except (ValueError, TypeError):
+            fields = []
+        out.append({
+            "target": r["target"],
+            "target_id": r["target_id"],
+            "fields": fields[:6],          # 화면에 다 못 넣는다. 개수는 아래 total 로
+            "field_count": len(fields),
+            "changed_at": r["changed_at"],
+        })
+    return out
+
+
+def dashboard() -> dict:
+    """관리자 첫 화면 한 판.
+
+    health() 가 "지금 일할 수 있나"라면 이쪽은 "무엇이 얼마나 들어 있나"다.
+    DB 가 깨져 있어도 화면은 떠야 하므로 실패는 예외 대신 error 로 담아 보낸다.
+    """
+    base = health()
+    if not base["ok"]:
+        return {**base, "counts": {}, "charts": {}, "recent": []}
+
+    ensure_admin_log()      # 한 번도 수정 안 한 새 DB 에는 이 표가 아직 없다
+
+    ages = _pairs(
+        "SELECT CAST(age / 10 AS INT) * 10, COUNT(*) FROM customers "
+        "WHERE age IS NOT NULL GROUP BY 1 ORDER BY 1"
+    )
+    for a in ages:
+        a["label"] = f"{a['label']}대"
+
+    genders = _pairs("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
+    for g in genders:
+        g["label"] = {"M": "남성", "F": "여성"}.get(g["label"], g["label"])
+
+    # 7지표 평균 — 회원들이 무엇을 중요하게 꼽았는지. 칸 이름은 config 것을 그대로 쓴다
+    cols = ", ".join(f'AVG("{name}")' for name in INDICATORS)
+    row = one(f"SELECT {cols} FROM user_preferences") or ()
+    weights = [
+        {"label": name, "value": round(value, 2) if value is not None else 0}
+        for name, value in zip(INDICATORS, row)
+    ]
+
+    persona = _pairs(
+        "SELECT category, CAST(AVG(LENGTH(text)) AS INT) FROM member_chunk GROUP BY 1 ORDER BY 2 DESC"
+    )
+    chunks = one("SELECT COUNT(*) FROM member_chunk")[0]
+
+    return {
+        **base,
+        "counts": {
+            "members":  base["members"],
+            "regions":  base["regions"],
+            "gu":       one("SELECT COUNT(DISTINCT 구) FROM master_dataset_v3")[0],
+            "chunks":   chunks,
+            "edits":    one("SELECT COUNT(*) FROM admin_log")[0],
+        },
+        "charts": {
+            "joins":     _pairs(
+                "SELECT substr(joined_at, 1, 7), COUNT(*) FROM customers "
+                "WHERE joined_at IS NOT NULL AND joined_at <> '' GROUP BY 1 ORDER BY 1"
+            ),
+            "ages":      ages,
+            "genders":   genders,
+            "weights":   weights,
+            "memberGu":  _pairs(
+                "SELECT city, COUNT(*) FROM customers WHERE city IS NOT NULL "
+                "GROUP BY 1 ORDER BY 2 DESC, 1"
+            ),
+            "regionGu":  _pairs(
+                "SELECT 구, COUNT(*) FROM master_dataset_v3 GROUP BY 1 ORDER BY 2 DESC, 1"
+            ),
+            "dealType":  _pairs(
+                'SELECT "거래형태", COUNT(*) FROM user_preferences '
+                'WHERE "거래형태" IS NOT NULL AND "거래형태" <> \'\' GROUP BY 1 ORDER BY 2 DESC'
+            ),
+            "persona":   persona,
+        },
+        "recent": recent_logs(8),
+    }
