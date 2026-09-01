@@ -25,6 +25,7 @@ from app.engine.housing import matching_regions, attach_price
 
 from app.core.db import member_weights, region_densities
 from app.adapters.llm import get_embedder
+from app.core.config import INDICATORS
 
 # ── 준비물 보관함 ──────────────────────────────
 _ready = None
@@ -97,12 +98,16 @@ def recommend_by_weights(weights, top_k=5, housing=None):
     return attach_price(detailed, housing)
 
 
-def search(query, top_k=5, housing_override=None):
+def search(query, top_k=5, housing_override=None, weights_override=None):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 
     housing_override 를 주면 검색어에서 뽑아낸 가격 조건 대신 이 값을 그대로 쓴다 —
     화면에서 사용자가 이미 명시적으로 고른 조건(건물유형·거래유형·예산·보증금)이,
     검색어 문장에서 애매하게 뽑아낸 조건보다 신뢰도가 높다는 판단이다.
+    
+    weights_override 도 같은 취지다 — 1차 유형 카드가 이미 확정한 가중치가 있으면
+    검색어에서 다시 추정하지 않고 그걸 쓴다. 이게 없으면 1차에서 보여 준 동네가
+    2차 추천에서 통째로 사라진다(같은 문장을 다시 읽어 다른 가중치가 나오기 때문).
     """
     r = get_ready()
 
@@ -111,6 +116,15 @@ def search(query, top_k=5, housing_override=None):
     similar = find_similar_members(persona_query, r["member_rows"], r["member_vectors"])
     ids = [cid for cid, _ in similar]
     weights = blend(draft, member_weights(ids))
+
+    # 화면에서 확정된 가중치가 있으면 검색어 추정 대신 그걸 쓴다.
+    # 통째로 대입하지 않고 덮어쓰는 이유 — recommend() 는 weights 의 키를 그대로
+    # scores 에서 찾으므로, INDICATORS 밖의 키가 들어오면 KeyError 가 나고
+    # 빠진 지표는 보통값(3)이 아니라 아예 0으로 무시돼 순위가 틀어진다
+    if weights_override:
+        weights = {**weights,
+                   **{k: float(v) for k, v in weights_override.items() if k in INDICATORS}}
+
 
     # 1-1) 검색어 → 가격 조건. housing_override 가 있으면 그걸 우선한다.
     # 없으면 건물유형·거래유형·예산 셋 다 있어야 검색어에서 뽑은 조건으로 필터를 켠다
