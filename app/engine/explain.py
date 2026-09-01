@@ -13,7 +13,7 @@ import numpy as np
 
 from app.core.config import INDICATORS
 from app.core.db import kb_chunks, region_densities
-from app.core.llm import get_llm, get_embedder, to_query
+from app.adapters.llm import get_llm, get_embedder, to_query
 
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.

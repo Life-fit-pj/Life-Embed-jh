@@ -1,17 +1,16 @@
-"""
-SQLite 조회 기능을 여기 모아둔다.
+""" SQLite 조회 기능을 여기 모아둔다.
 
-pipeline/ 은 DB 를 만들고 채우는 역할,
-이 파일은 이미 만들어진 표에서 데이터를 꺼내는 역할만 한다.
+    pipeline/ 은 DB 를 만들고 채우는 역할,
+    이 파일은 이미 만들어진 표에서 데이터를 꺼내는 역할만 한다.
 
-나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
+    나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
 """
-import re
+
 import sqlite3
 import threading
 
 from app.core.config import DB_PATH, INDICATORS
-
+from app.domain.dong import dong_variants
 # 연결을 스레드마다 따로 만든다.
 #
 # SQLite 연결 하나를 여러 스레드가 동시에 쓰면 내부 상태가 엉켜

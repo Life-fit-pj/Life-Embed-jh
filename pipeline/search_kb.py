@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from app.core.llm import get_embedder, to_query
+from app.adapters.llm import get_embedder, to_query
 from app.core.db import kb_chunks
 
 
