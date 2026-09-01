@@ -96,6 +96,12 @@ def _clear_caches():
     region_explain._cache.clear()
 
 
+def clear_caches() -> dict:
+    """바깥(서버)이 부를 수 있는 공개 창구. 관리자가 버튼으로 직접 비울 때 쓴다."""
+    _clear_caches()
+    return {"ok": True, "cache_warm": False}
+
+
 # 회원수정
 def update_member(customer_id, patch):
     if get_member(customer_id) is None:
@@ -170,3 +176,27 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
             "text": text[:120],
         })
     return out[:top_k]
+
+
+def health() -> dict:
+    """일할 준비가 됐나. 나쁜 상태도 '정상적으로' 보고하는 게 이 함수의 일이다."""
+    from app.features import pipeline_api
+
+    try:
+        from app.core.db import one
+        regions = one("SELECT COUNT(*) FROM master_dataset_v3")[0]
+        members = one("SELECT COUNT(*) FROM customers")[0]
+        ok = regions > 0 and members > 0
+        error = None
+    except Exception as e:
+        regions = members = 0
+        ok = False
+        error = str(e)
+
+    return {
+        "ok": ok,
+        "regions": regions,
+        "members": members,
+        "cache_warm": pipeline_api._ready is not None,   # 캐시가 채워져 있나
+        "error": error,
+    }
