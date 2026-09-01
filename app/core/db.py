@@ -97,6 +97,79 @@ def kb_chunks():
     return dicts(
         "SELECT chunk_id, uuid, district, category, text, vector FROM kb_chunk"
     )
+
+
+def customer_list():
+    """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
+    return dicts("SELECT customer_id, name, age, city, city_dong FROM customers ORDER BY customer_id")
+
+
+def customer_one(customer_id):
+    """customers 표에서 회원 한 명. 없으면 None"""
+    rows = dicts("SELECT * FROM customers WHERE customer_id = ?", (customer_id,))
+    return rows[0] if rows else None
+
+
+def customer_preferences(customer_id):
+    """user_preferences 표에서 한 명의 가중치 7개. 없으면 None"""
+    cols = ", ".join(INDICATORS)
+    rows = dicts(
+        f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return rows[0] if rows else None
+
+
+def customer_persona(customer_id):
+    """member_chunk 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다"""
+    rows = dicts(
+        "SELECT category, text FROM member_chunk WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return {r["category"]: r["text"] for r in rows}
+
+
+def region_list():
+    """master_dataset_v3 의 구, 행정동명 427개"""
+    return dicts("SELECT 구, 행정동명 FROM master_dataset_v3 ORDER BY 구, 행정동명")
+
+
+def region_one(gu, dong, columns):
+    """행정동 하나의 지정한 칸들만 꺼낸다"""
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+    quoted = ", ".join(f'"{c}"' for c in columns)
+
+    rows = dicts(
+        f'SELECT 구, 행정동명, {quoted} FROM master_dataset_v3 '
+        f'WHERE TRIM(구) = ? AND TRIM(행정동명) IN ({marks})',
+        (gu.strip(), *names),
+    )
+    return rows[0] if rows else None
+
+
+def dong_variants(dong):
+    """행정동 이름의 표기 변형을 만든다.
+
+    통계청은 '고덕제1동', 일상 표기는 '고덕1동' 이다.
+    전처리 파일마다 어느 쪽을 쓰는지 다르므로 둘 다 시도한다.
+
+    단순 치환은 위험하다.
+      '홍제제1동' → '홍제1동'  (정상)
+      '홍제1동'   → '홍1동'    (오류)
+    그래서 '제' 를 없애는 방향으로만 만들고, 반대는 만들지 않는다
+    """
+    base = str(dong).strip()
+    out = {base}
+    
+    # '고덕제1동' → '고덕1동'  (맨 뒤의 '제N동' 만 건드린다)
+    out.add(re.sub(r"제(\d+)동$", r"\1동", base))
+    
+    # '고덕1동' → '고덕제1동'  (반대 방향도 준비)
+    out.add(re.sub(r"(?<!제)(\d+)동$", r"제\1동", base)) 
+    
+    return list(out)
+    
     
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
@@ -296,6 +369,44 @@ def remove_like(anon_id, gu, dong):
         DELETE FROM likes WHERE anon_id = ? AND 구 = ? AND 행정동명 =?
     """, (anon_id, gu, dong),)
 
+## 캐시를 버리는 코드
+
+def _run_update(table, where_sql, where_params, patch, allowed):
+    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
+
+    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지 (5-4)
+    """
+    fields = [name for name in patch if name in allowed]
+    if not fields:
+        return 0
+
+    sets = ", ".join(f'"{name}" = ?' for name in fields)
+    values = [patch[name] for name in fields]
+
+    get_con().execute(
+        f'UPDATE "{table}" SET {sets} WHERE {where_sql}',
+        (*values, *where_params),
+    )
+    get_con().commit()
+    return len(fields)
+
+
+def update_customer(customer_id, patch, allowed):
+    return _run_update("customers", "customer_id = ?", (customer_id,), patch, allowed)
+
+
+def update_preferences(customer_id, patch, allowed):
+    return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
+
+
+def update_region(gu, dong, patch, allowed):
+    """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+    where_sql = f'TRIM(구) = ? AND TRIM(행정동명) IN ({marks})'
+    return _run_update("master_dataset_v3", where_sql, (gu.strip(), *names), patch, allowed)
+
+
 if __name__ =="__main__":
     print()
     add_like("test", "노원구", "중계1동")
@@ -305,3 +416,10 @@ if __name__ =="__main__":
     print("중계1동 학원 분야:")
     for r in facility_categories("노원구", "중계1동", "학원"):
         print(f"   {r['category']:20s} {r['n']}")
+    
+    print(len(customer_list()))              # 100 이 나와야 함
+    print(customer_one("C001"))              # 딕셔너리 하나
+    print(customer_preferences("C001"))      # {"녹지": ..., "안전": ..., ...}
+    print(customer_persona("C001"))          # 칸 9개짜리 딕셔너리
+    print(len(region_list()))                # 427
+    print(region_one("강남구", "역삼1동", ["공원_밀도"]))
