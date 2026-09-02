@@ -69,29 +69,58 @@ def facts_drift() -> dict:
 
 
 def facts_searches(top=20) -> dict:
-    """검색어 트렌드 — search_history 가 채워져야 나온다."""
-    from app.core.db import ensure_history
-    ensure_history()
+    """검색어 트렌드 — 로그인 담당이 만든 search_history / chat_history 를 읽는다.
+
+    표 구조는 손대지 않는다. `anon_id` 한 칸을 겸용하는 설계지만(로그인하면 그 자리에
+    customer_id 가 들어간다) 여기서는 "누가"가 아니라 "무엇을 많이 찾았나"만 세므로
+    그대로 읽으면 된다
+    """
+    ensure_search_history()      # ← 팀원 함수를 그대로 부른다 (1-2에서 import 함)
+    ensure_chat_history()
 
     total = one("SELECT COUNT(*) FROM search_history")[0]
     return {
         "검색_건수": total,
-        "많이_찾은_말": _pairs(
+        "많이_찾은_말": pairs(
             "SELECT query, COUNT(*) FROM search_history GROUP BY 1 "
             "ORDER BY 2 DESC LIMIT ?", (top,)
         ),
         "대화_건수": one("SELECT COUNT(*) FROM chat_history")[0],
         "비어있는_이유": None if total else
-            "검색·대화를 저장하는 기능이 아직 안 붙었다(로그인 담당). "
-            "붙으면 여기에 쌓인다",
+            "아직 아무도 검색하지 않았다. 사용자가 검색창을 쓰면 여기에 쌓인다",
     }
 
 
 def collect_facts() -> dict:
-    """네 가지를 한 번에 모은다. 화면 차트와 프롬프트가 같은 것을 쓴다."""
+    """화면(대시보드)이 쓰는 집계를 그대로 가져오고, 없는 것만 더한다.
+
+    ⚠ dashboard() 를 재사용하는 이유는 줄 수가 아니라 "숫자가 어긋나지 않게" 하려는 것이다.
+      따로 계산하면 차트는 3.53 인데 답변은 3.2 인 일이 생긴다.
+      대신 dashboard() 를 고치면 Claude 가 보는 것도 같이 바뀐다는 걸 알고 고칠 것
+    """
+    d = dashboard()
     return {
-        "회원_성향": facts_members(),
-        "지역_수요": facts_regions(),
+        "규모": d["counts"],
+        "회원_성향": {
+            # ⚠ 표본은 counts["members"] 가 아니다 —
+            #   그건 customers 표(로그인만 발급된 빈 계정 포함)라 가중치가 없는 사람까지 센다
+            "표본": one("SELECT COUNT(*) FROM user_preferences")[0],
+            "지표평균": d["charts"]["weights"],
+            "지표분포": facts_spread(),
+            "연령대": d["charts"]["ages"],
+            "성별": d["charts"]["genders"],
+            "가입추이": d["charts"]["joins"],
+            "희망거래형태": d["charts"]["dealType"],
+        },
+        "지역_수요": {
+            "거주_자치구": d["charts"]["memberGu"],
+            "직장_자치구": pairs(
+                "SELECT work_city, COUNT(*) FROM customers WHERE work_city IS NOT NULL "
+                "GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
+            "좋아요_동네": pairs(
+                "SELECT 구 || ' ' || 행정동명, COUNT(*) FROM likes "
+                "GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
+        },
         "변동_추이": facts_drift(),
         "검색_트렌드": facts_searches(),
     }
