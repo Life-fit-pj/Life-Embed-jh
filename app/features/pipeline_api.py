@@ -116,15 +116,9 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
         "explanation": text,
         "housing": housing,
     }
-<<<<<<< HEAD
-
-
-def search(query, top_k=5, housing_override=None):
-=======
     
     
 def search(query, top_k=5, housing_override=None, weights_override=None):
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 
     housing_override 를 주면 검색어에서 뽑아낸 가격 조건 대신 이 값을 그대로 쓴다 —

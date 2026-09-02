@@ -101,12 +101,6 @@ def kb_chunks():
     )
 
 
-<<<<<<< HEAD
-# ── 회원/행정동 관리자 조회 (app/features/admin.py 가 쓴다) ──────────────
-
-
-=======
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 def customer_list():
     """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
     return dicts("SELECT customer_id, name, age, city, city_dong FROM customers ORDER BY customer_id")
@@ -156,12 +150,9 @@ def region_one(gu, dong, columns):
     return rows[0] if rows else None
 
 
-<<<<<<< HEAD
-=======
 # dong_variants 는 app.domain.dong 에서 import 한다 (12번째 줄) — 여기서 다시 정의하지 않는다
 
 
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
 #   (표 이름, 구 칸, 동 칸, 시설명 칸, 분류 칸)
@@ -443,44 +434,6 @@ def list_chat_history(anon_id, limit=20):
         SELECT question, answer, created_at FROM chat_history
         WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
     """, (anon_id, limit))
-
-## 캐시를 버리는 코드
-
-def _run_update(table, where_sql, where_params, patch, allowed):
-    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
-
-    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지 (5-4)
-    """
-    fields = [name for name in patch if name in allowed]
-    if not fields:
-        return 0
-
-    sets = ", ".join(f'"{name}" = ?' for name in fields)
-    values = [patch[name] for name in fields]
-
-    get_con().execute(
-        f'UPDATE "{table}" SET {sets} WHERE {where_sql}',
-        (*values, *where_params),
-    )
-    get_con().commit()
-    return len(fields)
-
-
-def update_customer(customer_id, patch, allowed):
-    return _run_update("customers", "customer_id = ?", (customer_id,), patch, allowed)
-
-
-def update_preferences(customer_id, patch, allowed):
-    return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
-
-
-def update_region(gu, dong, patch, allowed):
-    """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
-    names = dong_variants(dong)
-    marks = ", ".join("?" * len(names))
-    where_sql = f'TRIM(구) = ? AND TRIM(행정동명) IN ({marks})'
-    return _run_update("master_dataset_v3", where_sql, (gu.strip(), *names), patch, allowed)
-
 
 def ensure_admin_log() -> None:
     """관리자 수정 이력 표. 없으면 만든다 (있으면 아무 일도 안 한다)."""
