@@ -458,6 +458,65 @@ def write_admin_log(target: str, target_id: str, patch: dict) -> None:
     )
     get_con().commit()
 
+# => 로그인
+_user_login_ready = False
+
+def ensure_user_login():
+    """user_login 테이블이 없으면 만든다."""
+    global _user_login_ready
+    if _user_login_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS user_login (
+            customer_id TEXT PRIMARY KEY,
+            login_id    TEXT UNIQUE NOT NULL,
+            password    TEXT NOT NULL,
+            created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _user_login_ready = True
+
+
+def next_customer_id():
+    """customers 표의 마지막 번호 다음 번호를 'C101' 형식으로 돌려준다.
+
+    # ponytail: 동시에 두 요청이 들어오면 같은 번호를 계산해 INSERT가 하나 실패할 수 있다.
+    # 지금 트래픽(로컬 개발/소규모 테스트)에선 무시 가능 — 붙는다면 UNIQUE 재시도 루프 추가.
+    """
+    row = one("SELECT customer_id FROM customers ORDER BY customer_id DESC LIMIT 1")
+    last_num = int(row[0][1:]) if row else 0
+    return f"C{last_num + 1:03d}"
+
+
+def create_customer_stub(customer_id):
+    """customers 표에 최소 행(가입일만)을 만든다. 임시 계정 발급용 —
+    preferences/persona가 없어도 customer_list()·dashboard() 집계엔 잡히게 하려는 목적"""
+    get_con().execute(
+        "INSERT INTO customers (customer_id, joined_at) VALUES (?, ?)",
+        (customer_id, datetime.now().strftime("%Y-%m-%d")),
+    )
+    get_con().commit()
+
+
+def create_login(customer_id, login_id, password):
+    """로그인 계정 발급."""
+    ensure_user_login()
+    get_con().execute(
+        "INSERT INTO user_login (customer_id, login_id, password) VALUES (?, ?, ?)",
+        (customer_id, login_id, password),
+    )
+    get_con().commit()
+
+
+def find_login(login_id, password):
+    """아이디+비번이 맞으면 customer_id, 아니면 None."""
+    ensure_user_login()
+    row = one(
+        "SELECT customer_id FROM user_login WHERE login_id = ? AND password = ?",
+        (login_id, password),
+    )
+    return row[0] if row else None
 
 # ── 회원/행정동 관리자 수정 (app/features/admin.py 가 쓴다) ──────────────
 
