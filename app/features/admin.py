@@ -1,14 +1,9 @@
 from app.core.db import (
     customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
-<<<<<<< HEAD
-    to_percentile,
-)
-=======
     column_percentile, write_admin_log, ensure_admin_log, dicts, one,
 )
 
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 from app.core.config import INDICATORS, CHUNK_COLUMNS
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
@@ -26,14 +21,10 @@ PREFERENCE_FIELDS = tuple(INDICATORS)
 PERSONA_FIELDS = tuple(CHUNK_COLUMNS)
 # REGION_FIELDS 는 이미 위에 있음
 
-<<<<<<< HEAD
-=======
 # 값 규칙 — (최솟값, 최댓값). 칸 이름은 config 에서 오므로 여기 또 안 적는다
 RULES = {"age": (0, 120)}
 RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 전부 1~5
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
-
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 
 def get_member(customer_id):
     """회원 한 명 = 기본정보 + 희망조건 + 페르소나 9칸"""
@@ -61,11 +52,7 @@ def get_region(gu: str, dong: str) -> dict | None:
         "구": row["구"],
         "행정동명": row["행정동명"],
         "values": {name: row[name] for name in REGION_FIELDS},
-<<<<<<< HEAD
-        "percentiles": {name: to_percentile(name, row[name]) for name in REGION_FIELDS},
-=======
         "percentiles": {name: column_percentile(name, row[name]) for name in REGION_FIELDS},
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
     }
 
 
@@ -74,13 +61,6 @@ def list_regions():
     return region_list()
 
 
-<<<<<<< HEAD
-# 캐시비우기
-def _clear_caches():
-    from app.features import pipeline_api, region_explain
-    pipeline_api._ready = None
-    region_explain._cache.clear()
-=======
 class InvalidPatch(Exception):
     """값이 규칙에 안 맞을 때. 라우터가 422 로 바꾼다."""
     def __init__(self, errors: dict):
@@ -120,17 +100,13 @@ def clear_caches() -> dict:
     """바깥(서버)이 부를 수 있는 공개 창구. 관리자가 버튼으로 직접 비울 때 쓴다."""
     _clear_caches()
     return {"ok": True, "cache_warm": False}
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 
 
 # 회원수정
 def update_member(customer_id, patch):
     if get_member(customer_id) is None:
         return None
-<<<<<<< HEAD
-=======
     _validate(patch)                     # ★ 없는 회원 확인(404) 다음, 저장 전
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 
     update_customer(customer_id, patch, CUSTOMER_FIELDS)
     update_preferences(customer_id, patch, PREFERENCE_FIELDS)
@@ -142,10 +118,7 @@ def update_member(customer_id, patch):
         row["customer_id"] = customer_id              # ③ resync 가 요구하는 칸
         resync_member(get_con(), customer_id, row)    # ④ 벡터 재생성
 
-<<<<<<< HEAD
-=======
     write_admin_log("member", customer_id, patch)
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
     _clear_caches()
     return get_member(customer_id)
 
@@ -154,13 +127,8 @@ def update_member(customer_id, patch):
 def update_region(gu, dong, patch):
     if get_region(gu, dong) is None:
         return None
-<<<<<<< HEAD
-    db_update_region(gu, dong, patch, REGION_FIELDS)
-    _clear_caches()
-    return get_region(gu, dong)
-=======
-    _validate(patch) 
-    
+    _validate(patch)
+
     db_update_region(gu, dong, patch, REGION_FIELDS)
     write_admin_log("region", f"{gu} {dong}", patch)
     _clear_caches()
@@ -357,4 +325,3 @@ def dashboard() -> dict:
         },
         "recent": recent_logs(8),
     }
->>>>>>> 31aac80e51069e48915928bebabdec51d454a387
