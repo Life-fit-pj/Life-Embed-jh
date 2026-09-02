@@ -1,0 +1,5 @@
+numpy==2.5.1
+python-dotenv==1.2.2
+langchain-anthropic==1.6.1
+langchain-huggingface==1.2.2
+sentence-transformers==5.7.0

@@ -32,9 +32,14 @@ LLM이 근거를 들어 설명해 주는 파이프라인입니다.
 ### 1. 패키지
 
 ```bash
-py -m pip install python-dotenv numpy
-py -m pip install langchain-anthropic langchain-huggingface sentence-transformers
+py -m pip install -r requirements.txt
 ```
+
+버전이 고정돼 있습니다 — numpy 2.5.1 · python-dotenv 1.2.2 · langchain-anthropic 1.6.1 ·
+langchain-huggingface 1.2.2 · sentence-transformers 5.7.0.
+
+빌드·린트·테스트 도구를 정의하는 매니페스트(`pyproject.toml` 등)는 아직 없습니다.
+검증은 각 파일 맨 아래 `if __name__ == "__main__":` 블록을 직접 돌려서 눈으로 확인합니다.
 
 ### 2. API 키
 
@@ -46,6 +51,12 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 없으면 `app/core/config.py`가 import 시점에 `RuntimeError`를 냅니다.
 `.env`는 절대 깃에 올리지 마세요.
+
+쓰는 모델도 `config.py`에 있습니다 — 설명문 LLM은 `claude-haiku-4-5-20251001`(`MODEL`),
+임베딩은 `intfloat/multilingual-e5-small`(`EMBED_MODEL`, 384차원).
+
+> 서버 쪽 관리자 토큰(`ADMIN_TOKEN`, `ADMIN_WRITE_ENABLED`)은 여기가 아니라
+> 이웃 저장소 `Life-Web`의 `.env`에 있습니다. 두 파일은 용도가 다릅니다.
 
 ### 3. DB 준비
 
@@ -73,12 +84,18 @@ py -m pipeline.embed_member    # 회원 900청크 임베딩 (30초)
 **반드시 프로젝트 루트에서 `-m`으로 실행합니다.**
 
 ```bash
-py -m app.core.db              # DB 상태 확인
-py -m pipeline.weights         # 검색어 → 가중치
-py -m pipeline.recommend       # 가중치 → TOP 5
-py -m app.features.pipeline_api  # 전체 흐름 한 번에
+py -m app.core.db                  # DB 상태 확인
+py -m app.engine.weights           # 검색어 → 가중치
+py -m app.engine.recommend         # 가중치 → TOP 5
+py -m app.engine.explain           # TOP 5 → 설명문
+py -m app.features.pipeline_api    # 전체 흐름 한 번에
 py -m app.features.region_explain  # 동네 하나 설명 (시설명 근거)
+py -m app.features.chat            # 추천 뒤 후속 질문
+py -m pipeline.search_kb           # 저장된 벡터로 검색만 (디버깅용)
 ```
+
+추천 알고리즘은 2026-08~09에 `pipeline/`에서 `app/engine/`으로 옮겼습니다 —
+`py -m pipeline.weights` / `pipeline.recommend`는 더 이상 없습니다.
 
 `py pipeline/weights.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
 `-m` 없이 실행하면 프로젝트 루트가 검색 경로에 안 잡히기 때문입니다.
@@ -88,17 +105,30 @@ py -m app.features.region_explain  # 동네 하나 설명 (시설명 근거)
 ## 폴더 구조
 
 ```
-life-fit-embed/
+Life-Embed-jh/
 ├── app/
 │   ├── core/              인프라 계층 — 혼자서도 돈다
-│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표
-│   │   ├── db.py            SQLite 조회 함수 모음
-│   │   ├── io.py            CSV 읽기/쓰기 (utf-8 ↔ cp949 자동 판별)
-│   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳
-│   └── features/          서비스 계층 — core 를 엮는다
-│       ├── pipeline_api.py  search(query) 통합 창구
-│       ├── region_explain.py  동네 하나를 시설명 근거로 설명
-│       └── chat.py          추천 뒤 후속 질문에 답변
+│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표 · 청킹 대상 칸
+│   │   └── db.py            SQLite 연결·조회 함수 모음 (회원 SQL도 아직 여기 있음)
+│   ├── domain/            DB·네트워크를 모르는 순수 함수
+│   │   ├── dong.py          행정동 이름 표기 변형 (dong_variants)
+│   │   └── masking.py       전화·이메일·이름·주소·연락처 문장 가리기 규칙
+│   ├── adapters/          외부 모델 어댑터
+│   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳 (to_passage/to_query)
+│   ├── engine/            추천 알고리즘
+│   │   ├── weights.py       검색어 → 가중치
+│   │   ├── recommend.py     가중치 → TOP 5
+│   │   ├── explain.py       TOP 5 → 설명문
+│   │   ├── housing.py       건물유형·거래유형·예산 → 시세 근접 필터·신뢰등급/거래건수/분포
+│   │   └── resync.py        회원 한 명만 재임베딩 (관리자 수정 직후 반영)
+│   ├── features/          서비스 계층 — 위 계층을 엮는다
+│   │   ├── pipeline_api.py  search(query) 통합 창구
+│   │   ├── region_explain.py  동네 하나를 시설명 근거로 설명
+│   │   ├── chat.py          추천 뒤 후속 질문에 답변
+│   │   ├── admin.py         관리자 조회·수정·대시보드 창구
+│   │   └── privacy.py       DB 이름·지역명을 masking.py 규칙에 물려 주는 얇은 층
+│   └── repositories/
+│       └── members.py       ⚠ 미완성 스텁 — 함수 본문이 전부 `pass`, 아무도 import 안 함
 ├── pipeline/              한 번만 돌리는 준비 작업
 │   ├── schema.py            CSV → SQLite
 │   ├── sample_kb.py         18.5만 명 → 2,500명 층화추출
@@ -106,16 +136,63 @@ life-fit-embed/
 │   ├── embed_kb.py          청크 → 벡터
 │   ├── embed_member.py      회원 100명 → 900청크 벡터
 │   ├── search_kb.py         벡터 검색 (테스트용 CLI)
-│   ├── weights.py           검색어 → 가중치
-│   ├── recommend.py         가중치 → TOP 5
-│   ├── housing.py           건물유형·거래유형·예산 → 시세 근접 필터·신뢰등급/거래건수/분포
-│   └── explain.py           TOP 5 → 설명문
+│   ├── migrate_vector_blob.py  옛 JSON 벡터 칸 → float32 BLOB 1회성 변환
+│   ├── io.py                CSV 읽기/쓰기 (utf-8 ↔ cp949 자동 판별)
+│   └── prep/chunking.py     청킹 로직 (chunk_kb · embed_member · resync 공용)
+├── docs/                  DESIGN.md · WORK.md — 아직 빈 파일
+├── eval/golden.py         정답셋 평가 — 아직 빈 파일
+├── test/                  test-chunk · test-embed · test-masking · test-safety — 아직 빈 파일
+├── src/                   빈 폴더 (안 씀)
 └── data/                  깃으로 관리하지 않음 (life.db·nemotron.csv 등은 Git LFS)
     ├── life.db              약 73MB
     ├── master_dataset_v3.csv  427개 행정동 × 86칸 (밀도 62칸 + 시세 24칸)
     ├── 시세_지역별_전처리.csv  동×건물유형×거래유형별 신뢰등급·거래건수·분포
     └── 전처리 CSV들          문화시설 · 의료 · 학원 · 공원 · 점포 등
 ```
+
+`app/`에는 `__init__.py`가 없는 네임스페이스 패키지가 섞여 있어, **저장소 루트가
+검색 경로에 있어야** `app.*` / `pipeline.*`이 resolve됩니다. 위 `-m` 규칙이 그래서 필요합니다.
+
+**계층 방향에서 한 곳만 예외입니다** — `app/engine/resync.py`가 `pipeline/prep/chunking.py`를
+import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적재와 관리자 재임베딩
+양쪽에서 똑같아야 해서 사본을 두지 않고 한 곳을 공유합니다. 청킹을 고칠 때 `pipeline/`만
+보고 판단하면 관리자 수정 경로가 같이 바뀐 걸 놓칩니다.
+
+---
+
+## 관리자 창구 (`app/features/admin.py`)
+
+`Life-Web`의 관리자 화면이 부르는 함수들입니다. 조회는 화이트리스트로 칸을 제한하고,
+수정은 값 범위를 검사한 뒤(`_validate`) 저장합니다.
+
+| 하는 일 | 함수 |
+|---|---|
+| 조회 | `list_members` · `get_member` · `list_regions` · `get_region` (지표 12개 + 427동 백분위) |
+| 수정 | `update_member` · `update_region` |
+| 참고 | `preview_member`(희망조건으로 TOP 5 미리보기) · `similar_members`(페르소나가 비슷한 회원) |
+| 점검 | `health`(DB·캐시 상태) · `dashboard`(연령·성별·7지표 평균·청크 분포) · `recent_logs` |
+| 개인정보 | `privacy_preview`(원본 ↔ 가린 것 나란히, `changed`가 0이면 아무것도 안 가려진 것) |
+| 캐시 | `clear_caches` |
+
+**회원을 고칠 때는 세 곳이 항상 같이 움직여야 합니다.**
+① DB 값 → ② 페르소나를 고쳤다면 벡터 재생성(`resync_member`) → ③ 캐시 비우기(`_clear_caches`).
+하나라도 빠지면 "화면엔 새 값인데 추천은 옛날 것"이 됩니다. 수정 이력은 `admin_log` 표에
+남습니다(`write_admin_log`, 표가 없으면 `ensure_admin_log`가 만듭니다).
+
+### 개인정보 마스킹
+
+내보내기 전에 페르소나 문장에서 전화번호·이메일·회원 이름·자치구/행정동 주소를 가리고,
+연락 수단이 적힌 문장("카톡 아이디 abc123으로 주세요")은 문장째 걷어냅니다.
+
+- `app/domain/masking.py` — 규칙만 있는 순수 함수. DB를 모르고, 이름 목록을 밖에서 받습니다.
+- `app/features/privacy.py` — DB에서 이름·지역명을 읽어 그 규칙에 물려 주는 얇은 층.
+  앱은 `mask_text()` 하나만 부릅니다. 회원 이름이 바뀌면 `privacy.reset()`으로 캐시를 버립니다
+  (`admin._clear_caches()`가 이미 부릅니다).
+
+**완벽하지 않습니다.** 목표는 "실수로 통째로 흘러나가는 것"을 막는 것이고,
+무엇이 안 가려지는지는 `privacy_preview()`로 눈으로 확인해야 합니다.
+자치구 이름은 두 글자 이상만 줄임말로 잡습니다 — `중구` → `중`은 집중·중요·도중을
+921회 오탐해서 뺐습니다.
 
 ---
 
@@ -134,6 +211,16 @@ life-fit-embed/
 밀도 원값을 그대로 곱하면 단위가 제각각입니다
 (학원 1,263개/km² vs 공원 19개/km²). 그래서 모든 지표를
 427개 동 중 백분위(0~100)로 바꾼 뒤 가중합합니다.
+
+**같은 값은 반드시 같은 점수를 받습니다.** 밀도 칸에는 0이 대량으로 몰려 있어서
+(도서관 275/427, 지하철역 169, 경찰관서 164) 동점 처리가 필수입니다.
+예전에는 `argsort()`를 두 번 쓰는 방식이라 동점이 **DB 저장 순서(행정동 코드 순)**로
+줄 세워졌고, 도서관이 똑같이 0곳인데 영등포구는 평균 56점 · 성동구는 14점을 받는
+자치구 단위 편향이 생겼습니다. 지금은 동점 그룹이 순위를 평균내어 나눠 갖습니다.
+
+백분위 구현은 두 곳에 있고 **규칙이 같아야 합니다** — `recommend.py`의
+`to_percentile()`(427개 배열, 순위 계산용)과 `db.py`의 `column_percentile()`
+(칸+값 하나, 화면 표시용). 둘 다 화면에서 똑같이 "상위 N%"로 보이기 때문입니다.
 
 ### 절대점수만 쓰면 "만능 동네"가 항상 이긴다
 
@@ -178,7 +265,13 @@ life-fit-embed/
 (`to_passage` / `to_query`). LangChain이 자동으로 붙여 주지 않습니다.
 
 **행정동 이름 표기가 파일마다 다릅니다.** `고덕제1동` vs `고덕1동`.
-`db.py`의 `dong_variants()`가 양쪽을 다 시도합니다.
+`app/domain/dong.py`의 `dong_variants()`가 양쪽을 다 시도합니다
+(`db.py`는 이걸 import해서 씁니다 — 사본을 만들지 마세요).
+
+**LLM 프롬프트에 가중치를 실었으면 그 지표의 점수도 함께 실으세요.**
+근거 수치 없이 항목 이름만 보이면 Claude가 그 항목을 지어내서 설명합니다.
+특히 `시세` 점수는 `invert=True`라 **값이 클수록 저렴하다**는 뜻이므로,
+방향 설명을 같이 주지 않으면 "시세 85점"을 "비싸다"로 정반대 해석합니다.
 
 **`INDICATORS` 순서를 바꾸지 마세요.** 순서로 값을 꺼내는 코드가 있습니다.
 
@@ -204,3 +297,36 @@ life-fit-embed/
   실행됨 — `import pipeline.schema`만 해도 즉시 돈다
 - 월세는 시세 25~75% 분포를 못 보여줌 — 원본 `시세_지역별_전처리.csv`에 `월임대료`용
   25/75 분위 칼럼 자체가 없음(매매가·보증금엔 있음). 신뢰등급·거래건수는 월세도 정상 표시됨
+- `app/repositories/members.py`는 함수 본문이 전부 `pass`인 스텁 — 회원 SQL은 아직
+  `app/core/db.py`에 있음. 있는 줄 알고 부르면 에러 없이 `None`이 돌아옴
+- `docs/DESIGN.md` · `docs/WORK.md` · `eval/golden.py` · `test/*.py`는 파일만 있고 내용이 비어 있음
+  (평가 정답셋과 자동 테스트가 아직 없다는 뜻) · `src/`는 빈 폴더
+---
+
+## 논의 필요
+
+### 목표가 일치도를 순위에도 반영할 것인가 (2026-09-01 제기)
+
+현재 `housing.py`의 `housing_fit_score()`(목표가 대비 0~100점)는 **후보를 추리는 필터로만**
+쓰입니다. `pipeline_api.py`의 `recommend_by_weights()`가 `matching_regions()`로 tolerance
+(±30%) 안의 동만 남긴 뒤, 그 안에서의 순위는 기존 7개 지표로만 매깁니다.
+
+그래서 "전세 6억 5천" 검색에서 62,000만원인 동(일치도 85점)과 73,000만원인 동(59점)이
+**순위 계산에서는 완전히 동등하게** 취급됩니다.
+
+- **지금대로 두는 쪽** — 가격은 "들어갈 수 있냐 없냐"의 문제고, 그 안에서는 생활
+  인프라로 고르는 게 맞다. tolerance가 이미 ±30%로 좁으므로 후보는 전부 "예산에 맞는 곳"이다.
+- **순위에 넣는 쪽** — 위 "설계 원칙"의 *예산은 목표가에 가까울수록 좋다*를 필터에서만
+  지키고 순위에서는 버리는 셈이다. 일치도를 8번째 신호로 넣으면 원칙이 끝까지 일관된다.
+
+넣기로 결정하면, `recommend_by_weights()`의 housing 분기에서 목표가가 없을 때 `시세`를
+얹는 것과 **똑같은 방식**으로 `일치도`를 넣으면 됩니다(`scores`/`relative`/`weights` 세 곳).
+
+### 설명문의 시세 어법 (위 결정과 함께 볼 것)
+
+순위 반영 여부와 별개로, 지금은 Claude에게 **사용자가 말한 목표 금액 자체가 전달되지 않고**,
+`price_fit_score()`가 `abs()`를 쓰기 때문에 방향(목표보다 비싼지 싼지)도 사라집니다.
+그래서 "원하시는 가격대보다 조금 높은 편입니다" 같은 답변이 원리적으로 불가능합니다.
+같은 일치도 85점이 62,000만원(싼 쪽)일 수도 68,000만원(비싼 쪽)일 수도 있습니다.
+
+목표가와 방향을 프롬프트에 같이 넣어야 합니다 — 구체적인 수정안은 `STUDY.md` 16절 참고.
