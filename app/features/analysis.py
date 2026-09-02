@@ -21,7 +21,7 @@ from datetime import datetime
 from app.adapters.llm import get_llm
 from app.core.config import INDICATORS
 from app.core.db import dicts, get_con, one, ensure_search_history, ensure_chat_history
-from app.features.admin import dashboard, _pairs as pairs
+from app.features.admin import dashboard, pairs
 
 # ── 집계 ────────────────────────────────────────
 # 전부 (label, value) 두 칸으로 통일한다. 화면 차트 하나로 다 그릴 수 있고,

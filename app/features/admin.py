@@ -60,13 +60,24 @@ def list_members():
 
 
 def get_region(gu: str, dong: str) -> dict | None:
-    """행정동 하나의 지표 12개 + 427개 동 중 백분위. 없으면 None"""
+    """행정동 하나의 지표 12개 + 427개 동 중 백분위 + 좋아요 수. 없으면 None
+
+    좋아요는 likes 표에 (구, 행정동명) 글자 그대로 쌓인다. 화면이 추천 결과에서
+    받은 이름을 그대로 되돌려 보내므로 지금은 철자가 어긋나지 않는다.
+    ⚠ 받은 gu/dong 이 아니라 row 에서 읽은 정식 이름으로 센다 —
+      region_one() 이 dong_variants() 로 표기 변형을 흡수해 찾아 주기 때문이다
+    """
     row = region_one(gu, dong, REGION_FIELDS)
     if row is None:
         return None
+    likes = one(
+        "SELECT COUNT(*) FROM likes WHERE 구 = ? AND 행정동명 = ?",
+        (row["구"], row["행정동명"]),
+    )[0]
     return {
         "구": row["구"],
         "행정동명": row["행정동명"],
+        "likes": likes,
         "values": {name: row[name] for name in REGION_FIELDS},
         "percentiles": {name: column_percentile(name, row[name]) for name in REGION_FIELDS},
     }
@@ -243,7 +254,7 @@ def privacy_preview(customer_id: str) -> dict | None:
 # 모든 항목은 {"label": ..., "value": ...} 목록으로 통일한다 —
 # 그래야 화면 쪽 차트 함수 하나로 전부 그릴 수 있다.
 
-def _pairs(sql, params=()) -> list:
+def pairs(sql, params=()) -> list:
     """(이름, 개수) 두 칸짜리 SELECT 결과를 label/value 목록으로 바꾼다."""
     cur = get_con().execute(sql, params)
     return [{"label": str(a), "value": b} for a, b in cur.fetchall()]
@@ -285,14 +296,14 @@ def dashboard() -> dict:
 
     ensure_admin_log()      # 한 번도 수정 안 한 새 DB 에는 이 표가 아직 없다
 
-    ages = _pairs(
+    ages = pairs(
         "SELECT CAST(age / 10 AS INT) * 10, COUNT(*) FROM customers "
         "WHERE age IS NOT NULL GROUP BY 1 ORDER BY 1"
     )
     for a in ages:
         a["label"] = f"{a['label']}대"
 
-    genders = _pairs("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
+    genders = pairs("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
     for g in genders:
         g["label"] = {"M": "남성", "F": "여성"}.get(g["label"], g["label"])
 
@@ -304,7 +315,7 @@ def dashboard() -> dict:
         for name, value in zip(INDICATORS, row)
     ]
 
-    persona = _pairs(
+    persona = pairs(
         "SELECT category, CAST(AVG(LENGTH(text)) AS INT) FROM member_chunk GROUP BY 1 ORDER BY 2 DESC"
     )
     chunks = one("SELECT COUNT(*) FROM member_chunk")[0]
@@ -319,21 +330,21 @@ def dashboard() -> dict:
             "edits":    one("SELECT COUNT(*) FROM admin_log")[0],
         },
         "charts": {
-            "joins":     _pairs(
+            "joins":     pairs(
                 "SELECT substr(joined_at, 1, 7), COUNT(*) FROM customers "
                 "WHERE joined_at IS NOT NULL AND joined_at <> '' GROUP BY 1 ORDER BY 1"
             ),
             "ages":      ages,
             "genders":   genders,
             "weights":   weights,
-            "memberGu":  _pairs(
+            "memberGu":  pairs(
                 "SELECT city, COUNT(*) FROM customers WHERE city IS NOT NULL "
                 "GROUP BY 1 ORDER BY 2 DESC, 1"
             ),
-            "regionGu":  _pairs(
+            "regionGu":  pairs(
                 "SELECT 구, COUNT(*) FROM master_dataset_v3 GROUP BY 1 ORDER BY 2 DESC, 1"
             ),
-            "dealType":  _pairs(
+            "dealType":  pairs(
                 'SELECT "거래형태", COUNT(*) FROM user_preferences '
                 'WHERE "거래형태" IS NOT NULL AND "거래형태" <> \'\' GROUP BY 1 ORDER BY 2 DESC'
             ),
