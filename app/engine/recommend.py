@@ -44,18 +44,21 @@ def load_regions():
 
 def to_percentile(values, invert=False) :
     """숫자 묶음을 0~100 백분위로 바꾼다.
-
-    "427개 동 중 몇 등인가" 를 점수로 만드는 것이다.
-    가장 낮은 동이 0점, 가장 높은 동이 100점.
-
-    argsort 를 두 번 쓰는 이유 —
-    첫 번째 argsort 는 "작은 것부터 몇 번째 위치인지" 를 준다.
-    거기에 다시 argsort 를 하면 "각 값이 몇 등인지" 로 뒤집힌다.
+    같은 값은 반드시 같은 점수를 받아야 한다.
     """
-    order = values.argsort().argsort()
-    pct = order / (len(values) - 1) * 100
-    
+    order = values.argsort()
+    rank = np.empty(len(values), dtype="float64")
+    rank[order] = np.arange(len(values))        # 각 값이 몇 등인지
+
+    # 동점끼리는 순위 평균을 공유한다 (0곳인 275개 동은 전부 같은 점수)
+    for value in np.unique(values):
+        same = values == value
+        rank[same] = rank[same].mean()
+
+    pct = rank / (len(values) - 1) * 100
+
     return 100 - pct if invert else pct
+
 
 INDICATOR_INVERT = {"시세"}   # 이 지표들은 낮을수록 좋다
 

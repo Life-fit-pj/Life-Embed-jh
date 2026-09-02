@@ -118,7 +118,7 @@ def _format_price_note(detail):
     if lo is None or hi is None:
         lo, hi = detail.get("보증금_25"), detail.get("보증금_75")
     if lo is not None and hi is not None:
-        bits.append(f"분포 {lo:,.0f}~{hi:,.0f}만원")
+        bits.append(f"분포 {format_won(lo)}~{format_won(hi)}")
 
     if detail.get("출처") and detail["출처"] != "해당지역":
         bits.append(f"{detail['출처']} 값 대체")
@@ -167,7 +167,7 @@ def region_price_lines(gu, dong):
                 # 신뢰등급·거래건수·분포는 거래유형 단위 정보라 "예산" 필드 하나에만 붙인다
                 # (보증금·월세 두 필드가 각각 note를 달면 같은 정보가 중복돼 문장이 지저분해진다)
                 suffix = note if field == "예산" else ""
-                parts.append(f"{label} {value:,.0f}만원{suffix}")
+                parts.append(f"{label} {format_won(value)}{suffix}")
         if parts:
             lines.append(f"{건물유형}: " + " · ".join(parts))
     return lines
@@ -217,3 +217,43 @@ def attach_price(detailed, housing):
             "금액_75": (detail or {}).get("매매가_75") or (detail or {}).get("보증금_75"),
         }
     return detailed
+
+
+def price_gap_text(row, cols, targets):
+    """목표가 대비 얼마나 높/낮은지를 문장 조각으로 만든다.
+
+    price_fit_score() 는 abs() 를 써서 방향을 버린다 — 목표보다 5% 싼 동네와
+    5% 비싼 동네가 같은 점수를 받는다. 점수만 프롬프트에 주면 Claude 가
+    "조금 높은 편"인지 "원하시는 가격대보다 저렴"인지 구별할 수 없다.
+    """
+    bits = []
+    for field, col in cols.items():
+        price, target = row.get(col), targets.get(field)
+        if price is None or not target:
+            continue
+        diff = (price - target) / target * 100
+        if abs(diff) < 5:
+            bits.append(f"{field} 목표와 비슷")
+        else:
+            bits.append(f"{field} 목표보다 {abs(diff):.0f}% {'높음' if diff > 0 else '낮음'}")
+    return ", ".join(bits)
+
+
+def format_won(man):
+    """만원 단위 숫자를 사람이 읽는 금액 문자열로 만든다.
+
+    "80,000만원" 같은 표기는 사람이 쓰지 않는다. 모델이 자연스러운 한국어로
+    옮기는 과정에서 자릿수를 잃는다 (실측: "80,000만원" -> "8,000만원").
+    미리 사람 단위로 바꿔 넣으면 옮길 일 자체가 없어진다.
+
+    Life-Web 의 frontend/ui/reason.js 에도 fmtWon() 이 있지만 그건 화면 표시용이다.
+    프롬프트에 들어가는 금액은 이 함수 하나만 쓴다 — 두 벌이 되면 어긋난다.
+    """
+    if man is None:
+        return None
+
+    man = round(float(man))
+    if man >= 10000:
+        eok, rest = divmod(man, 10000)
+        return f"{eok}억 {rest:,}만원" if rest else f"{eok}억원"
+    return f"{man:,}만원"

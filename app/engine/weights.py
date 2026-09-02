@@ -143,24 +143,40 @@ def ask_claude(query):
     return weights, persona_query
 
 
-# 합치기
-# Claude 초안과 회원 평균을 몇 대 몇으로 섞을지: 위에 적어둠
+# 초안이 이 값이면 "사용자가 언급하지 않은 지표"라는 뜻이다.
+# SYSTEM_PROMPT 규칙 1 ("말하지 않은 지표는 전부 3점")과 짝을 이룬다
+NEUTRAL = 3
+
 
 def blend(draft, members):
-    """Claude 초안을 회원들의 실제 가중치로 보정한다."""
+    """Claude 초안을 회원들의 실제 가중치로 보정한다.
+
+    단, 사용자가 검색어에서 직접 말한 지표(초안이 NEUTRAL 이 아닌 것)는 보정하지 않는다.
+    회원 100명 표본은 지표별 편향이 심해서(교육 평균 1.65 — 70명이 1점) 전부 보정하면
+    사용자가 요구한 관심사가 오히려 깎이고, 말한 적 없는 상권·녹지가 올라온다.
+    회원 평균은 "사용자가 말하지 않은 칸을 채우는" 용도로만 쓴다.
+
+    돌려주는 것은 항상 INDICATORS 7개만이다 — draft 에 섞여 있는 가격 키
+    (건물유형·거래유형·예산·보증금)는 recommend() 가 숫자로 취급해 터지므로 잘라낸다.
+    """
     if not members:
-        return draft        # 비슷한 회원이 없으면 초안 그대로
-    
+        return {key: float(draft[key]) for key in INDICATORS}
+
     final = {}
     for key in INDICATORS:
+        if draft[key] != NEUTRAL:
+            final[key] = float(draft[key])      # 사용자가 말한 지표 — 초안을 지킨다
+            continue
+
         # 비슷한 회원들의 평균
         values = [m[key] for m in members]
         member_avg = sum(values) / len(values)
-        
+
         mixed = draft[key] * CLAUDE_RATIO + member_avg * (1 - CLAUDE_RATIO)
         final[key] = round(mixed, 1)
-    
+
     return final
+
 
 
 if __name__ == "__main__":
