@@ -1,5 +1,6 @@
 from app.core.db import (
-    customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
+    customer_list, customer_one, customer_preferences, customer_preferences_initial,
+    customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
     column_percentile, write_admin_log, ensure_admin_log, dicts, one,
     list_likes, list_search_history, list_chat_history,
@@ -28,7 +29,11 @@ RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 �
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
 
 def get_member(customer_id):
-    """회원 한 명 = 기본정보 + 희망조건 + 페르소나 9칸 + 활동(좋아요/검색/채팅)
+    """회원 한 명 = 기본정보 + 희망조건(현재/가입시) + 페르소나 9칸 + 활동(좋아요/검색/채팅)
+
+    preferences_initial 은 가입 때 받은 값이다. 관리자가 고쳐도 안 바뀐다 —
+    화이트리스트(PREFERENCE_FIELDS)가 INDICATORS 7개뿐이라 `_초기` 칸은
+    수정 대상에 아예 안 들어간다
 
     활동 3종은 anon_id 를 키로 쌓이는데, 로그인한 회원은 anon_id 자리가
     customer_id 로 덮어써져 있으므로(services/engine.py의 로그인 처리) 여기서
@@ -41,6 +46,7 @@ def get_member(customer_id):
     return {
         "customer": customer,
         "preferences": customer_preferences(customer_id) or {},
+        "preferences_initial": customer_preferences_initial(customer_id) or {},
         "persona": customer_persona(customer_id),
         "likes": list_likes(customer_id),
         "searches": list_search_history(customer_id),

@@ -125,6 +125,24 @@ def customer_preferences(customer_id):
     return rows[0] if rows else None
 
 
+def customer_preferences_initial(customer_id):
+    """가입 시 가중치 7개(`녹지_초기` 등). 없으면 None.
+
+    현재값과 따로 꺼내는 이유 —
+    관리자 화면이 "가입 때 이랬는데 지금 이렇다"를 위아래로 보여준다.
+    한 딕셔너리에 섞어 주면 화면이 칸 이름에서 `_초기`를 떼어내며 돌아야 한다.
+
+    돌려주는 키는 `_초기`를 뗀 이름이다 — 현재값과 같은 키라서 화면이
+    같은 방식으로 돌 수 있다
+    """
+    cols = ", ".join(f'"{name}_초기" AS "{name}"' for name in INDICATORS)
+    rows = dicts(
+        f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return rows[0] if rows else None
+
+
 def customer_persona(customer_id):
     """member_chunk 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다"""
     rows = dicts(
