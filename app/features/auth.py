@@ -8,10 +8,7 @@ app/features/admin.py 가 이미 쓰는 것과 같은 구조.
 import random
 import string
 
-from app.core.db import (
-    next_customer_id, next_unclaimed_customer_id, create_customer_stub,
-    create_login, get_login_row, dicts,
-)
+from app.core.db import pick_customer_for_login, create_login, get_login_row, dicts
 
 
 def _random_code(length, chars):
@@ -21,19 +18,18 @@ def _random_code(length, chars):
 def login(login_id, password):
     """아이디+비번으로 로그인한다. 성공하면 customer_id, 실패하면 None.
 
-    처음 보는 아이디면 그 자리에서 계정을 만들어 바로 로그인시킨다 — 로그인
-    계정이 없는 기존 회원(이름·나이·페르소나가 이미 있는 시드 데이터)이 남아
-    있으면 그 사람에게, 다 배정됐으면 새 빈 계정에 이 아이디/비번을 그대로
-    붙인다. 이미 있는 아이디면 비번이 맞는지만 본다. 별도 "계정 발급" 단계
+    처음 보는 아이디면 그 자리에서 기존 회원(이름·나이·페르소나가 이미 있는
+    시드 데이터)에게 이 아이디/비번을 붙여 바로 로그인시킨다 — 로그인이 없는
+    회원이 남아 있으면 그 사람에게, 다 배정됐으면 로그인이 가장 적게 붙은
+    회원을 다시 쓴다. 빈 계정은 절대 새로 만들지 않는다(마이페이지는 그
+    회원의 기존 정보를 그대로 보여줄 뿐이라 정보가 있는 회원이어야 의미가
+    있다). 이미 있는 아이디면 비번이 맞는지만 본다. 별도 "계정 발급" 단계
     없이 로그인 폼 하나로 발급+로그인을 겸하는 게 지금 요구사항이다 —
     실 회원가입이 붙으면 이 즉석 발급 분기는 걷어내면 된다.
     """
     row = get_login_row(login_id)
     if row is None:
-        customer_id = next_unclaimed_customer_id()
-        if customer_id is None:
-            customer_id = next_customer_id()
-            create_customer_stub(customer_id)
+        customer_id = pick_customer_for_login()
         create_login(customer_id, login_id, password)
         return customer_id
 

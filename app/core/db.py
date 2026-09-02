@@ -470,53 +470,60 @@ def write_admin_log(target: str, target_id: str, patch: dict) -> None:
 _user_login_ready = False
 
 def ensure_user_login():
-    """user_login 테이블이 없으면 만든다."""
+    """user_login 테이블이 없으면 만든다. login_id 가 기본키다 — 계정 풀이
+    소진되면 같은 customer_id 에 로그인이 여러 개 붙을 수 있어야 해서
+    (빈 계정을 새로 만드는 대신 기존 회원을 재사용하는 정책), customer_id는
+    더 이상 유일하지 않다.
+
+    예전 스키마(customer_id가 기본키)로 이미 만들어진 DB라면 데이터를
+    보존한 채 새 스키마로 옮긴다.
+    """
     global _user_login_ready
     if _user_login_ready: return
 
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS user_login (
-            customer_id TEXT PRIMARY KEY,
-            login_id    TEXT UNIQUE NOT NULL,
-            password    TEXT NOT NULL,
-            created_at  TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    get_con().commit()
+    con = get_con()
+    pk_cols = [r[1] for r in con.execute("PRAGMA table_info(user_login)").fetchall() if r[5] == 1]
+    if pk_cols == ["customer_id"]:
+        con.execute("ALTER TABLE user_login RENAME TO user_login_old")
+        con.execute("""
+            CREATE TABLE user_login (
+                login_id    TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL,
+                password    TEXT NOT NULL,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.execute("""
+            INSERT INTO user_login (login_id, customer_id, password, created_at)
+            SELECT login_id, customer_id, password, created_at FROM user_login_old
+        """)
+        con.execute("DROP TABLE user_login_old")
+    else:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS user_login (
+                login_id    TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL,
+                password    TEXT NOT NULL,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    con.commit()
     _user_login_ready = True
 
 
-def next_unclaimed_customer_id():
-    """user_login 이 없는 기존 customers 중 하나 (customer_id 순서로 첫 명). 없으면 None."""
+def pick_customer_for_login():
+    """새 아이디를 붙일 customer_id 를 고른다. 로그인이 아직 없는 회원을
+    우선하고, 전부 배정됐으면 로그인이 가장 적게 붙은 회원을 다시 쓴다 —
+    빈 계정은 절대 새로 만들지 않고 항상 기존 회원 정보에 붙인다."""
     ensure_user_login()
     row = one("""
         SELECT c.customer_id FROM customers c
         LEFT JOIN user_login u ON u.customer_id = c.customer_id
-        WHERE u.customer_id IS NULL
-        ORDER BY c.customer_id LIMIT 1
+        GROUP BY c.customer_id
+        ORDER BY COUNT(u.customer_id) ASC, c.customer_id ASC
+        LIMIT 1
     """)
     return row[0] if row else None
-
-
-def next_customer_id():
-    """customers 표의 마지막 번호 다음 번호를 'C101' 형식으로 돌려준다.
-
-    # ponytail: 동시에 두 요청이 들어오면 같은 번호를 계산해 INSERT가 하나 실패할 수 있다.
-    # 지금 트래픽(로컬 개발/소규모 테스트)에선 무시 가능 — 붙는다면 UNIQUE 재시도 루프 추가.
-    """
-    row = one("SELECT customer_id FROM customers ORDER BY customer_id DESC LIMIT 1")
-    last_num = int(row[0][1:]) if row else 0
-    return f"C{last_num + 1:03d}"
-
-
-def create_customer_stub(customer_id):
-    """customers 표에 최소 행(가입일만)을 만든다. 임시 계정 발급용 —
-    preferences/persona가 없어도 customer_list()·dashboard() 집계엔 잡히게 하려는 목적"""
-    get_con().execute(
-        "INSERT INTO customers (customer_id, joined_at) VALUES (?, ?)",
-        (customer_id, datetime.now().strftime("%Y-%m-%d")),
-    )
-    get_con().commit()
 
 
 def create_login(customer_id, login_id, password):
