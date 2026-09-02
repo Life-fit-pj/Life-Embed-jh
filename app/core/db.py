@@ -6,8 +6,10 @@
     나중에 다른 DB 로 바꾸더라도 이 파일만 고치면 되도록 분리해 둔다.
 """
 
+import json
 import sqlite3
 import threading
+from datetime import datetime
 
 from app.core.config import DB_PATH, INDICATORS
 from app.domain.dong import dong_variants
@@ -99,9 +101,12 @@ def kb_chunks():
     )
 
 
+<<<<<<< HEAD
 # ── 회원/행정동 관리자 조회 (app/features/admin.py 가 쓴다) ──────────────
 
 
+=======
+>>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 def customer_list():
     """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
     return dicts("SELECT customer_id, name, age, city, city_dong FROM customers ORDER BY customer_id")
@@ -151,6 +156,12 @@ def region_one(gu, dong, columns):
     return rows[0] if rows else None
 
 
+<<<<<<< HEAD
+=======
+# dong_variants 는 app.domain.dong 에서 import 한다 (12번째 줄) — 여기서 다시 정의하지 않는다
+
+
+>>>>>>> 31aac80e51069e48915928bebabdec51d454a387
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
 #   (표 이름, 구 칸, 동 칸, 시설명 칸, 분류 칸)
@@ -227,7 +238,7 @@ def region_extras(gu, dong):
     # 화면에는 "보행 편의" 로 표시한다 —
     # 쓰레기통 개수로 "깨끗하다" 를 말하면 측정하지 않은 것을 주장하게 된다.
     # 우리가 아는 건 "버릴 곳을 찾기 쉽다" 까지다
-    row["보행편의_백분위"] = to_percentile("쓰레기통_밀도", row.get("쓰레기통_밀도"))
+    row["보행편의_백분위"] = column_percentile("쓰레기통_밀도", row.get("쓰레기통_밀도"))
 
     return row
 
@@ -272,22 +283,35 @@ def facility_categories(gu, dong, kind="학원", top=8):
     )
     
     
-def to_percentile(column, value, invert=False):
-    """어떤 값이 427개 동 중 백분위 몇인지 계산한다.
+def column_percentile(column, value, invert=False):
+    """어떤 칸의 값 하나가 427개 동 중 백분위 몇인지 계산한다.
 
     밀도 원값(12.3개/km²)은 사용자에게 의미가 없다.
     "상위 30%" 처럼 다른 동네와 비교한 위치로 바꿔야 읽힌다
     invert=True 면 "낮을수록 높은 점수"로 뒤집는다 (시세처럼 작을수록 좋은 지표용)
+
+    이름에 "column" 이 붙은 이유 —
+    app/engine/recommend.py 의 to_percentile 은 427개를 한꺼번에 받는 배치용이고,
+    이쪽은 칸 이름과 값 하나를 받는 단건용이다. 둘 다 필요하지만 이름이 같으면
+    어느 쪽을 고쳐야 하는지 헷갈린다 (dong_variants 사본 사고와 같은 구조).
+    동점 처리 규칙은 recommend.py 와 반드시 같아야 한다 — 두 값이 화면에서
+    똑같이 "상위 N%" 로 나란히 표시되기 때문이다.
     """
     if value is None:
         return None
 
     total = one('SELECT COUNT(*) FROM master_dataset_v3')[0]
     below = one(
-        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" <= ?',
+        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" < ?',
         (value,),
     )[0]
-    pct = round(below / total * 100)
+    same = one(
+        f'SELECT COUNT(*) FROM master_dataset_v3 WHERE "{column}" = ?',
+        (value,),
+    )[0]
+
+    rank = below + (same - 1) / 2        # 동점 그룹의 평균 순위 — recommend.py 와 같은 규칙
+    pct = round(rank / (total - 1) * 100)
 
     return 100 - pct if invert else pct
 
@@ -314,6 +338,173 @@ def region_price_detail(gu, dong, bldg, deal):
         (gu.strip(), *names, bldg, deal),
     )
     return rows[0] if rows else None
+
+_like_ready = False
+
+# => 좋아요
+def ensure_likes():
+    """likes 테이블이 없으면 만든다."""
+    global _like_ready
+    if _like_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS likes (
+            anon_id TEXT NOT NULL,
+            구 TEXT NOT NULL,
+            행정동명 TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (anon_id, 구, 행정동명)
+        )
+    """)
+    get_con().commit()
+    _like_ready = True
+
+def add_like(anon_id, gu, dong):
+    """좋아요 추가. 이미 있을 경우 무시"""
+    ensure_likes()
+    get_con().execute("""
+        INSERT OR IGNORE INTO likes (anon_id, 구, 행정동명) VALUES (?, ?, ?)
+    """,(anon_id,gu,dong),)
+    get_con().commit()
+
+def remove_like(anon_id, gu, dong):
+    """좋아요 취소."""
+    ensure_likes()
+    get_con().execute("""
+        DELETE FROM likes WHERE anon_id = ? AND 구 = ? AND 행정동명 =?
+    """, (anon_id, gu, dong),)
+    get_con().commit()
+
+# => 검색
+_search_history_ready = False
+
+def ensure_search_history():
+    """search_history 테이블이 없으면 만든다."""
+    global _search_history_ready
+    if _search_history_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS search_history (
+            anon_id TEXT NOT NULL,
+            query TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _search_history_ready = True
+
+def add_search_history(anon_id, query):
+    """검색어 기록 추가. 같은 검색어라도 매번 새 줄로 남긴다(likes와 달리 유니크 제약 없음)"""
+    ensure_search_history()
+    get_con().execute("""
+        INSERT INTO search_history (anon_id, query) VALUES (?, ?)
+    """, (anon_id, query),)
+    get_con().commit()
+
+def list_search_history(anon_id, limit=20):
+    """최근 검색어부터 반환."""
+    ensure_search_history()
+    return dicts("""
+        SELECT query, created_at FROM search_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
+
+# => 채팅
+_chat_history_ready = False
+
+def ensure_chat_history():
+    """chat_history 테이블이 없으면 만든다."""
+    global _chat_history_ready
+    if _chat_history_ready: return
+
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            anon_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    get_con().commit()
+    _chat_history_ready = True
+
+def add_chat_history(anon_id, question, answer):
+    """채팅 질문/답변 기록 추가."""
+    ensure_chat_history()
+    get_con().execute("""
+        INSERT INTO chat_history (anon_id, question, answer) VALUES (?, ?, ?)
+    """, (anon_id, question, answer),)
+    get_con().commit()
+
+def list_chat_history(anon_id, limit=20):
+    """최근 대화부터 반환."""
+    ensure_chat_history()
+    return dicts("""
+        SELECT question, answer, created_at FROM chat_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
+
+## 캐시를 버리는 코드
+
+def _run_update(table, where_sql, where_params, patch, allowed):
+    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
+
+    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지 (5-4)
+    """
+    fields = [name for name in patch if name in allowed]
+    if not fields:
+        return 0
+
+    sets = ", ".join(f'"{name}" = ?' for name in fields)
+    values = [patch[name] for name in fields]
+
+    get_con().execute(
+        f'UPDATE "{table}" SET {sets} WHERE {where_sql}',
+        (*values, *where_params),
+    )
+    get_con().commit()
+    return len(fields)
+
+
+def update_customer(customer_id, patch, allowed):
+    return _run_update("customers", "customer_id = ?", (customer_id,), patch, allowed)
+
+
+def update_preferences(customer_id, patch, allowed):
+    return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
+
+
+def update_region(gu, dong, patch, allowed):
+    """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
+    names = dong_variants(dong)
+    marks = ", ".join("?" * len(names))
+    where_sql = f'TRIM(구) = ? AND TRIM(행정동명) IN ({marks})'
+    return _run_update("master_dataset_v3", where_sql, (gu.strip(), *names), patch, allowed)
+
+
+def ensure_admin_log() -> None:
+    """관리자 수정 이력 표. 없으면 만든다 (있으면 아무 일도 안 한다)."""
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS admin_log (
+            log_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            target     TEXT,      -- 'member' 또는 'region'
+            target_id  TEXT,      -- 'C001' 또는 '강남구 역삼1동'
+            patch      TEXT,      -- 보낸 값 그대로 (JSON 문자열)
+            changed_at TEXT       -- 언제
+        )
+    """)
+    get_con().commit()
+
+
+def write_admin_log(target: str, target_id: str, patch: dict) -> None:
+    """수정 한 건을 남긴다."""
+    ensure_admin_log()
+    get_con().execute(
+        "INSERT INTO admin_log (target, target_id, patch, changed_at) VALUES (?, ?, ?, ?)",
+        (target, target_id, json.dumps(patch, ensure_ascii=False),
+         datetime.now().isoformat(timespec="seconds")),
+    )
+    get_con().commit()
 
 
 # ── 회원/행정동 관리자 수정 (app/features/admin.py 가 쓴다) ──────────────
@@ -356,6 +547,7 @@ def update_region(gu, dong, patch, allowed):
 
 
 if __name__ =="__main__":
+    # ── 좋아요 ──
     print()
     print("중계1동 학원 분야:")
     for r in facility_categories("노원구", "중계1동", "학원"):
