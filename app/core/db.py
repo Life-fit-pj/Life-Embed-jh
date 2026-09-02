@@ -365,6 +365,14 @@ def remove_like(anon_id, gu, dong):
     """, (anon_id, gu, dong),)
     get_con().commit()
 
+def list_likes(anon_id):
+    """이 사람이 좋아요 누른 동네 목록. 최근 순."""
+    ensure_likes()
+    return dicts("""
+        SELECT 구, 행정동명, created_at FROM likes
+        WHERE anon_id = ? ORDER BY created_at DESC
+    """, (anon_id,))
+
 # => 검색
 _search_history_ready = False
 
@@ -478,6 +486,18 @@ def ensure_user_login():
     _user_login_ready = True
 
 
+def next_unclaimed_customer_id():
+    """user_login 이 없는 기존 customers 중 하나 (customer_id 순서로 첫 명). 없으면 None."""
+    ensure_user_login()
+    row = one("""
+        SELECT c.customer_id FROM customers c
+        LEFT JOIN user_login u ON u.customer_id = c.customer_id
+        WHERE u.customer_id IS NULL
+        ORDER BY c.customer_id LIMIT 1
+    """)
+    return row[0] if row else None
+
+
 def next_customer_id():
     """customers 표의 마지막 번호 다음 번호를 'C101' 형식으로 돌려준다.
 
@@ -509,14 +529,15 @@ def create_login(customer_id, login_id, password):
     get_con().commit()
 
 
-def find_login(login_id, password):
-    """아이디+비번이 맞으면 customer_id, 아니면 None."""
+def get_login_row(login_id):
+    """login_id 하나의 계정 정보. 없으면 None. 로그인 시 "아이디가 아예 없는지"와
+    "비번이 틀렸는지"를 구분해야 즉석 발급이 가능해서 find_login 대신 이걸 쓴다."""
     ensure_user_login()
     row = one(
-        "SELECT customer_id FROM user_login WHERE login_id = ? AND password = ?",
-        (login_id, password),
+        "SELECT customer_id, password FROM user_login WHERE login_id = ?",
+        (login_id,),
     )
-    return row[0] if row else None
+    return {"customer_id": row[0], "password": row[1]} if row else None
 
 # ── 회원/행정동 관리자 수정 (app/features/admin.py 가 쓴다) ──────────────
 

@@ -2,6 +2,7 @@ from app.core.db import (
     customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
     column_percentile, write_admin_log, ensure_admin_log, dicts, one,
+    list_likes, list_search_history, list_chat_history,
 )
 
 from app.core.config import INDICATORS, CHUNK_COLUMNS
@@ -27,7 +28,13 @@ RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 �
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
 
 def get_member(customer_id):
-    """회원 한 명 = 기본정보 + 희망조건 + 페르소나 9칸"""
+    """회원 한 명 = 기본정보 + 희망조건 + 페르소나 9칸 + 활동(좋아요/검색/채팅)
+
+    활동 3종은 anon_id 를 키로 쌓이는데, 로그인한 회원은 anon_id 자리가
+    customer_id 로 덮어써져 있으므로(services/engine.py의 로그인 처리) 여기서
+    같은 customer_id 로 그대로 조회하면 이 회원 몫만 걸러진다. 로그인 전(임시
+    UUID로 활동했을 때) 기록은 안 잡힌다 — 로그인해야 그 뒤로 이 사람 것이 된다.
+    """
     customer = customer_one(customer_id)
     if customer is None:
         return None
@@ -35,6 +42,9 @@ def get_member(customer_id):
         "customer": customer,
         "preferences": customer_preferences(customer_id) or {},
         "persona": customer_persona(customer_id),
+        "likes": list_likes(customer_id),
+        "searches": list_search_history(customer_id),
+        "chats": list_chat_history(customer_id),
     }
 
 
