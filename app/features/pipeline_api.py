@@ -98,6 +98,26 @@ def recommend_by_weights(weights, top_k=5, housing=None):
     return attach_price(detailed, housing)
 
 
+def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None):
+    """이미 계산된 가중치 + 사람 묘사 문장 -> TOP 5 + 설명문.
+
+    search()와 달리 검색어를 안 받는다. 서술형 설문처럼 가중치를 이미
+    직접 계산할 수 있을 때 쓴다 — ask_claude()(LLM 추정)와
+    find_similar_members()/blend()(회원 유사도 보정) 두 단계를 건너뛰고
+    recommend_by_weights() -> explain() 만 돈다.
+    """
+    r = get_ready()
+    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
+    cases = find_cases(persona_query, r["kb_rows"], r["kb_vectors"])
+    text = explain(persona_query, weights, detailed, cases, housing=housing)
+    return {
+        "weights": weights,
+        "regions": detailed,
+        "explanation": text,
+        "housing": housing,
+    }
+    
+    
 def search(query, top_k=5, housing_override=None, weights_override=None):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 
