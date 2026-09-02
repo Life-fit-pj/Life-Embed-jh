@@ -26,7 +26,6 @@ RULES = {"age": (0, 120)}
 RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 전부 1~5
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
 
-
 def get_member(customer_id):
     """회원 한 명 = 기본정보 + 희망조건 + 페르소나 9칸"""
     customer = customer_one(customer_id)
@@ -128,8 +127,8 @@ def update_member(customer_id, patch):
 def update_region(gu, dong, patch):
     if get_region(gu, dong) is None:
         return None
-    _validate(patch) 
-    
+    _validate(patch)
+
     db_update_region(gu, dong, patch, REGION_FIELDS)
     write_admin_log("region", f"{gu} {dong}", patch)
     _clear_caches()

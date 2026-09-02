@@ -101,6 +101,9 @@ def kb_chunks():
     )
 
 
+
+# ── 회원/행정동 관리자 조회 (app/features/admin.py 가 쓴다) ──────────────
+
 def customer_list():
     """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
     return dicts("SELECT customer_id, name, age, city, city_dong FROM customers ORDER BY customer_id")
@@ -148,10 +151,6 @@ def region_one(gu, dong, columns):
         (gu.strip(), *names),
     )
     return rows[0] if rows else None
-
-
-# dong_variants 는 app.domain.dong 에서 import 한다 (12번째 줄) — 여기서 다시 정의하지 않는다
-
 
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
