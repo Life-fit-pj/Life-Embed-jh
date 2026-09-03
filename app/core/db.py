@@ -595,6 +595,27 @@ def update_preferences(customer_id, patch, allowed):
     return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
 
 
+def _run_insert(table, customer_id, patch, allowed):
+    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 INSERT 한다.
+    _run_update 의 INSERT 버전이다. customer_id 는 항상 첫 칸으로 같이 넣는다.
+    """
+    fields = [name for name in allowed if name in patch]
+    cols = ["customer_id"] + fields
+    quoted = ", ".join(f'"{c}"' for c in cols)
+    marks = ", ".join("?" * len(cols))
+    values = [customer_id] + [patch[name] for name in fields]
+
+    get_con().execute(f'INSERT INTO "{table}" ({quoted}) VALUES ({marks})', values)
+    get_con().commit()
+
+
+def insert_customer(customer_id, patch, allowed):
+    return _run_insert("customers", customer_id, patch, allowed)
+
+
+def insert_preferences(customer_id, patch, allowed):
+    return _run_insert("user_preferences", customer_id, patch, allowed)
+
 def update_region(gu, dong, patch, allowed):
     """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
     names = dong_variants(dong)
