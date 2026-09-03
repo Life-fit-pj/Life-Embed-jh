@@ -119,6 +119,11 @@ nemotron.csv ──────────────────────�
 - **7개 지표**는 `config.py`의 `INDICATORS = ["녹지","안전","교통","상권","의료","교육","문화"]`가
   유일한 정의처다. `user_preferences` 테이블 칸 이름이자 `recommend.py`의 `INDICATOR_COLUMNS` 키와
   반드시 일치해야 한다.
+- **`user_preferences` 의 `_초기` 7칸은 CSV 에 없는 파생 칸이다.** `pipeline/schema.py` 가 적재
+  직후 현재값을 복사해 만든다(`SNAPSHOT_COLUMNS`). 관리자 화면의 "가입 시 희망 조건"과
+  `analysis.facts_drift()` 가 이 칸을 읽는다. 없으면 **에러가 안 나고 조용히 틀린다** — SQLite 가
+  큰따옴표로 감싼 미지의 이름을 문자열 리터럴로 해석해서 칸 이름 글자가 값처럼 돌아온다
+  (화면엔 NaN, 집계엔 거짓 숫자). `STUDY.md` 17절 참고.
 - **임베딩 모델은 저장/검색 시 반드시 동일해야 한다** (`EMBED_MODEL`, 현재 `intfloat/multilingual-e5-small`,
   차원 384). 모델을 바꾸면 이미 저장된 벡터를 전부 다시 만들어야 한다.
 - **e5 접두사 규칙**: 저장할 문서는 `passage:`, 검색 질의는 `query:`를 붙인다 (`to_passage`/`to_query`).

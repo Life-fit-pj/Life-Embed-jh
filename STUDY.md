@@ -462,3 +462,148 @@ INDICATOR_COLUMNS 가 요구하는 밀도 칸 12개 전부 존재, NULL 0건
 - **스니펫의 `...`을 그대로 붙여넣으면 코드가 사라진다.** 이번에 `explain.py`가 두 번 깨졌다.
   붙여넣을 코드는 항상 완결된 블록이어야 한다.
 
+
+# 17. (2026-09-04) 관리자 화면 "가입 시 희망 조건"이 전부 NaN
+
+## 증상
+
+회원 상세를 열면 위쪽 **가입 시 희망 조건** 블록의 슬라이더 7개가 전부 가운데에 멈춰 있고
+값이 `NaN` 으로 찍힌다. 아래쪽 **현재 희망 조건**은 멀쩡하다.
+
+## 원인 — `_초기` 칸이 DB 에 아예 없었다
+
+`user_preferences` 표는 `data/user_preferences.csv` 를 그대로 적재해 만든다. 그런데 CSV 헤더는
+
+```
+customer_id,건물유형,거래형태,매매가,보증금,월세,건축면적,층수,준공년도,녹지,안전,교통,상권,의료,교육,문화
+```
+
+여기까지다. `녹지_초기` 같은 칸이 없다. `pipeline/schema.py` 는 **CSV 칸을 그대로 표로 옮기는**
+파이프라인이라 CSV 에 없는 칸은 만들 이유가 없었다. 그런데 코드 세 곳은 그 칸이 있다고 믿고 있었다 —
+`app/core/db.py` 의 `customer_preferences_initial()`, `app/features/analysis.py` 의 `facts_drift()`,
+그리고 `app/features/admin.py` 의 `create_member()`.
+
+**왜 에러가 안 났나.** 여기가 이 버그의 핵심이다. SQLite 에는 큰따옴표에 대한 관대한 예외가 있다 —
+큰따옴표로 감싼 이름이 칸으로 안 잡히면 에러 대신 **문자열 리터럴로 해석한다.**
+
+```sql
+SELECT "녹지_초기" AS "녹지" FROM user_preferences;   -- 칸이 없어도 안 죽는다
+```
+
+```
+('녹지_초기',)   ← 값이 아니라 칸 이름 글자가 100줄 돌아온다
+```
+
+이 글자가 JSON 을 타고 화면까지 흘러가서 `admin.html` 의 `round4()` 를 만난다.
+
+```js
+const round4 = v => (v === null || v === undefined || v === '')
+  ? '' : String(Math.round(Number(v) * 1e4) / 1e4);   // Number('녹지_초기') → NaN
+```
+
+`Number('녹지_초기')` 가 `NaN` 이고, 그게 그대로 화면에 찍힌 것이다.
+
+**같은 원인으로 조용히 틀리고 있던 곳이 하나 더 있었다.** 대시보드의 라이프스타일 변동 추이다.
+
+```sql
+SELECT COUNT(*), AVG("녹지" - "녹지_초기") FROM user_preferences
+ WHERE "녹지_초기" IS NOT NULL AND ABS("녹지" - "녹지_초기") >= 0.005;
+```
+
+`"녹지_초기"` 가 글자라서 `IS NOT NULL` 은 늘 참, 뺄셈에서는 숫자 0 으로 취급된다. 결과는
+`(100, 3.53)` — **"100명 전원이 평균 3.53 만큼 움직였다"** 는 그럴듯한 거짓 숫자였다.
+정답은 0건이다(아직 아무도 안 고쳤으므로).
+
+또 `create_member()` 는 `INSERT` 에 `녹지_초기` 를 넣는데, INSERT 의 칸 목록에는 저 관대한 예외가
+적용되지 않아서 **관리자 화면의 "회원 추가" 는 항상 `no such column` 으로 실패하고 있었다.**
+
+## 고친 것
+
+**1) `pipeline/schema.py` — 적재 뒤에 파생 칸을 만든다**
+
+CSV 에 `_초기` 7칸을 두 벌 적어 두는 대신, 적재가 끝난 시점의 값을 복사해 만든다. 적재 직후의
+CSV 값이 곧 "가입 시 값"이므로 이 시점이 정확하다.
+
+```python
+# 원본 — 파생 칸 개념 자체가 없었다
+    # 5. FK 칸에 색인. 조인할 때 훨씬 빨라진다
+```
+
+```python
+# 수정
+SNAPSHOT_SUFFIX = "_초기"
+SNAPSHOT_COLUMNS = {"user_preferences": tuple(INDICATORS)}
+
+def add_snapshot_columns(cur, table, columns, types):
+    """`{칸}_초기` 칸을 만들고 지금 값을 그대로 복사한다. 이미 있으면 건너뛴다."""
+    ...
+    cur.execute(f'ALTER TABLE "{table}" ADD COLUMN "{snapshot}" {types.get(col, "FLOAT")}')
+    cur.execute(f'UPDATE "{table}" SET "{snapshot}" = "{col}"')
+
+# __main__ 안, 적재(4) 와 색인(5) 사이
+    for name, columns in SNAPSHOT_COLUMNS.items():
+        if name not in tables:
+            continue
+        made = add_snapshot_columns(cur, name, columns, tables[name]["type"])
+```
+
+`CREATE TABLE` 에 섞지 않고 `ALTER` 로 붙이는 이유 — CREATE 문과 INSERT 문이 **같은 칸 목록**
+(`table["columns"]`, CSV 헤더)을 공유한다. 거기에 파생 칸을 끼워 넣으면 둘을 같이 고쳐야 하고,
+한쪽만 고치면 "칸 수가 안 맞는다" 로 적재가 통째로 죽는다.
+
+**2) 이미 있는 `data/life.db` 는 재적재 없이 그 자리에서 채웠다**
+
+`python -m pipeline.schema` 는 `life.db` 를 **지우고 다시 만든다.** 그러면 CSV 에 없는 것 —
+`kb_chunk`·`member_chunk` 의 벡터 900여 개, 관리자 수정 이력, 로그인 이후 쌓인 좋아요·검색·채팅 —
+이 전부 날아가고 재임베딩까지 해야 한다. 그래서 방금 만든 함수를 그대로 불러 7칸만 붙였다.
+
+```python
+from pipeline.schema import add_snapshot_columns, SNAPSHOT_COLUMNS, tables
+con = sqlite3.connect(DB_PATH); cur = con.cursor()
+for t, cols in SNAPSHOT_COLUMNS.items():
+    add_snapshot_columns(cur, t, cols, tables[t]["type"])
+con.commit()
+```
+
+같은 함수를 쓴 덕에 지금 DB 와 "재적재했을 때 나올 DB" 의 스키마가 정확히 같다(둘 다 INTEGER).
+
+**3) 조회 쪽에 "칸이 진짜 있나" 확인을 넣었다 (`db.py`, `analysis.py`)**
+
+같은 사고가 또 나도 이번엔 **조용히 틀리지는 않게** 만든다.
+
+```python
+# app/core/db.py — 새로 추가
+def table_columns(table):
+    """표에 실제로 있는 칸 이름들. 없는 표면 빈 집합."""
+    return {row[1] for row in query(f'PRAGMA table_info("{table}")')}
+```
+
+```python
+# customer_preferences_initial() 맨 앞
+if not {f"{name}_초기" for name in INDICATORS} <= table_columns("user_preferences"):
+    return None          # 화면은 이 블록을 아예 안 그린다 (NaN 슬라이더 대신)
+```
+
+`facts_drift()` 도 같은 확인을 하고, 없으면 세는 시늉 대신 `"user_preferences 에 _초기 칸이 없다"`
+라고 이유를 적어 돌려준다. 거짓 숫자보다 빈칸이 낫다.
+
+## 검증
+
+| 확인한 것 | 결과 |
+| --- | --- |
+| `PRAGMA table_info(user_preferences)` | `녹지_초기` … `문화_초기` 7칸 INTEGER |
+| `admin.get_member("C002")` | `preferences_initial` = `{녹지:4, 안전:3, 교통:3, 상권:5, 의료:3, 교육:1, 문화:4}` — CSV 원본과 일치 |
+| `_초기` 가 NULL 인 회원 | 0명 (100명 전원 채워짐) |
+| `analysis.facts_drift()` | `변동_있는_칸수: 0` (고치기 전에는 거짓 100건) |
+| `create_member` 의 INSERT | 성공(트랜잭션 롤백으로 확인). 고치기 전에는 `no such column` |
+
+## 배울 것
+
+- **SQLite 의 큰따옴표 예외를 기억해라.** 없는 칸 이름이 문자열로 둔갑한다. 오타 하나가 에러가
+  아니라 "그럴듯한 값"으로 나타나는 유일한 경로다. 칸 이름을 코드로 조립할 때는(`f"{name}_초기"`)
+  특히 위험하다 — 오타를 눈으로 볼 기회조차 없다.
+- **"CSV 에 없는 칸"은 적재 파이프라인이 책임져야 한다.** 앱 코드가 있다고 가정만 하면 아무도
+  만들지 않는다. 16절의 교훈과 같다 — 조용히 틀리는 버그가 제일 비싸다.
+- **DB 를 고칠 때 재적재가 유일한 답은 아니다.** `life.db` 에는 CSV 에서 다시 만들 수 없는 것들이
+  들어 있다. 칸 하나 때문에 그걸 다 버리지 말 것.
+
