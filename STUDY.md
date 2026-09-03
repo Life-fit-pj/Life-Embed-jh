@@ -272,6 +272,33 @@ for column in CHUNK_COLUMNS:
 건드렸다 — 회원가입 기능을 실제로 만들 때 이 섹션을 참고할 것.
 
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 2acb0cb96cb318ef1d0c68e46d1e961ab2d526cd
+## 신규 및 수정한 파일 목록<다솜>
+Life-Embed-jh: app/core/db.py(수정), app/features/pipeline_api.py(수정, 지난번 추가한 recommend_by_weights_explained), app/features/admin.py(신규, 방금 고침)
+Life-Web: main.py, services/engine.py, services/lifetype.py(지난번 버그 수정), routers/survey.py(신규), services/persona_type.py(신규)
+
+## 수정사항
+문법 오류 수정 — app/engine/explain.py:117에 f-string 안에 같은 종류의 따옴표("..." 안에 ", ")를 중첩해서 쓴 코드가 있어 Python이 아예 파싱을 못 하고 죽었습니다. 홑따옴표로 바꿔서 고쳤고, import가 그 지점은 통과하는 걸 확인했습니다.
+
+새 파일 app/repositories/members.py 추가 (다만 지금은 `member_chunks()`, `member_weigths()` — 오타 있음 — 두 함수뿐)
+
+Life-Web/services/persona_type.py (신규) — 서술형 15문항 → 축 점수 → 유형 판정 → 7지표 가중치. `lifetype.py`의 `AXES/TYPES/AXIS_TO_WEIGHT/type_of()`를 그대로 재사용해서 1차·2차가 같은 표를 씁니다(따로 사본을 두지 않음). LLM 없이 규칙 기반으로 즉시 계산됩니다. 독립 실행해서 확인했습니다
+
+**Life-Embed-jh/app/features/pipeline_api.py**에 recommend_by_weights_explained(weights, persona_query, ...) 추가 `recommend.py`(recommend_by_weights)와 `explain.py`(explain, find_cases)만 그대로 재사용합니다. 설문은 이미 문항마다 축이 정해져 있어 가중치를 LLM이 추정할 필요가 없거든요.
+
+**Life-Web/services/engine.py**에 `get_survey_recommendation()` 래퍼 추가, `Life-Web/routers/survey.py`(신규) — POST /api/survey가 answers(15문항)를 받아 위 파이프라인을 태우고 /api/predict와 같은 모양(topRegions, explanation 등)으로 응답합니다. `main.py`에도 등록했습니다.
+
+끝까지 실서버로는 확인 못 한 이유
+routers/survey.py → services/engine.py를 import하는 순간 아까 발견했던 그 문제에 다시 걸립니다:
+ModuleNotFoundError: No module named 'app.features.admin'
+
+## 발견하고 고친 것
+admin.py가 기대하는 DB 조회 함수 10개가 db.py에 없었습니다 — customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one, update_customer, update_preferences, update_region 등. 브랜치들을 뒤져보니 origin/jihye 브랜치의 `db.py`에는 이 함수들이 이미 있더라고요(순수 추가분, 지금 db.py랑 충돌 없음 — diff 확인함). 그걸 그대로 옮겨왔습니다.
+이름이 안 맞는 게 하나 있었습니다 — admin.py는  `column_percentile`이라는 함수를 import하는데, db.py엔 `to_percentile`이라는 이름으로만 있었습니다(jihye 브랜치에도 column_percentile은 어디에도 없었어요). `admin.py` 쪽을 `to_percentile`로 맞췄습니다.
+
 # 16. (2026-09-01) 추천 결과와 LLM 답변이 이상한 원인 5가지
 
 `a529501` 머지에서 `db.py`의 `import re`가 사라져 `NameError`가 났고 그건 해결했다. 그런데
@@ -434,3 +461,4 @@ INDICATOR_COLUMNS 가 요구하는 밀도 칸 12개 전부 존재, NULL 0건
   합치는 게 항상 정답은 아니다.
 - **스니펫의 `...`을 그대로 붙여넣으면 코드가 사라진다.** 이번에 `explain.py`가 두 번 깨졌다.
   붙여넣을 코드는 항상 완결된 블록이어야 한다.
+

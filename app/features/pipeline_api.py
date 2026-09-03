@@ -116,8 +116,7 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
         "explanation": text,
         "housing": housing,
     }
-    
-    
+
 def search(query, top_k=5, housing_override=None, weights_override=None):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 

@@ -101,6 +101,9 @@ def kb_chunks():
     )
 
 
+
+# ── 회원/행정동 관리자 조회 (app/features/admin.py 가 쓴다) ──────────────
+
 def customer_list():
     """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
     return dicts("SELECT customer_id, name, age, city, city_dong FROM customers ORDER BY customer_id")
@@ -115,6 +118,24 @@ def customer_one(customer_id):
 def customer_preferences(customer_id):
     """user_preferences 표에서 한 명의 가중치 7개. 없으면 None"""
     cols = ", ".join(INDICATORS)
+    rows = dicts(
+        f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return rows[0] if rows else None
+
+
+def customer_preferences_initial(customer_id):
+    """가입 시 가중치 7개(`녹지_초기` 등). 없으면 None.
+
+    현재값과 따로 꺼내는 이유 —
+    관리자 화면이 "가입 때 이랬는데 지금 이렇다"를 위아래로 보여준다.
+    한 딕셔너리에 섞어 주면 화면이 칸 이름에서 `_초기`를 떼어내며 돌아야 한다.
+
+    돌려주는 키는 `_초기`를 뗀 이름이다 — 현재값과 같은 키라서 화면이
+    같은 방식으로 돌 수 있다
+    """
+    cols = ", ".join(f'"{name}_초기" AS "{name}"' for name in INDICATORS)
     rows = dicts(
         f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",
         (customer_id,),
@@ -148,10 +169,6 @@ def region_one(gu, dong, columns):
         (gu.strip(), *names),
     )
     return rows[0] if rows else None
-
-
-# dong_variants 는 app.domain.dong 에서 import 한다 (12번째 줄) — 여기서 다시 정의하지 않는다
-
 
 # ── 시설 조회 ──────────────────────────────────
 # 전처리 파일마다 칸 이름이 제각각이라 여기서 한 번에 정리한다.
@@ -366,6 +383,14 @@ def remove_like(anon_id, gu, dong):
     """, (anon_id, gu, dong),)
     get_con().commit()
 
+def list_likes(anon_id):
+    """이 사람이 좋아요 누른 동네 목록. 최근 순."""
+    ensure_likes()
+    return dicts("""
+        SELECT 구, 행정동명, created_at FROM likes
+        WHERE anon_id = ? ORDER BY created_at DESC
+    """, (anon_id,))
+
 # => 검색
 _search_history_ready = False
 
@@ -435,12 +460,117 @@ def list_chat_history(anon_id, limit=20):
         WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
     """, (anon_id, limit))
 
-## 캐시를 버리는 코드
+def ensure_admin_log() -> None:
+    """관리자 수정 이력 표. 없으면 만든다 (있으면 아무 일도 안 한다)."""
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS admin_log (
+            log_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            target     TEXT,      -- 'member' 또는 'region'
+            target_id  TEXT,      -- 'C001' 또는 '강남구 역삼1동'
+            patch      TEXT,      -- 보낸 값 그대로 (JSON 문자열)
+            changed_at TEXT       -- 언제
+        )
+    """)
+    get_con().commit()
+
+
+def write_admin_log(target: str, target_id: str, patch: dict) -> None:
+    """수정 한 건을 남긴다."""
+    ensure_admin_log()
+    get_con().execute(
+        "INSERT INTO admin_log (target, target_id, patch, changed_at) VALUES (?, ?, ?, ?)",
+        (target, target_id, json.dumps(patch, ensure_ascii=False),
+         datetime.now().isoformat(timespec="seconds")),
+    )
+    get_con().commit()
+
+# => 로그인
+_user_login_ready = False
+
+def ensure_user_login():
+    """user_login 테이블이 없으면 만든다. login_id 가 기본키다 — 계정 풀이
+    소진되면 같은 customer_id 에 로그인이 여러 개 붙을 수 있어야 해서
+    (빈 계정을 새로 만드는 대신 기존 회원을 재사용하는 정책), customer_id는
+    더 이상 유일하지 않다.
+
+    예전 스키마(customer_id가 기본키)로 이미 만들어진 DB라면 데이터를
+    보존한 채 새 스키마로 옮긴다.
+    """
+    global _user_login_ready
+    if _user_login_ready: return
+
+    con = get_con()
+    pk_cols = [r[1] for r in con.execute("PRAGMA table_info(user_login)").fetchall() if r[5] == 1]
+    if pk_cols == ["customer_id"]:
+        con.execute("ALTER TABLE user_login RENAME TO user_login_old")
+        con.execute("""
+            CREATE TABLE user_login (
+                login_id    TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL,
+                password    TEXT NOT NULL,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.execute("""
+            INSERT INTO user_login (login_id, customer_id, password, created_at)
+            SELECT login_id, customer_id, password, created_at FROM user_login_old
+        """)
+        con.execute("DROP TABLE user_login_old")
+    else:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS user_login (
+                login_id    TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL,
+                password    TEXT NOT NULL,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    con.commit()
+    _user_login_ready = True
+
+
+def pick_customer_for_login():
+    """새 아이디를 붙일 customer_id 를 고른다. 로그인이 아직 없는 회원을
+    우선하고, 전부 배정됐으면 로그인이 가장 적게 붙은 회원을 다시 쓴다 —
+    빈 계정은 절대 새로 만들지 않고 항상 기존 회원 정보에 붙인다."""
+    ensure_user_login()
+    row = one("""
+        SELECT c.customer_id FROM customers c
+        LEFT JOIN user_login u ON u.customer_id = c.customer_id
+        GROUP BY c.customer_id
+        ORDER BY COUNT(u.customer_id) ASC, c.customer_id ASC
+        LIMIT 1
+    """)
+    return row[0] if row else None
+
+
+def create_login(customer_id, login_id, password):
+    """로그인 계정 발급."""
+    ensure_user_login()
+    get_con().execute(
+        "INSERT INTO user_login (customer_id, login_id, password) VALUES (?, ?, ?)",
+        (customer_id, login_id, password),
+    )
+    get_con().commit()
+
+
+def get_login_row(login_id):
+    """login_id 하나의 계정 정보. 없으면 None. 로그인 시 "아이디가 아예 없는지"와
+    "비번이 틀렸는지"를 구분해야 즉석 발급이 가능해서 find_login 대신 이걸 쓴다."""
+    ensure_user_login()
+    row = one(
+        "SELECT customer_id, password FROM user_login WHERE login_id = ?",
+        (login_id,),
+    )
+    return {"customer_id": row[0], "password": row[1]} if row else None
+
+# ── 회원/행정동 관리자 수정 (app/features/admin.py 가 쓴다) ──────────────
+
 
 def _run_update(table, where_sql, where_params, patch, allowed):
     """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
 
-    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지 (5-4)
+    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지
     """
     fields = [name for name in patch if name in allowed]
     if not fields:
@@ -465,37 +595,33 @@ def update_preferences(customer_id, patch, allowed):
     return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
 
 
+def _run_insert(table, customer_id, patch, allowed):
+    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 INSERT 한다.
+    _run_update 의 INSERT 버전이다. customer_id 는 항상 첫 칸으로 같이 넣는다.
+    """
+    fields = [name for name in allowed if name in patch]
+    cols = ["customer_id"] + fields
+    quoted = ", ".join(f'"{c}"' for c in cols)
+    marks = ", ".join("?" * len(cols))
+    values = [customer_id] + [patch[name] for name in fields]
+
+    get_con().execute(f'INSERT INTO "{table}" ({quoted}) VALUES ({marks})', values)
+    get_con().commit()
+
+
+def insert_customer(customer_id, patch, allowed):
+    return _run_insert("customers", customer_id, patch, allowed)
+
+
+def insert_preferences(customer_id, patch, allowed):
+    return _run_insert("user_preferences", customer_id, patch, allowed)
+
 def update_region(gu, dong, patch, allowed):
     """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
     names = dong_variants(dong)
     marks = ", ".join("?" * len(names))
     where_sql = f'TRIM(구) = ? AND TRIM(행정동명) IN ({marks})'
     return _run_update("master_dataset_v3", where_sql, (gu.strip(), *names), patch, allowed)
-
-
-def ensure_admin_log() -> None:
-    """관리자 수정 이력 표. 없으면 만든다 (있으면 아무 일도 안 한다)."""
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS admin_log (
-            log_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-            target     TEXT,      -- 'member' 또는 'region'
-            target_id  TEXT,      -- 'C001' 또는 '강남구 역삼1동'
-            patch      TEXT,      -- 보낸 값 그대로 (JSON 문자열)
-            changed_at TEXT       -- 언제
-        )
-    """)
-    get_con().commit()
-
-
-def write_admin_log(target: str, target_id: str, patch: dict) -> None:
-    """수정 한 건을 남긴다."""
-    ensure_admin_log()
-    get_con().execute(
-        "INSERT INTO admin_log (target, target_id, patch, changed_at) VALUES (?, ?, ?, ?)",
-        (target, target_id, json.dumps(patch, ensure_ascii=False),
-         datetime.now().isoformat(timespec="seconds")),
-    )
-    get_con().commit()
 
 
 if __name__ =="__main__":

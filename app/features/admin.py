@@ -1,10 +1,13 @@
 from app.core.db import (
-    customer_list, customer_one, customer_preferences, customer_persona, region_list, region_one,
+    customer_list, customer_one, customer_preferences, customer_preferences_initial,
+    customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
+    insert_customer, insert_preferences,                       # ← 추가
     column_percentile, write_admin_log, ensure_admin_log, dicts, one,
+    list_likes, list_search_history, list_chat_history,
 )
 
-from app.core.config import INDICATORS, CHUNK_COLUMNS
+from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH   # ← MIN_LENGTH 추가
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
 from app.core.db import get_con
@@ -26,16 +29,29 @@ RULES = {"age": (0, 120)}
 RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 전부 1~5
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
 
-
 def get_member(customer_id):
-    """회원 한 명 = 기본정보 + 희망조건 + 페르소나 9칸"""
+    """회원 한 명 = 기본정보 + 희망조건(현재/가입시) + 페르소나 9칸 + 활동(좋아요/검색/채팅)
+
+    preferences_initial 은 가입 때 받은 값이다. 관리자가 고쳐도 안 바뀐다 —
+    화이트리스트(PREFERENCE_FIELDS)가 INDICATORS 7개뿐이라 `_초기` 칸은
+    수정 대상에 아예 안 들어간다
+
+    활동 3종은 anon_id 를 키로 쌓이는데, 로그인한 회원은 anon_id 자리가
+    customer_id 로 덮어써져 있으므로(services/engine.py의 로그인 처리) 여기서
+    같은 customer_id 로 그대로 조회하면 이 회원 몫만 걸러진다. 로그인 전(임시
+    UUID로 활동했을 때) 기록은 안 잡힌다 — 로그인해야 그 뒤로 이 사람 것이 된다.
+    """
     customer = customer_one(customer_id)
     if customer is None:
         return None
     return {
         "customer": customer,
         "preferences": customer_preferences(customer_id) or {},
+        "preferences_initial": customer_preferences_initial(customer_id) or {},
         "persona": customer_persona(customer_id),
+        "likes": list_likes(customer_id),
+        "searches": list_search_history(customer_id),
+        "chats": list_chat_history(customer_id),
     }
 
 
@@ -45,13 +61,24 @@ def list_members():
 
 
 def get_region(gu: str, dong: str) -> dict | None:
-    """행정동 하나의 지표 12개 + 427개 동 중 백분위. 없으면 None"""
+    """행정동 하나의 지표 12개 + 427개 동 중 백분위 + 좋아요 수. 없으면 None
+
+    좋아요는 likes 표에 (구, 행정동명) 글자 그대로 쌓인다. 화면이 추천 결과에서
+    받은 이름을 그대로 되돌려 보내므로 지금은 철자가 어긋나지 않는다.
+    ⚠ 받은 gu/dong 이 아니라 row 에서 읽은 정식 이름으로 센다 —
+      region_one() 이 dong_variants() 로 표기 변형을 흡수해 찾아 주기 때문이다
+    """
     row = region_one(gu, dong, REGION_FIELDS)
     if row is None:
         return None
+    likes = one(
+        "SELECT COUNT(*) FROM likes WHERE 구 = ? AND 행정동명 = ?",
+        (row["구"], row["행정동명"]),
+    )[0]
     return {
         "구": row["구"],
         "행정동명": row["행정동명"],
+        "likes": likes,
         "values": {name: row[name] for name in REGION_FIELDS},
         "percentiles": {name: column_percentile(name, row[name]) for name in REGION_FIELDS},
     }
@@ -124,12 +151,63 @@ def update_member(customer_id, patch):
     return get_member(customer_id)
 
 
+def _next_customer_id() -> str:
+    """지금 있는 가장 큰 번호 + 1. 'C105' 다음은 'C106'.
+
+    C101~C105 처럼 로그인만 발급된 빈 계정도 번호를 이미 썼으므로
+    그대로 이어서 쓴다 — 번호를 비워 두지 않는다.
+    """
+    rows = dicts("SELECT customer_id FROM customers")
+    nums = [int(r["customer_id"][1:]) for r in rows if r["customer_id"][1:].isdigit()]
+    return f"C{max(nums, default=0) + 1:03d}"
+
+
+def create_member(payload: dict) -> dict:
+    """회원 한 명을 손으로 새로 만든다. update_member 와의 차이는 딱 하나 —
+
+    거긴 "이미 있는 행을 고친다(UPDATE)"고 여긴 "행 자체가 없다(INSERT)"는 전제다.
+    페르소나를 하나라도 받으면 그 자리에서 청킹 + 임베딩까지 끝낸다
+    (resync_member 재사용 — 900개를 다시 만들지 않고 이 한 명 몫만 만드는
+    '증분 임베딩'이 이미 그 함수 안에 있다)
+    """
+    _validate(payload)     # 나이·가중치 범위는 기존 규칙을 그대로 쓴다
+
+    # 20자 미만 페르소나는 make_chunks() 가 조용히 버린다 —
+    # 여기서 먼저 막아야 "썼는데 왜 안 잡히지"가 안 생긴다
+    persona_patch = {k: v for k, v in payload.items()
+                      if k in PERSONA_FIELDS and (v or "").strip()}
+    too_short = {k: f"{MIN_LENGTH}자 이상 써야 벡터가 만들어진다 (지금 {len(v.strip())}자)"
+                 for k, v in persona_patch.items() if len(v.strip()) < MIN_LENGTH}
+    if too_short:
+        raise InvalidPatch(too_short)
+
+    customer_id = _next_customer_id()
+    insert_customer(customer_id, payload, CUSTOMER_FIELDS)
+
+    # 가중치를 하나라도 받았으면 '_초기' 칸도 같은 값으로 같이 채운다 —
+    # 방금 가입한 회원은 "지금 값"과 "가입 때 값"이 아직 같아야 정상이다
+    indicator_patch = {k: v for k, v in payload.items() if k in PREFERENCE_FIELDS}
+    if indicator_patch:
+        pref_row = dict(indicator_patch)
+        pref_row.update({f"{k}_초기": v for k, v in indicator_patch.items()})
+        insert_preferences(customer_id, pref_row, tuple(pref_row.keys()))
+
+    if persona_patch:
+        row = {k: persona_patch.get(k, "") for k in PERSONA_FIELDS}
+        row["customer_id"] = customer_id
+        resync_member(get_con(), customer_id, row)   # ← 청킹 + 임베딩 + 저장
+
+    write_admin_log("member", customer_id, payload)
+    _clear_caches()
+    return get_member(customer_id)
+
+
 # 행정동 수정
 def update_region(gu, dong, patch):
     if get_region(gu, dong) is None:
         return None
-    _validate(patch) 
-    
+    _validate(patch)
+
     db_update_region(gu, dong, patch, REGION_FIELDS)
     write_admin_log("region", f"{gu} {dong}", patch)
     _clear_caches()
@@ -228,7 +306,7 @@ def privacy_preview(customer_id: str) -> dict | None:
 # 모든 항목은 {"label": ..., "value": ...} 목록으로 통일한다 —
 # 그래야 화면 쪽 차트 함수 하나로 전부 그릴 수 있다.
 
-def _pairs(sql, params=()) -> list:
+def pairs(sql, params=()) -> list:
     """(이름, 개수) 두 칸짜리 SELECT 결과를 label/value 목록으로 바꾼다."""
     cur = get_con().execute(sql, params)
     return [{"label": str(a), "value": b} for a, b in cur.fetchall()]
@@ -270,14 +348,14 @@ def dashboard() -> dict:
 
     ensure_admin_log()      # 한 번도 수정 안 한 새 DB 에는 이 표가 아직 없다
 
-    ages = _pairs(
+    ages = pairs(
         "SELECT CAST(age / 10 AS INT) * 10, COUNT(*) FROM customers "
         "WHERE age IS NOT NULL GROUP BY 1 ORDER BY 1"
     )
     for a in ages:
         a["label"] = f"{a['label']}대"
 
-    genders = _pairs("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
+    genders = pairs("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
     for g in genders:
         g["label"] = {"M": "남성", "F": "여성"}.get(g["label"], g["label"])
 
@@ -289,7 +367,7 @@ def dashboard() -> dict:
         for name, value in zip(INDICATORS, row)
     ]
 
-    persona = _pairs(
+    persona = pairs(
         "SELECT category, CAST(AVG(LENGTH(text)) AS INT) FROM member_chunk GROUP BY 1 ORDER BY 2 DESC"
     )
     chunks = one("SELECT COUNT(*) FROM member_chunk")[0]
@@ -304,21 +382,21 @@ def dashboard() -> dict:
             "edits":    one("SELECT COUNT(*) FROM admin_log")[0],
         },
         "charts": {
-            "joins":     _pairs(
+            "joins":     pairs(
                 "SELECT substr(joined_at, 1, 7), COUNT(*) FROM customers "
                 "WHERE joined_at IS NOT NULL AND joined_at <> '' GROUP BY 1 ORDER BY 1"
             ),
             "ages":      ages,
             "genders":   genders,
             "weights":   weights,
-            "memberGu":  _pairs(
+            "memberGu":  pairs(
                 "SELECT city, COUNT(*) FROM customers WHERE city IS NOT NULL "
                 "GROUP BY 1 ORDER BY 2 DESC, 1"
             ),
-            "regionGu":  _pairs(
+            "regionGu":  pairs(
                 "SELECT 구, COUNT(*) FROM master_dataset_v3 GROUP BY 1 ORDER BY 2 DESC, 1"
             ),
-            "dealType":  _pairs(
+            "dealType":  pairs(
                 'SELECT "거래형태", COUNT(*) FROM user_preferences '
                 'WHERE "거래형태" IS NOT NULL AND "거래형태" <> \'\' GROUP BY 1 ORDER BY 2 DESC'
             ),
