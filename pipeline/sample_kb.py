@@ -16,7 +16,7 @@ from app.core.config import DATA_DIR
 from pipeline.io import save_csv
 
 # 구마다 몇 명씩 뽑을지. 최소 구(중구)가 2,539명이라 100명은 여유 있다
-PER_DISTRICT = 100
+PER_DISTRICT = 40
 
 SEED = 42       # 매번 같은 표본이 뽑히게 고정한다
 
