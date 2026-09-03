@@ -36,6 +36,45 @@ def login(login_id, password):
     return row["customer_id"] if row["password"] == password else None
 
 
+def id_exists(login_id):
+    """이 아이디가 이미 쓰이고 있는지. 회원가입 화면의 '중복확인' 버튼이 부른다."""
+    return get_login_row(login_id) is not None
+
+
+def signup(login_id, password):
+    """새 아이디로 명시적으로 가입한다. 이미 있는 아이디면 None(실패).
+
+    계정 배정 방식(pick_customer_for_login + create_login)은 login() 의 즉석 발급과
+    같지만, 이미 있는 아이디를 조용히 로그인시키는 대신 실패로 되돌린다는 점이 다르다.
+    즉석 발급은 "비번을 몰라도 아무거나 쳐서 들어오는" 임시 로그인이라 아이디가 이미
+    있어도 로그인 시도로 취급하지만, 회원가입에서는 그 아이디가 이미 남의 것이라는
+    뜻이므로 막아야 한다.
+    """
+    if get_login_row(login_id) is not None:
+        return None
+    customer_id = pick_customer_for_login()
+    create_login(customer_id, login_id, password)
+    return customer_id
+
+
+def google_login(email):
+    """구글 계정(이메일)으로 로그인한다. 처음이면 그 자리에서 계정을 배정하고,
+    다음부터는 같은 이메일이 항상 같은 계정으로 돌아온다.
+
+    아이디/비번 로그인과 같은 user_login 표를 쓰되, login_id 를 "google:이메일"
+    형태로 못박아 일반 아이디와 겹치지 않게 한다. 비밀번호 칸은 이 경로로는 아무도
+    확인하지 않으므로(구글 토큰 검증이 곧 인증이다) 아무도 못 맞힐 무작위 값을 넣어 둔다.
+    """
+    login_id = f"google:{email}"
+    row = get_login_row(login_id)
+    if row is not None:
+        return row["customer_id"]
+
+    customer_id = pick_customer_for_login()
+    create_login(customer_id, login_id, _random_code(24, string.ascii_letters + string.digits))
+    return customer_id
+
+
 def backfill_logins():
     """user_login 이 없는 기존 customers 에게 임시 아이디/비번을 만들어 준다.
 

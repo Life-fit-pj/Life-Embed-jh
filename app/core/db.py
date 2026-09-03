@@ -125,6 +125,24 @@ def customer_preferences(customer_id):
     return rows[0] if rows else None
 
 
+def customer_preferences_initial(customer_id):
+    """가입 시 가중치 7개(`녹지_초기` 등). 없으면 None.
+
+    현재값과 따로 꺼내는 이유 —
+    관리자 화면이 "가입 때 이랬는데 지금 이렇다"를 위아래로 보여준다.
+    한 딕셔너리에 섞어 주면 화면이 칸 이름에서 `_초기`를 떼어내며 돌아야 한다.
+
+    돌려주는 키는 `_초기`를 뗀 이름이다 — 현재값과 같은 키라서 화면이
+    같은 방식으로 돌 수 있다
+    """
+    cols = ", ".join(f'"{name}_초기" AS "{name}"' for name in INDICATORS)
+    rows = dicts(
+        f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",
+        (customer_id,),
+    )
+    return rows[0] if rows else None
+
+
 def customer_persona(customer_id):
     """member_chunk 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다"""
     rows = dicts(
@@ -576,6 +594,27 @@ def update_customer(customer_id, patch, allowed):
 def update_preferences(customer_id, patch, allowed):
     return _run_update("user_preferences", "customer_id = ?", (customer_id,), patch, allowed)
 
+
+def _run_insert(table, customer_id, patch, allowed):
+    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 INSERT 한다.
+    _run_update 의 INSERT 버전이다. customer_id 는 항상 첫 칸으로 같이 넣는다.
+    """
+    fields = [name for name in allowed if name in patch]
+    cols = ["customer_id"] + fields
+    quoted = ", ".join(f'"{c}"' for c in cols)
+    marks = ", ".join("?" * len(cols))
+    values = [customer_id] + [patch[name] for name in fields]
+
+    get_con().execute(f'INSERT INTO "{table}" ({quoted}) VALUES ({marks})', values)
+    get_con().commit()
+
+
+def insert_customer(customer_id, patch, allowed):
+    return _run_insert("customers", customer_id, patch, allowed)
+
+
+def insert_preferences(customer_id, patch, allowed):
+    return _run_insert("user_preferences", customer_id, patch, allowed)
 
 def update_region(gu, dong, patch, allowed):
     """행정동 표기가 갈릴 수 있으니 region_one 과 같은 방식으로 dong_variants 를 쓴다"""
