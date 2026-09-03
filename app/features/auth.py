@@ -41,18 +41,18 @@ def id_exists(login_id):
     return get_login_row(login_id) is not None
 
 
-def signup(login_id, password):
+def signup(login_id, password, payload):
     """새 아이디로 명시적으로 가입한다. 이미 있는 아이디면 None(실패).
 
-    계정 배정 방식(pick_customer_for_login + create_login)은 login() 의 즉석 발급과
-    같지만, 이미 있는 아이디를 조용히 로그인시키는 대신 실패로 되돌린다는 점이 다르다.
-    즉석 발급은 "비번을 몰라도 아무거나 쳐서 들어오는" 임시 로그인이라 아이디가 이미
-    있어도 로그인 시도로 취급하지만, 회원가입에서는 그 아이디가 이미 남의 것이라는
-    뜻이므로 막아야 한다.
+    이전에는 login() 처럼 이미 있는 시드 회원(C001~)에게 로그인만 붙이는
+    즉석 발급이었다. 이제는 payload(기본정보+희망조건+persona)로 customer 행
+    자체를 새로 만든다 — payload 모양은 app.features.admin.create_member() 와 같다.
     """
     if get_login_row(login_id) is not None:
         return None
-    customer_id = pick_customer_for_login()
+    from app.features.admin import create_member   # 함수 안 import(순환 참조 피함)
+    member = create_member(payload)
+    customer_id = member["customer"]["customer_id"]
     create_login(customer_id, login_id, password)
     return customer_id
 
