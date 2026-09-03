@@ -2,11 +2,12 @@ from app.core.db import (
     customer_list, customer_one, customer_preferences, customer_preferences_initial,
     customer_persona, region_list, region_one,
     update_customer, update_preferences, update_region as db_update_region,
+    insert_customer, insert_preferences,                       # ← 추가
     column_percentile, write_admin_log, ensure_admin_log, dicts, one,
     list_likes, list_search_history, list_chat_history,
 )
 
-from app.core.config import INDICATORS, CHUNK_COLUMNS
+from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH   # ← MIN_LENGTH 추가
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
 from app.core.db import get_con
@@ -146,6 +147,57 @@ def update_member(customer_id, patch):
         resync_member(get_con(), customer_id, row)    # ④ 벡터 재생성
 
     write_admin_log("member", customer_id, patch)
+    _clear_caches()
+    return get_member(customer_id)
+
+
+def _next_customer_id() -> str:
+    """지금 있는 가장 큰 번호 + 1. 'C105' 다음은 'C106'.
+
+    C101~C105 처럼 로그인만 발급된 빈 계정도 번호를 이미 썼으므로
+    그대로 이어서 쓴다 — 번호를 비워 두지 않는다.
+    """
+    rows = dicts("SELECT customer_id FROM customers")
+    nums = [int(r["customer_id"][1:]) for r in rows if r["customer_id"][1:].isdigit()]
+    return f"C{max(nums, default=0) + 1:03d}"
+
+
+def create_member(payload: dict) -> dict:
+    """회원 한 명을 손으로 새로 만든다. update_member 와의 차이는 딱 하나 —
+
+    거긴 "이미 있는 행을 고친다(UPDATE)"고 여긴 "행 자체가 없다(INSERT)"는 전제다.
+    페르소나를 하나라도 받으면 그 자리에서 청킹 + 임베딩까지 끝낸다
+    (resync_member 재사용 — 900개를 다시 만들지 않고 이 한 명 몫만 만드는
+    '증분 임베딩'이 이미 그 함수 안에 있다)
+    """
+    _validate(payload)     # 나이·가중치 범위는 기존 규칙을 그대로 쓴다
+
+    # 20자 미만 페르소나는 make_chunks() 가 조용히 버린다 —
+    # 여기서 먼저 막아야 "썼는데 왜 안 잡히지"가 안 생긴다
+    persona_patch = {k: v for k, v in payload.items()
+                      if k in PERSONA_FIELDS and (v or "").strip()}
+    too_short = {k: f"{MIN_LENGTH}자 이상 써야 벡터가 만들어진다 (지금 {len(v.strip())}자)"
+                 for k, v in persona_patch.items() if len(v.strip()) < MIN_LENGTH}
+    if too_short:
+        raise InvalidPatch(too_short)
+
+    customer_id = _next_customer_id()
+    insert_customer(customer_id, payload, CUSTOMER_FIELDS)
+
+    # 가중치를 하나라도 받았으면 '_초기' 칸도 같은 값으로 같이 채운다 —
+    # 방금 가입한 회원은 "지금 값"과 "가입 때 값"이 아직 같아야 정상이다
+    indicator_patch = {k: v for k, v in payload.items() if k in PREFERENCE_FIELDS}
+    if indicator_patch:
+        pref_row = dict(indicator_patch)
+        pref_row.update({f"{k}_초기": v for k, v in indicator_patch.items()})
+        insert_preferences(customer_id, pref_row, tuple(pref_row.keys()))
+
+    if persona_patch:
+        row = {k: persona_patch.get(k, "") for k in PERSONA_FIELDS}
+        row["customer_id"] = customer_id
+        resync_member(get_con(), customer_id, row)   # ← 청킹 + 임베딩 + 저장
+
+    write_admin_log("member", customer_id, payload)
     _clear_caches()
     return get_member(customer_id)
 
