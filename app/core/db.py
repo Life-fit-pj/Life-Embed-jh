@@ -55,6 +55,18 @@ def dicts(sql, params=()):
     return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
+def table_columns(table):
+    """표에 실제로 있는 칸 이름들. 없는 표면 빈 집합.
+
+    "이 칸이 진짜 있나"를 묻는 용도다 — SQLite 는 큰따옴표로 감싼 이름이 칸으로
+    안 잡히면 에러를 내지 않고 그걸 **문자열 리터럴**로 해석한다.
+    `SELECT "녹지_초기"` 가 글자 '녹지_초기' 를 100줄 돌려주는 식이라,
+    화면까지 조용히 흘러가 NaN 으로 나타난다. 그러니 `_초기` 처럼 CSV 에 없고
+    적재 때 파생시키는 칸을 읽기 전에는 여기서 먼저 확인한다
+    """
+    return {row[1] for row in query(f'PRAGMA table_info("{table}")')}
+
+
 # ── 프로젝트 전용 조회 함수 ─────────────────────────────
 
 
@@ -134,7 +146,14 @@ def customer_preferences_initial(customer_id):
 
     돌려주는 키는 `_초기`를 뗀 이름이다 — 현재값과 같은 키라서 화면이
     같은 방식으로 돌 수 있다
+
+    `_초기` 칸은 CSV 에 없고 적재(`pipeline/schema.py`)가 파생시켜 만든다.
+    낡은 DB 에는 없을 수 있는데, 그대로 조회하면 에러 대신 칸 이름 글자가
+    돌아와 화면이 NaN 을 띄운다. 없으면 None 을 주고 화면은 그 블록을 안 그린다
     """
+    if not {f"{name}_초기" for name in INDICATORS} <= table_columns("user_preferences"):
+        return None
+
     cols = ", ".join(f'"{name}_초기" AS "{name}"' for name in INDICATORS)
     rows = dicts(
         f"SELECT {cols} FROM user_preferences WHERE customer_id = ?",

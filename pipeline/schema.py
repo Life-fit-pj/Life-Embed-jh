@@ -6,7 +6,7 @@ import sqlite3
 # 파이썬은 "실행한 파일이 있는 폴더" 를 기준으로 모듈을 찾기 때문에,
 # 프로젝트 뿌리를 검색 경로에 직접 넣어 줘야 한다
 
-from app.core.config import DATA_DIR, DB_PATH
+from app.core.config import DATA_DIR, DB_PATH, INDICATORS
 from pipeline.io import read_csv, count_rows
 
 # 타입을 살펴볼 때 읽을 줄 수. 11만 줄을 전부 읽을 필요가 없다.
@@ -46,6 +46,18 @@ MANUAL_FKS = {
         (["city", "city_dong"], "master_dataset_v3", ["구", "행정동명"]),
     ],
 }
+
+
+# CSV 에는 없지만 DB 에는 있어야 하는 파생 칸.
+# 가중치 7개의 "가입 시 값" 스냅샷(`녹지_초기` …)이다. 관리자 화면이 위(가입 시)/
+# 아래(현재)로 나눠 보여주고 analysis.facts_drift() 가 그 차이를 센다.
+# CSV 에 같은 값을 두 벌 적는 대신, 적재가 끝난 뒤 현재값을 그대로 복사해 만든다.
+#
+# ⚠ 이 칸이 없으면 에러가 안 나고 조용히 틀린다 — SQLite 는 큰따옴표로 감싼 이름이
+#    칸으로 안 잡히면 그걸 문자열 리터럴로 해석한다. `SELECT "녹지_초기"` 가
+#    글자 '녹지_초기' 를 돌려주고, 화면은 그걸 숫자로 바꾸다 NaN 을 띄운다
+SNAPSHOT_SUFFIX = "_초기"
+SNAPSHOT_COLUMNS = {"user_preferences": tuple(INDICATORS)}
 
 
 ###============================================
@@ -394,6 +406,33 @@ def sort_by_dependency(tables):
     return order    
 
 
+def add_snapshot_columns(cur, table, columns, types):
+    """`{칸}_초기` 칸을 만들고 지금 값을 그대로 복사한다. 이미 있으면 건너뛴다.
+
+    적재 직후에 부르는 것이 전제다 — 이 시점의 CSV 값이 곧 "가입 시 값"이다.
+    나중에 관리자가 가중치를 고쳐도 `_초기` 는 화이트리스트 밖이라 안 따라 바뀐다
+    (app/features/admin.py 의 PREFERENCE_FIELDS)
+    """
+    made = 0
+    existing = {row[1] for row in cur.execute(f'PRAGMA table_info("{table}")')}
+
+    for col in columns:
+        snapshot = f"{col}{SNAPSHOT_SUFFIX}"
+        if snapshot in existing:
+            continue
+        if col not in existing:
+            print(f"⚠️ {table}.{col} 칸이 없어 {snapshot} 를 못 만든다")
+            continue
+
+        # ALTER 로 붙이는 이유 — CREATE 문은 CSV 칸 목록으로 만들고 INSERT 도
+        # 그 목록을 그대로 쓴다. 거기에 파생 칸을 섞으면 둘을 같이 고쳐야 한다
+        cur.execute(f'ALTER TABLE "{table}" ADD COLUMN "{snapshot}" {types.get(col, "FLOAT")}')
+        cur.execute(f'UPDATE "{table}" SET "{snapshot}" = "{col}"')
+        made += 1
+
+    return made
+
+
 def convert(value,kind) :
     """CSV 의 글자를 DB 에 넣을 값으로 바꾼다."""
     if value == "" :
@@ -466,6 +505,14 @@ if __name__ == "__main__" :
         actual = count_rows(table["path"])
         mark = "✅" if len(values) == actual else "⚠️"
         print(f"{mark} {name:20s} {len(values):7,d}줄 적재 (CSV {actual:,}행)")
+    
+    # 4-b. CSV 에 없는 파생 칸(`녹지_초기` …)을 만들고 지금 값을 복사한다.
+    #      이걸 빼먹으면 관리자 화면의 "가입 시 희망 조건"이 통째로 NaN 이 된다
+    for name, columns in SNAPSHOT_COLUMNS.items():
+        if name not in tables:
+            continue
+        made = add_snapshot_columns(cur, name, columns, tables[name]["type"])
+        print(f"✅ {name:20s} {SNAPSHOT_SUFFIX} 칸 {made}개 생성")
     
     # 5. FK 칸에 색인. 조인할 때 훨씬 빨라진다
     for name, table in tables.items():

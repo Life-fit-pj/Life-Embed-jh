@@ -20,7 +20,8 @@ from datetime import datetime
 
 from app.adapters.llm import get_llm
 from app.core.config import INDICATORS
-from app.core.db import dicts, get_con, one, ensure_search_history, ensure_chat_history
+from app.core.db import (dicts, get_con, one, table_columns,
+                         ensure_search_history, ensure_chat_history)
 from app.features.admin import dashboard, pairs
 
 # ── 집계 ────────────────────────────────────────
@@ -47,7 +48,19 @@ def facts_drift() -> dict:
 
     `_초기` 칸은 관리자 화면 작업 때 만들었다. 지금은 100명 전원이 가입 시 값
     그대로라 변동이 0건인 게 정상이다 — 그 사실을 숫자로 같이 실어 보낸다
+
+    칸이 아예 없는 DB 면 세는 시늉을 하지 않고 그렇다고 말한다. SQLite 가
+    없는 칸 이름을 문자열로 해석해 버려서, 그냥 돌리면 "100명 전원이 평균
+    3.53 만큼 움직였다" 같은 그럴듯한 거짓 숫자가 나온다
     """
+    if not {f"{name}_초기" for name in INDICATORS} <= table_columns("user_preferences"):
+        return {
+            "변동_있는_칸수": 0,
+            "지표별_평균변화": [],
+            "비어있는_이유": "user_preferences 에 `_초기` 칸이 없다. "
+                             "python -m pipeline.schema 로 다시 적재해야 생긴다",
+        }
+
     changed, moves = 0, []
     for name in INDICATORS:
         row = one(
