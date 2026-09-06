@@ -1,6 +1,6 @@
 """행정동 표를 다루는 SQL. 지표 · 시설 · 백분위 · 시세."""
 
-from app.core.db import dicts, one            # 실행기는 core 에서 가져온다
+from app.core.db import dicts, one, query     # 실행기는 core 에서 가져온다
 from app.domain.dong import dong_variants
 from app.tables.members import _run_update    # 공용 쓰기 헬퍼. members 에 있다
 
@@ -233,3 +233,20 @@ def gu_names():
 # 행정동 이름 전부 (중복 없이)
 def dong_names():
     return [r["행정동명"] for r in dicts("SELECT DISTINCT 행정동명 FROM master_dataset_v3")]
+
+
+# ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
+
+def region_count():
+    """행정동이 몇 개 있나. 427 이 정상이다."""
+    return one("SELECT COUNT(*) FROM master_dataset_v3")[0]
+
+
+def gu_count():
+    """자치구가 몇 개 있나. 25 가 정상이다."""
+    return one("SELECT COUNT(DISTINCT 구) FROM master_dataset_v3")[0]
+
+
+def region_gu_counts():
+    """자치구별 행정동 개수. (자치구, 개수) 목록."""
+    return query("SELECT 구, COUNT(*) FROM master_dataset_v3 GROUP BY 1 ORDER BY 2 DESC, 1")

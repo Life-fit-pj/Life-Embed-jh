@@ -1,24 +1,29 @@
-from app.core.db import dicts, one
-from app.tables.members import (
-    customer_list, customer_one, customer_preferences, customer_preferences_initial,
-    customer_persona,
-    update_customer, update_preferences,
-    insert_customer, insert_preferences,
-)
-from app.tables.regions import (
-    region_list, region_one, column_percentile,
-    update_region as db_update_region,
-)
-from app.tables.history import (
-    write_admin_log, ensure_admin_log,
-    list_likes, list_search_history, list_chat_history,
-)
+import json
 
-from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH   # ← MIN_LENGTH 추가
+from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
-from app.core.db import get_con
-from app.features import search
+from app.engine.weights import find_similar_members
+from app.features import search, region_explain, privacy
+from app.tables.chunks import member_chunk_count, persona_lengths
+from app.tables.history import (
+    write_admin_log,
+    admin_log_count, admin_log_recent, like_count,
+    list_likes, list_search_history, list_chat_history,
+)
+from app.tables.members import (
+    customer_list, customer_one, customer_preferences, customer_preferences_initial,
+    customer_persona, customer_ids, customer_count,
+    update_customer, update_preferences,
+    insert_customer, insert_preferences,
+    indicator_averages, age_group_counts, gender_counts,
+    join_month_counts, home_city_counts, deal_type_counts,
+)
+from app.tables.regions import (
+    region_list, region_one, column_percentile, region_count,
+    gu_count, region_gu_counts,
+    update_region as db_update_region,
+)
 
 
 # {"녹지": ["공원_밀도"], "안전": ["CCTV_밀도", "경찰관서_밀도"], ...} 를 펼쳐서
@@ -79,10 +84,7 @@ def get_region(gu: str, dong: str) -> dict | None:
     row = region_one(gu, dong, REGION_FIELDS)
     if row is None:
         return None
-    likes = one(
-        "SELECT COUNT(*) FROM likes WHERE 구 = ? AND 행정동명 = ?",
-        (row["구"], row["행정동명"]),
-    )[0]
+    likes = like_count(row["구"], row["행정동명"])
     return {
         "구": row["구"],
         "행정동명": row["행정동명"],
@@ -126,7 +128,7 @@ def _validate(patch: dict) -> None:
 
 # 캐시비우기
 def _clear_caches():
-    from app.features import region_explain, privacy
+
     search._ready = None
     region_explain._cache.clear()
     privacy.reset()          # 이름이 바뀌었을 수 있다
@@ -152,7 +154,7 @@ def update_member(customer_id, patch):
         row = dict(customer_persona(customer_id))   # ① 지금 9칸 전부
         row.update(persona_patch)                    # ② 바뀐 칸만 덮어쓰기
         row["customer_id"] = customer_id              # ③ resync 가 요구하는 칸
-        resync_member(get_con(), customer_id, row)    # ④ 벡터 재생성
+        resync_member(customer_id, row)    # ④ 벡터 재생성
 
     write_admin_log("member", customer_id, patch)
     _clear_caches()
@@ -165,8 +167,7 @@ def _next_customer_id() -> str:
     C101~C105 처럼 로그인만 발급된 빈 계정도 번호를 이미 썼으므로
     그대로 이어서 쓴다 — 번호를 비워 두지 않는다.
     """
-    rows = dicts("SELECT customer_id FROM customers")
-    nums = [int(r["customer_id"][1:]) for r in rows if r["customer_id"][1:].isdigit()]
+    nums = [int(cid[1:]) for cid in customer_ids() if cid[1:].isdigit()]
     return f"C{max(nums, default=0) + 1:03d}"
 
 
@@ -203,7 +204,7 @@ def create_member(payload: dict) -> dict:
     if persona_patch:
         row = {k: persona_patch.get(k, "") for k in PERSONA_FIELDS}
         row["customer_id"] = customer_id
-        resync_member(get_con(), customer_id, row)   # ← 청킹 + 임베딩 + 저장
+        resync_member(customer_id, row)   # ← 청킹 + 임베딩 + 저장
 
     write_admin_log("member", customer_id, payload)
     _clear_caches()
@@ -226,8 +227,7 @@ def preview_member(customer_id):
     prefs = customer_preferences(customer_id)
     if prefs is None:
         return None
-    from app.features.search import recommend_by_weights   # ← 함수 안 import
-    return recommend_by_weights(dict(prefs), top_k=5)
+    return search.recommend_by_weights(dict(prefs), top_k=5)
 
 
 
@@ -243,10 +243,7 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
     if not query:
         return []
 
-    from app.features.search import get_ready          # 함수 안 import (5-2와 같은 이유)
-    from app.engine.weights import find_similar_members
-
-    r = get_ready()
+    r = search.get_ready()
     # 자기 자신이 반드시 1등으로 걸리므로 한 명 더 받아서 뺀다
     ranked = find_similar_members(
         query, r["member_rows"], r["member_vectors"], top_k=top_k + 1
@@ -256,12 +253,11 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
     for cid, (score, category, text) in ranked:     # ← 튜플 안에 튜플이라 이렇게 푼다
         if cid == customer_id:
             continue
-        from app.features.privacy import mask_text          # 함수 안 import
         out.append({
             "customer_id": cid,
             "score": round(score, 3),
             "category": category,
-            "text": mask_text(text)[:120],                   # 가린 뒤에 자른다
+            "text": privacy.mask_text(text)[:120],                   # 가린 뒤에 자른다
         })
 
     return out[:top_k]
@@ -269,12 +265,10 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
 
 def health() -> dict:
     """일할 준비가 됐나. 나쁜 상태도 '정상적으로' 보고하는 게 이 함수의 일이다."""
-    from app.features import search
 
     try:
-        from app.core.db import one
-        regions = one("SELECT COUNT(*) FROM master_dataset_v3")[0]
-        members = one("SELECT COUNT(*) FROM customers")[0]
+        regions = region_count()
+        members = customer_count()
         ok = regions > 0 and members > 0
         error = None
     except Exception as e:
@@ -300,9 +294,7 @@ def privacy_preview(customer_id: str) -> dict | None:
     if not persona:
         return None
 
-    from app.features.privacy import mask_text          # 함수 안 import
-
-    masked = {name: mask_text(text) for name, text in persona.items()}
+    masked = {name: privacy.mask_text(text) for name, text in persona.items()}
     changed = sum(1 for name in persona if persona[name] != masked[name])
     # 결과가 `0`이면 아무것도 안 가려졌다는 뜻
     
@@ -314,20 +306,18 @@ def privacy_preview(customer_id: str) -> dict | None:
 # 모든 항목은 {"label": ..., "value": ...} 목록으로 통일한다 —
 # 그래야 화면 쪽 차트 함수 하나로 전부 그릴 수 있다.
 
-def pairs(sql, params=()) -> list:
-    """(이름, 개수) 두 칸짜리 SELECT 결과를 label/value 목록으로 바꾼다."""
-    cur = get_con().execute(sql, params)
-    return [{"label": str(a), "value": b} for a, b in cur.fetchall()]
+def to_pairs(rows) -> list:
+    """(이름, 개수) 두 칸짜리 결과를 label/value 목록으로 바꾼다.
+
+    SQL 은 tables/ 가 맡고 여기는 모양만 바꾼다 — 예전 pairs() 는 SQL 문자열을
+    인자로 받아서, 표 이름이 창구에 남고 tables 가 쿼리 조립기가 되고 있었다
+    """
+    return [{"label": str(a), "value": b} for a, b in rows]
 
 
 def recent_logs(limit: int = 8) -> list:
     """관리자 수정 이력 최근 몇 건. 무엇을 고쳤는지 칸 이름까지 보여 준다."""
-    import json
-    ensure_admin_log()
-    rows = dicts(
-        "SELECT target, target_id, patch, changed_at FROM admin_log "
-        "ORDER BY log_id DESC LIMIT ?", (limit,),
-    )
+    rows = admin_log_recent(limit)
     out = []
     for r in rows:
         try:
@@ -354,61 +344,38 @@ def dashboard() -> dict:
     if not base["ok"]:
         return {**base, "counts": {}, "charts": {}, "recent": []}
 
-    ensure_admin_log()      # 한 번도 수정 안 한 새 DB 에는 이 표가 아직 없다
-
-    ages = pairs(
-        "SELECT CAST(age / 10 AS INT) * 10, COUNT(*) FROM customers "
-        "WHERE age IS NOT NULL GROUP BY 1 ORDER BY 1"
-    )
+    ages = to_pairs(age_group_counts())
     for a in ages:
         a["label"] = f"{a['label']}대"
 
-    genders = pairs("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
+    genders = to_pairs(gender_counts())
     for g in genders:
         g["label"] = {"M": "남성", "F": "여성"}.get(g["label"], g["label"])
 
     # 7지표 평균 — 회원들이 무엇을 중요하게 꼽았는지. 칸 이름은 config 것을 그대로 쓴다
-    cols = ", ".join(f'AVG("{name}")' for name in INDICATORS)
-    row = one(f"SELECT {cols} FROM user_preferences") or ()
     weights = [
         {"label": name, "value": round(value, 2) if value is not None else 0}
-        for name, value in zip(INDICATORS, row)
+        for name, value in indicator_averages().items()
     ]
-
-    persona = pairs(
-        "SELECT category, CAST(AVG(LENGTH(text)) AS INT) FROM member_chunk GROUP BY 1 ORDER BY 2 DESC"
-    )
-    chunks = one("SELECT COUNT(*) FROM member_chunk")[0]
 
     return {
         **base,
         "counts": {
             "members":  base["members"],
             "regions":  base["regions"],
-            "gu":       one("SELECT COUNT(DISTINCT 구) FROM master_dataset_v3")[0],
-            "chunks":   chunks,
-            "edits":    one("SELECT COUNT(*) FROM admin_log")[0],
+            "gu":       gu_count(),
+            "chunks":   member_chunk_count(),
+            "edits":    admin_log_count(),
         },
         "charts": {
-            "joins":     pairs(
-                "SELECT substr(joined_at, 1, 7), COUNT(*) FROM customers "
-                "WHERE joined_at IS NOT NULL AND joined_at <> '' GROUP BY 1 ORDER BY 1"
-            ),
+            "joins":     to_pairs(join_month_counts()),
             "ages":      ages,
             "genders":   genders,
             "weights":   weights,
-            "memberGu":  pairs(
-                "SELECT city, COUNT(*) FROM customers WHERE city IS NOT NULL "
-                "GROUP BY 1 ORDER BY 2 DESC, 1"
-            ),
-            "regionGu":  pairs(
-                "SELECT 구, COUNT(*) FROM master_dataset_v3 GROUP BY 1 ORDER BY 2 DESC, 1"
-            ),
-            "dealType":  pairs(
-                'SELECT "거래형태", COUNT(*) FROM user_preferences '
-                'WHERE "거래형태" IS NOT NULL AND "거래형태" <> \'\' GROUP BY 1 ORDER BY 2 DESC'
-            ),
-            "persona":   persona,
+            "memberGu":  to_pairs(home_city_counts()),
+            "regionGu":  to_pairs(region_gu_counts()),
+            "dealType":  to_pairs(deal_type_counts()),
+            "persona":   to_pairs(persona_lengths()),
         },
         "recent": recent_logs(8),
     }

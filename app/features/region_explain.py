@@ -11,6 +11,8 @@ explain.py 는 TOP 5 전체를 한 번에 설명한다.
 
 from collections import Counter
 
+from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
+                                region_price_note, price_gap_text, format_won)
 from app.tables.regions import facilities, facility_counts, region_densities
 from app.llm import get_llm
 
@@ -108,8 +110,6 @@ def build_context(gu, dong, query, weights, scores, housing=None):
                 lines.append(f"    많은 분류 순: {top}")
     
     if housing:
-        from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
-                                        region_price_note, price_gap_text, format_won)
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         # 사용자가 말한 금액을 먼저 밝힌다 — 이게 없으면 Claude 는 "비싸다/싸다"를

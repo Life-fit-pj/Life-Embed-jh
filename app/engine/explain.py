@@ -10,6 +10,9 @@ Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제�
 
 import numpy as np
 
+from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
+                                region_price_note, price_gap_text, format_won)
+from app.engine.recommend import load_regions, build_scores, build_relative, recommend
 from app.tables.chunks import kb_chunks
 from app.tables.regions import region_densities
 from app.llm import get_llm, get_embedder, to_query
@@ -156,9 +159,6 @@ def build_context(query, weights, detailed, cases, housing=None):
         lines.append(f"[{c['district']} · {c['category']}] {c['text']}")
 
     if housing:
-        from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
-                                        region_price_note, price_gap_text, format_won)
-
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         # 사용자가 말한 금액을 먼저 밝힌다 — 이게 없으면 Claude 는 "비싸다/싸다"를
@@ -213,8 +213,6 @@ if __name__ == "__main__" :
     weights = {"녹지": 3.2, "안전": 3.3, "교통": 2.7, "상권": 3.2,
                "의료": 2.9, "교육": 4.6, "문화": 2.6}
     
-    from app.engine.recommend import load_regions, build_scores, build_relative, recommend
-
     names, values = load_regions()
     scores = build_scores(values)
     relative = build_relative(scores)

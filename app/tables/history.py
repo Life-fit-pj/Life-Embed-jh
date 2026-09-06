@@ -237,3 +237,131 @@ def get_login_row(login_id):
         (login_id,),
     )
     return {"customer_id": row[0], "password": row[1]} if row else None
+
+
+# 로그인이 이미 붙어 있는 회원 번호
+def login_customer_ids():
+    return [r["customer_id"] for r in dicts("SELECT customer_id FROM user_login")]
+
+
+# ── 집계 (관리자 대시보드·분석이 쓴다) ──────────────────
+# 두 칸짜리 결과는 (이름, 개수) 튜플 목록으로 돌려준다
+
+def like_count(gu, dong):
+    """이 동네에 좋아요가 몇 개 눌렸나."""
+    ensure_likes()
+    return one(
+        "SELECT COUNT(*) FROM likes WHERE 구 = ? AND 행정동명 = ?", (gu, dong)
+    )[0]
+
+
+def like_region_counts(limit=15):
+    """좋아요가 많이 눌린 동네. (동네이름, 개수) 목록."""
+    ensure_likes()
+    return query(
+        "SELECT 구 || ' ' || 행정동명, COUNT(*) FROM likes "
+        "GROUP BY 1 ORDER BY 2 DESC LIMIT ?", (limit,)
+    )
+
+
+def search_count():
+    """검색이 몇 건 쌓였나."""
+    ensure_search_history()
+    return one("SELECT COUNT(*) FROM search_history")[0]
+
+
+def top_searches(top=20):
+    """많이 찾은 검색어. (검색어, 횟수) 목록."""
+    ensure_search_history()
+    return query(
+        "SELECT query, COUNT(*) FROM search_history GROUP BY 1 "
+        "ORDER BY 2 DESC LIMIT ?", (top,)
+    )
+
+
+def chat_count():
+    """대화가 몇 건 쌓였나."""
+    ensure_chat_history()
+    return one("SELECT COUNT(*) FROM chat_history")[0]
+
+
+def admin_log_count():
+    """관리자가 몇 번 고쳤나."""
+    ensure_admin_log()
+    return one("SELECT COUNT(*) FROM admin_log")[0]
+
+
+def admin_log_recent(limit=8):
+    """관리자 수정 이력 최근 몇 건."""
+    ensure_admin_log()
+    return dicts(
+        "SELECT target, target_id, patch, changed_at FROM admin_log "
+        "ORDER BY log_id DESC LIMIT ?", (limit,),
+    )
+
+
+# ── 분석 대화 (app/features/analysis.py 가 쓴다) ────────
+
+_analysis_chat_ready = False
+
+
+def ensure_analysis_chat():
+    """분석 대화 표가 없으면 만든다. likes·history 와 같은 방식이다."""
+    global _analysis_chat_ready
+    if _analysis_chat_ready:
+        return
+    get_con().execute("""
+        CREATE TABLE IF NOT EXISTS analysis_chat (
+            chat_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            question   TEXT NOT NULL,
+            answer     TEXT,
+            facts      TEXT,
+            created_at TEXT
+        )
+    """)
+    get_con().commit()
+    _analysis_chat_ready = True
+
+
+def add_analysis_chat(question, answer, facts_json, created_at):
+    """대화 한 건을 남기고 새 chat_id 를 돌려준다.
+
+    facts 는 이미 JSON 글자로 바꿔서 받는다 — 무엇을 어떻게 직렬화할지는
+    부르는 쪽(분석 창구)이 정할 일이다
+    """
+    ensure_analysis_chat()
+    con = get_con()
+    cur = con.execute(
+        "INSERT INTO analysis_chat (question, answer, facts, created_at) VALUES (?, ?, ?, ?)",
+        (question, answer, facts_json, created_at),
+    )
+    con.commit()
+    return cur.lastrowid
+
+
+def list_analysis_chat(limit=50):
+    """대화 목록. 답은 90자까지만 미리보기로 싣는다."""
+    ensure_analysis_chat()
+    return dicts(
+        "SELECT chat_id, question, substr(answer, 1, 90) AS preview, created_at "
+        "FROM analysis_chat ORDER BY chat_id DESC LIMIT ?", (limit,)
+    )
+
+
+def analysis_chat_one(chat_id):
+    """대화 하나를 통째로. 없으면 None."""
+    ensure_analysis_chat()
+    rows = dicts(
+        "SELECT chat_id, question, answer, facts, created_at "
+        "FROM analysis_chat WHERE chat_id = ?", (chat_id,)
+    )
+    return rows[0] if rows else None
+
+
+def delete_analysis_chat(chat_id):
+    """대화 하나를 지운다. 지운 줄 수를 돌려준다."""
+    ensure_analysis_chat()
+    con = get_con()
+    n = con.execute("DELETE FROM analysis_chat WHERE chat_id = ?", (chat_id,)).rowcount
+    con.commit()
+    return n

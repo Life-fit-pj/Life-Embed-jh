@@ -1,7 +1,7 @@
 """회원 표를 다루는 SQL. 이름이 붙은 조회·수정 함수만 낸다."""
 
 from app.core.config import INDICATORS
-from app.core.db import dicts, get_con, table_columns   # 실행기는 core 에서 가져온다
+from app.core.db import dicts, get_con, one, query, table_columns   # 실행기는 core 에서 가져온다
 
 
 # ── 공용 쓰기 헬퍼 ──────────────
@@ -139,3 +139,102 @@ def insert_preferences(customer_id, patch, allowed):
 # 마스킹에 쓸 회원 이름 목록. 빈 값은 뺀다
 def customer_names():
     return [r["name"] for r in dicts("SELECT name FROM customers") if r["name"]]
+
+
+# ── 집계 (관리자 대시보드·분석이 쓴다) ──────────────────
+# 두 칸짜리 결과는 (이름, 개수) 튜플 목록으로 돌려준다.
+# {label, value} 모양으로 바꾸는 건 화면 쪽(features) 일이다
+
+def customer_count():
+    """customers 표에 몇 명이 있나. 로그인만 발급된 빈 계정도 포함된다."""
+    return one("SELECT COUNT(*) FROM customers")[0]
+
+
+def preference_count():
+    """가중치를 실제로 가진 사람 수. customer_count 와 다를 수 있다."""
+    return one("SELECT COUNT(*) FROM user_preferences")[0]
+
+
+def has_initial_columns():
+    """user_preferences 에 `_초기` 7칸이 다 있나.
+
+    없는 칸을 그냥 조회하면 SQLite 가 칸 이름을 문자열로 해석해 조용히
+    틀린 숫자를 준다. 세기 전에 반드시 여기서 먼저 확인한다
+    """
+    return {f"{name}_초기" for name in INDICATORS} <= table_columns("user_preferences")
+
+
+def indicator_averages():
+    """지표 7개의 평균. {지표이름: 평균} 으로 돌려준다."""
+    cols = ", ".join(f'AVG("{name}")' for name in INDICATORS)
+    row = one(f"SELECT {cols} FROM user_preferences") or ()
+    return dict(zip(INDICATORS, row))
+
+
+def indicator_spread(name):
+    """지표 하나를 1~5 중 몇 명이 골랐나. (점수, 인원) 목록."""
+    return query(
+        f'SELECT CAST("{name}" AS INT), COUNT(*) FROM user_preferences '
+        f'WHERE "{name}" IS NOT NULL GROUP BY 1 ORDER BY 1'
+    )
+
+
+def indicator_drift(name):
+    """지표 하나가 가입 시 값에서 얼마나 움직였나. (인원, 평균변화).
+
+    0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다
+    """
+    return one(
+        f'SELECT COUNT(*), AVG("{name}" - "{name}_초기") FROM user_preferences '
+        f'WHERE "{name}_초기" IS NOT NULL AND ABS("{name}" - "{name}_초기") >= 0.005'
+    )
+
+
+def age_group_counts():
+    """연령대(10년 단위)별 인원. (연령대, 인원) 목록."""
+    return query(
+        "SELECT CAST(age / 10 AS INT) * 10, COUNT(*) FROM customers "
+        "WHERE age IS NOT NULL GROUP BY 1 ORDER BY 1"
+    )
+
+
+def gender_counts():
+    """성별 인원. (성별코드, 인원) 목록."""
+    return query("SELECT gender, COUNT(*) FROM customers GROUP BY 1 ORDER BY 1")
+
+
+def join_month_counts():
+    """가입 월(YYYY-MM)별 인원. (월, 인원) 목록."""
+    return query(
+        "SELECT substr(joined_at, 1, 7), COUNT(*) FROM customers "
+        "WHERE joined_at IS NOT NULL AND joined_at <> '' GROUP BY 1 ORDER BY 1"
+    )
+
+
+def home_city_counts():
+    """거주 자치구별 인원. (자치구, 인원) 목록."""
+    return query(
+        "SELECT city, COUNT(*) FROM customers WHERE city IS NOT NULL "
+        "GROUP BY 1 ORDER BY 2 DESC, 1"
+    )
+
+
+def work_city_counts(limit=15):
+    """직장 자치구별 인원. (자치구, 인원) 목록."""
+    return query(
+        "SELECT work_city, COUNT(*) FROM customers WHERE work_city IS NOT NULL "
+        "GROUP BY 1 ORDER BY 2 DESC LIMIT ?", (limit,)
+    )
+
+
+def deal_type_counts():
+    """희망 거래형태별 인원. (거래형태, 인원) 목록."""
+    return query(
+        'SELECT "거래형태", COUNT(*) FROM user_preferences '
+        'WHERE "거래형태" IS NOT NULL AND "거래형태" <> \'\' GROUP BY 1 ORDER BY 2 DESC'
+    )
+  
+  
+# tables/members.py — 회원 번호 전부
+def customer_ids():
+    return [r["customer_id"] for r in dicts("SELECT customer_id FROM customers")]

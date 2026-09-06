@@ -1,15 +1,17 @@
 """
 임시 로그인 발급/검증.
 
-이 파일은 "규칙"만 담당한다 — SQL은 app.core.db 에 있다.
+이 파일은 "규칙"만 담당한다 — SQL은 app/tables/ 에 있다.
 app/features/admin.py 가 이미 쓰는 것과 같은 구조.
 """
 
 import random
 import string
 
-from app.core.db import dicts
-from app.tables.history import pick_customer_for_login, create_login, get_login_row
+from app.features import admin
+
+from app.tables.history import pick_customer_for_login, create_login, get_login_row, login_customer_ids
+from app.tables.members import customer_ids
 
 
 def _random_code(length, chars):
@@ -51,8 +53,7 @@ def signup(login_id, password, payload):
     """
     if get_login_row(login_id) is not None:
         return None
-    from app.features.admin import create_member   # 함수 안 import(순환 참조 피함)
-    member = create_member(payload)
+    member = admin.create_member(payload)
     customer_id = member["customer"]["customer_id"]
     create_login(customer_id, login_id, password)
     return customer_id
@@ -83,9 +84,8 @@ def backfill_logins():
     표를 쓰므로, 이 표에 행이 없는 사람만 골라 채운다 — 이미 있는 사람은
     건너뛰어 두 번 실행해도 안전하다.
     """
-    have = {r["customer_id"] for r in dicts("SELECT customer_id FROM user_login")}
-    missing = [r["customer_id"] for r in dicts("SELECT customer_id FROM customers")
-               if r["customer_id"] not in have]
+    have = set(login_customer_ids())
+    missing = [cid for cid in customer_ids() if cid not in have]
 
     issued = []
     for customer_id in missing:
