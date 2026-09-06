@@ -7,13 +7,13 @@
 
 **LIFE,FIT** — 서울 427개 행정동 중 사용자의 자연어 검색어(예: "애들 학원 보내기 좋은 곳")에 맞는 동네
 TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스의 백엔드 파이프라인이다.
-`src/`, `docu/DESIGN.md`는 여전히 비어 있다. 실제 코드는 `app/` 아래 다섯 계층
-(`core` 설정·SQL / `domain` 순수 함수 / `adapters` 외부 모델 / `engine` 추천 알고리즘 /
-`features` 창구)과 `pipeline/`(CSV → DB 적재)에 있다. 추천 로직은 `pipeline/`이 아니라
-`app/engine/`에 있다 — 2026-08~09에 옮겼다.
+실제 코드는 `app/` 아래 다섯 계층(`domain` 순수 함수 / `core` 설정·SQL 실행기 /
+`tables` 표 SQL·`llm.py` 외부 모델 / `engine` 추천 알고리즘 / `features` 창구)과
+`pipeline/`(CSV → DB 적재)에 있다. 추천 로직은 `pipeline/`이 아니라 `app/engine/`에 있다
+— 2026-08~09에 옮겼다. 계층 구조는 2026-09-06~07에 한 번 더 정리했다(아래 Architecture).
 
-프레임워크·빌드·린트·테스트 도구를 정의하는 매니페스트(`requirements.txt`, `pyproject.toml` 등)가 없다.
-검증은 각 파일 하단의 `if __name__ == "__main__":` 블록을 직접 실행해 눈으로 확인하는 방식으로 이루어진다.
+패키지 목록은 `requirements.txt`에 있다. `pyproject.toml`·린트 설정은 아직 없다.
+검증은 `tests/`(pytest 4파일)와 Testing instructions 절의 grep 세 줄로 한다.
 
 ## Setup / commands
 
@@ -32,7 +32,7 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
 > python -m pipeline.search_kb       # 저장된 벡터로 코 버깅용)
 >
 > **추천 파이프라인 (검색어 -> TOP 5 -> 설명문)**
-> python -m app.features.pipeline_api  # search(query)
+> python -m app.features.search        # search(query)
 > python -m app.engine.weights         # 검색어 -> 7개 지표 가중치만 떼어 확인
 > python -m app.engine.recommend       # 가중치 -> TOP 5만 떼어 확인
 > python -m app.engine.explain         # TOP 5 -> 설명문
@@ -52,7 +52,36 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
 
 데이터 정합성을 검사하며, 사용자 쿼리에 따른 응답의 질을 높히는 것을 목표로한다.
 청킹과 임베드 품질 향상에 중점을 두어 테스트를 통해 개선한다.
-<!-- 테스트가 있다면 실행 방법과 통과 기준. -->
+### 돌리는 법
+
+    python -m pytest tests -q        # 저장소 뿌리에서
+
+    tests/test_dong.py         행정동 이름 표기 변형 (양방향)
+    tests/test_masking.py      개인정보 마스킹. 긴 이름부터 지우는 순서까지 지킨다
+    tests/test_percentile.py   백분위 동점 처리
+    tests/test_layers.py       import 그래프가 한 방향인가
+
+### 계층이 지켜지나 — grep 세 줄
+
+    # ① 창구·엔진에 SQL이 있으면 안 된다
+    grep -rnE "SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE" --include=*.py app/features app/engine
+
+    # ② 함수 안 import 가 있으면 안 된다
+    grep -rn "^ \+from app\." --include=*.py app/
+
+    # ③ 계층 방향
+    python -m pytest tests/test_layers.py -q
+
+**①②는 아무것도 안 나와야 정상이다.** ③은 `3 passed`.
+
+Windows PowerShell 에는 `grep` 이 없다. 셋 중 하나를 쓴다 —
+VSCode `Ctrl+Shift+F`(files to include 에 `*.py`), Git Bash 터미널,
+또는 `Select-String`:
+
+    Get-ChildItem -Recurse -Filter *.py app/features, app/engine |
+      Select-String -Pattern "SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE"
+
+마지막 확인은 2026-09-07 — ① 0줄, ② 0줄, ③ 3 passed.
 
 ## Security considerations
 
@@ -66,28 +95,37 @@ API, Key 등 민감정보가 포함된 데이터는 .env폴더에서 별도로 �
 
 ## Architecture
 
-> ```
-> app/core/       config.py, db.py               설정 + SQLite 연결/조회 (조회 함수 전부 여기 모여 있음)
-> app/domain/     dong.py                         DB·네트워크를 모르는 순수 도메인 함수. 행정동 이름
->                                                  표기 변형(dong_variants)이 여기 있고 db.py가 import
-> app/adapters/   llm.py                          외부 모델 어댑터 — 임베딩(e5-small)·LLM(Claude) 생성을
->                                                  LangChain으로 감쌈. 모델 교체는 이 파일만 고치면 됨
-> app/engine/     weights.py, recommend.py,       검색어 -> 가중치 -> TOP 5 -> 설명문 알고리즘.
->                 explain.py, housing.py,          housing.py는 7개 지표와 별개로 시세 조건(건물유형·
->                 resync.py                        거래유형·목표가) 필터. resync.py는 회원/페르소나
->                                                  한 명만 통짜로 재임베딩(관리자 수정 직후 반영용)
-> app/features/   pipeline_api.py, admin.py,      위 계층을 엮는 진입점. search()가 메인 API,
->                 region_explain.py, chat.py       region_explain/chat이 클릭·후속질문 응답,
->                                                  admin.py는 관리자 조회·수정 창구
-> app/repositories/ members.py                    ⚠ 미완성 스텁 — 함수 본문이 전부 `pass`이고
->                                                  아무 데서도 import하지 않는다. 회원 SQL은
->                                                  아직 app/core/db.py 에 있다. 있는 줄 알고
->                                                  쓰면 조용히 None 이 돌아온다
-> pipeline/       schema.py, sample_kb.py,         CSV -> life.db와 벡터 테이블을 만드는 적재
->                 chunk_kb.py, embed_kb.py,         파이프라인. 배포에는 안 따라감. io.py(CSV 읽기/
->                 embed_member.py, search_kb.py,   쓰기), prep/chunking.py(청킹 로직)도 여기 소속
->                 io.py, prep/chunking.py
-> ```
+```
+app/domain/     dong.py, masking.py        순수 계산. DB·네트워크·LLM 을 모른다
+app/core/       config.py, db.py           설정 + SQL 실행기 5개
+                                           (get_con query one dicts table_columns)
+app/tables/     members.py, regions.py,    표를 다루는 SQL. 여기에만 있다.
+                chunks.py, history.py      이름 붙은 함수만 낸다
+                                           (WHERE 조각이나 SQL 문자열을 인자로 안 받는다)
+app/llm.py                                 외부 모델 — 임베딩(e5-small)·Claude 생성.
+                                           모델 교체는 이 파일만 고치면 된다
+app/engine/     weights, recommend,        검색어 -> 가중치 -> TOP 5 -> 설명문.
+                explain, housing, resync   resync 는 한 명만 재임베딩(관리자 수정 직후)
+app/features/   search, admin, analysis,   바깥(Life-Web)이 부르는 창구.
+                auth, chat, region_explain,   SQL 도 표 이름도 여기 없다
+                privacy, survey
+pipeline/       schema, sample_kb,         CSV -> life.db 와 벡터 표를 만드는 적재
+                chunk_kb, embed_kb,        파이프라인. 배포에는 안 따라간다.
+                embed_member, search_kb,   io.py(CSV 읽기/쓰기),
+                io.py, prep/chunking.py    prep/chunking.py(청킹 규칙)도 여기 소속
+tests/          test_dong, test_masking,   DB·서버·LLM 없이 도는 것만 둔다
+                test_percentile, test_layers
+```
+
+**층 번호 — 아래층은 위층을 부르지 않는다.**
+
+```
+0 domain  →  1 core  →  2 tables · llm  →  3 engine  →  4 features  →  Life-Web
+```
+
+이 번호표는 `tests/test_layers.py`의 `LAYER` 표와 짝이다. 한쪽만 고치면 어긋난다.
+같은 층끼리 부르는 것은 허용하되 순환은 안 된다 — 순환이 필요해지면 그건
+공통 부분을 아래층으로 내리라는 신호다(함수 안 import 로 덮지 말 것).
 
 **계층 방향에서 한 곳만 예외다.** `app/engine/resync.py`가 `pipeline/prep/chunking.py`를
 import한다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적재와 관리자 재임베딩
@@ -108,7 +146,7 @@ kb_persona.csv → chunk_kb.py → kb_chunk.csv → embed_kb.py → kb_chunk 테
 nemotron.csv ──────────────────────────────→ embed_member.py → member_chunk 테이블
 
 검색어 → weights.py(가중치) → recommend.py(TOP 5) → explain.py(설명문)
-       └─ app/features/pipeline_api.py.search() 가 이 셋을 순서대로 호출
+       └─ app/features/search.py 의 search() 가 이 셋을 순서대로 호출
 
 추천 결과 클릭/후속 질문 → app/features/region_explain.py(동네 하나 설명) /
                           app/features/chat.py(후속 질문 답변)
@@ -127,7 +165,7 @@ nemotron.csv ──────────────────────�
 - **임베딩 모델은 저장/검색 시 반드시 동일해야 한다** (`EMBED_MODEL`, 현재 `intfloat/multilingual-e5-small`,
   차원 384). 모델을 바꾸면 이미 저장된 벡터를 전부 다시 만들어야 한다.
 - **e5 접두사 규칙**: 저장할 문서는 `passage:`, 검색 질의는 `query:`를 붙인다 (`to_passage`/`to_query`).
-  `to_passage`/`to_query`는 `app/adapters/llm.py`에만 정의돼 있고 `embed_kb.py`/`embed_member.py`는
+  `to_passage`/`to_query`는 `app/llm.py`에만 정의돼 있고 `embed_kb.py`/`embed_member.py`는
   그걸 import해서 쓴다 — 예전엔 세 파일이 각자 똑같은 함수를 중복 정의하고 있었다(정상 동작은
   했지만 나중에 모델을 e5 계열 아닌 걸로 바꿀 때 한 곳만 고치고 나머지를 빠뜨리기 쉬운 구조였음).
 - **벡터는 `BLOB`(float32 raw bytes)로 저장한다.** `kb_chunk`/`member_chunk` 둘 다 마찬가지다.
@@ -135,7 +173,8 @@ nemotron.csv ──────────────────────�
   반드시 짝을 맞춰야 한다 — dtype이 어긋나면 384차원이 조용히 192차원으로 잘못 해석되는데 에러가
   안 나서 찾기 매우 힘들다.
 - 행정동 이름 표기가 파일마다 다르다 (`고덕제1동` vs `고덕1동`). **`app/domain/dong.py`의
-  `dong_variants()`가 유일한 정의처**이고 `db.py`가 그걸 import해서 쓴다. 양방향 변형(제N동 제거 /
+  `dong_variants()`가 유일한 정의처**이고 `app/tables/regions.py`가 그걸 import해서 쓴다.
+  양방향 변형(제N동 제거 /
   제N동 삽입)을 모두 만들어 SQL `IN (...)`으로 한 번에 시도한다. docstring은 반대 방향을 안 만든다고
   적혀 있지만 실제 코드는 두 방향 다 만든다 — 이 서술은 신뢰하지 말고 코드를 직접 볼 것.
   (2026-09-01까지는 `db.py`에도 똑같은 사본이 남아 import를 가리고 있었다. 머지 사고의 잔재였고
@@ -144,10 +183,10 @@ nemotron.csv ──────────────────────�
   지하철역 169, 경찰관서 164) 동점 처리를 안 하면 "값이 같은데 점수가 다른" 일이 생긴다.
   구현이 두 곳에 있고 **규칙이 반드시 같아야 한다**:
   `app/engine/recommend.py`의 `to_percentile(values, invert)` (427개 배열 배치용, 순위 계산),
-  `app/core/db.py`의 `column_percentile(column, value, invert)` (칸+값 하나, 화면 표시용).
+  `app/tables/regions.py`의 `column_percentile(column, value, invert)` (칸+값 하나, 화면 표시용).
   둘 다 화면에서 똑같이 "상위 N%"로 제시되므로 한쪽만 고치면 같은 동네가 다른 점수로 보인다.
 - **"시세" 점수는 방향이 반대다.** `build_price_score()`가 `invert=True`로 만들기 때문에 **값이
-  클수록 저렴한 동네**다. 가격 조건이 없는 검색에서만 `pipeline_api`가 8번째 지표로 얹는다
+  클수록 저렴한 동네**다. 가격 조건이 없는 검색에서만 `app/features/search.py`가 8번째 지표로 얹는다
   (`DEFAULT_PRICE_WEIGHT = 3`, 순위 기여 2~4%). LLM 프롬프트에 이 점수를 실을 때는 방향 설명을
   반드시 같이 줘야 한다 — 안 주면 "시세 85점"을 "비싸다"로 정반대 해석한다.
 - **가중치와 점수는 항상 짝이 맞아야 한다.** 프롬프트에 어떤 지표의 가중치를 실었으면 그 지표의
