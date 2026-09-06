@@ -8,7 +8,8 @@ app/features/admin.py 가 이미 쓰는 것과 같은 구조.
 import random
 import string
 
-from app.core.db import pick_customer_for_login, create_login, get_login_row, dicts
+from app.core.db import dicts
+from app.tables.history import pick_customer_for_login, create_login, get_login_row
 
 
 def _random_code(length, chars):

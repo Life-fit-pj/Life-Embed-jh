@@ -1,9 +1,16 @@
-from app.core.db import (
+from app.core.db import dicts, one
+from app.tables.members import (
     customer_list, customer_one, customer_preferences, customer_preferences_initial,
-    customer_persona, region_list, region_one,
-    update_customer, update_preferences, update_region as db_update_region,
-    insert_customer, insert_preferences,                       # ← 추가
-    column_percentile, write_admin_log, ensure_admin_log, dicts, one,
+    customer_persona,
+    update_customer, update_preferences,
+    insert_customer, insert_preferences,
+)
+from app.tables.regions import (
+    region_list, region_one, column_percentile,
+    update_region as db_update_region,
+)
+from app.tables.history import (
+    write_admin_log, ensure_admin_log,
     list_likes, list_search_history, list_chat_history,
 )
 

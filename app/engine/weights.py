@@ -9,7 +9,8 @@ import json
 import numpy as np
 
 from app.core.config import INDICATORS
-from app.core.db import member_chunks, member_weights
+from app.tables.chunks import member_chunks
+from app.tables.members import member_weights
 from app.llm import get_llm, get_embedder, to_query
 
 

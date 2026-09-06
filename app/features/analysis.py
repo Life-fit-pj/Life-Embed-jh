@@ -20,8 +20,8 @@ from datetime import datetime
 
 from app.llm import get_llm
 from app.core.config import INDICATORS
-from app.core.db import (dicts, get_con, one, table_columns,
-                         ensure_search_history, ensure_chat_history)
+from app.core.db import dicts, get_con, one, table_columns
+from app.tables.history import ensure_search_history, ensure_chat_history
 from app.features.admin import dashboard, pairs
 
 # ── 집계 ────────────────────────────────────────

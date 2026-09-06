@@ -23,7 +23,8 @@ from app.engine.recommend import (
 from app.engine.weights import load_member_vectors, ask_claude, blend, find_similar_members
 from app.engine.housing import matching_regions, attach_price
 
-from app.core.db import member_weights, region_densities
+from app.tables.members import member_weights
+from app.tables.regions import region_densities
 from app.llm import get_embedder
 from app.core.config import INDICATORS
 

@@ -8,11 +8,10 @@
 Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제한한다.
 """
 
-import json
 import numpy as np
 
-from app.core.config import INDICATORS
-from app.core.db import kb_chunks, region_densities
+from app.tables.chunks import kb_chunks
+from app.tables.regions import region_densities
 from app.llm import get_llm, get_embedder, to_query
 
 

@@ -11,7 +11,7 @@ explain.py 는 TOP 5 전체를 한 번에 설명한다.
 
 from collections import Counter
 
-from app.core.db import facilities, facility_counts, region_densities
+from app.tables.regions import facilities, facility_counts, region_densities
 from app.llm import get_llm
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
