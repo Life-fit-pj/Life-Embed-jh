@@ -6,7 +6,7 @@
 
 import numpy as np
 
-from app.adapters.llm import get_embedder, to_passage
+from app.llm import get_embedder, to_passage
 from pipeline.prep.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
 
 

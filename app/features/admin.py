@@ -11,6 +11,7 @@ from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH   # ← MIN_LE
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
 from app.core.db import get_con
+from app.features import search
 
 
 # {"녹지": ["공원_밀도"], "안전": ["CCTV_밀도", "경찰관서_밀도"], ...} 를 펼쳐서
@@ -118,8 +119,8 @@ def _validate(patch: dict) -> None:
 
 # 캐시비우기
 def _clear_caches():
-    from app.features import pipeline_api, region_explain, privacy
-    pipeline_api._ready = None
+    from app.features import region_explain, privacy
+    search._ready = None
     region_explain._cache.clear()
     privacy.reset()          # 이름이 바뀌었을 수 있다
 
@@ -218,7 +219,7 @@ def preview_member(customer_id):
     prefs = customer_preferences(customer_id)
     if prefs is None:
         return None
-    from app.features.pipeline_api import recommend_by_weights   # ← 함수 안 import
+    from app.features.search import recommend_by_weights   # ← 함수 안 import
     return recommend_by_weights(dict(prefs), top_k=5)
 
 
@@ -235,7 +236,7 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
     if not query:
         return []
 
-    from app.features.pipeline_api import get_ready          # 함수 안 import (5-2와 같은 이유)
+    from app.features.search import get_ready          # 함수 안 import (5-2와 같은 이유)
     from app.engine.weights import find_similar_members
 
     r = get_ready()
@@ -261,7 +262,7 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
 
 def health() -> dict:
     """일할 준비가 됐나. 나쁜 상태도 '정상적으로' 보고하는 게 이 함수의 일이다."""
-    from app.features import pipeline_api
+    from app.features import search
 
     try:
         from app.core.db import one
@@ -278,7 +279,7 @@ def health() -> dict:
         "ok": ok,
         "regions": regions,
         "members": members,
-        "cache_warm": pipeline_api._ready is not None,   # 캐시가 채워져 있나
+        "cache_warm": search._ready is not None,   # 캐시가 채워져 있나
         "error": error,
     }
 

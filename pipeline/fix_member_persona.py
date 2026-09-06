@@ -23,7 +23,7 @@ import time
 
 from app.core.config import CHUNK_COLUMNS
 from app.core.db import get_con, dicts
-from app.adapters.llm import get_llm
+from app.llm import get_llm
 from app.engine.resync import resync_member
 
 LABELS = {

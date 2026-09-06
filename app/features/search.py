@@ -24,7 +24,7 @@ from app.engine.weights import load_member_vectors, ask_claude, blend, find_simi
 from app.engine.housing import matching_regions, attach_price
 
 from app.core.db import member_weights, region_densities
-from app.adapters.llm import get_embedder
+from app.llm import get_embedder
 from app.core.config import INDICATORS
 
 # ── 준비물 보관함 ──────────────────────────────

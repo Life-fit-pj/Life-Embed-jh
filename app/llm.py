@@ -60,12 +60,6 @@ def to_query(text) :
     return f"query: {text}"
 
 
-def fingerprint(text, model=EMBED_MODEL):
-       """이 글로 이미 벡터를 만들었는지 비교할 지문. 모델 이름을 같이 섞는다
-       — 나중에 임베딩 모델을 바꾸면 지문이 자동으로 안 맞아져서 전량 재생성이 저절로 걸린다."""
-       return hashlib.md5(f"{model}\n{text}".encode("utf-8")).hexdigest()[:16]
-   
-
 if __name__ == "__main__":
     emb = get_embedder()
     v = emb.embed_query(to_query("산책 좋아하는 사람"))
