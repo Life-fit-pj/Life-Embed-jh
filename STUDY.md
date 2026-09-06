@@ -272,10 +272,6 @@ for column in CHUNK_COLUMNS:
 건드렸다 — 회원가입 기능을 실제로 만들 때 이 섹션을 참고할 것.
 
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 2acb0cb96cb318ef1d0c68e46d1e961ab2d526cd
 ## 신규 및 수정한 파일 목록<다솜>
 Life-Embed-jh: app/core/db.py(수정), app/features/pipeline_api.py(수정, 지난번 추가한 recommend_by_weights_explained), app/features/admin.py(신규, 방금 고침)
 Life-Web: main.py, services/engine.py, services/lifetype.py(지난번 버그 수정), routers/survey.py(신규), services/persona_type.py(신규)
