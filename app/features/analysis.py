@@ -21,12 +21,12 @@ from datetime import datetime
 from app.llm import get_llm
 from app.core.config import INDICATORS
 from app.features.admin import dashboard, to_pairs
-from app.tables.history import (
+from app.repositories.history import (
     add_analysis_chat, analysis_chat_one, chat_count, delete_analysis_chat,
     ensure_analysis_chat,
     like_region_counts, list_analysis_chat, search_count, top_searches,
 )
-from app.tables.members import (
+from app.repositories.members import (
     has_initial_columns, indicator_drift, indicator_spread,
     preference_count, work_city_counts,
 )
@@ -166,11 +166,11 @@ def ask(question: str) -> dict:
 
 
 # ── 대화 보관 ────────────────────────────────────
-# SQL 은 app/tables/history.py 에 있다. 여기는 "무엇을 남기고 어떻게 읽을까"만 정한다
+# SQL 은 app/repositories/history.py 에 있다. 여기는 "무엇을 남기고 어떻게 읽을까"만 정한다
 
 
 def ensure_table():
-    """예전 이름. 표를 만드는 일은 tables 로 갔다."""
+    """예전 이름. 표를 만드는 일은 repositories 로 갔다."""
     ensure_analysis_chat()
 
 

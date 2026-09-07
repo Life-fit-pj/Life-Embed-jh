@@ -7,7 +7,7 @@
 import numpy as np
 
 from app.llm import get_embedder, to_passage
-from app.tables.chunks import replace_kb_chunks, replace_member_chunks
+from app.repositories.chunks import replace_kb_chunks, replace_member_chunks
 from pipeline.prep.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
 
 

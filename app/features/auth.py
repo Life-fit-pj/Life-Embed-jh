@@ -1,7 +1,7 @@
 """
 임시 로그인 발급/검증.
 
-이 파일은 "규칙"만 담당한다 — SQL은 app/tables/ 에 있다.
+이 파일은 "규칙"만 담당한다 — SQL은 app/repositories/ 에 있다.
 app/features/admin.py 가 이미 쓰는 것과 같은 구조.
 """
 
@@ -10,8 +10,8 @@ import string
 
 from app.features import admin
 
-from app.tables.history import pick_customer_for_login, create_login, get_login_row, login_customer_ids
-from app.tables.members import customer_ids
+from app.repositories.history import pick_customer_for_login, create_login, get_login_row, login_customer_ids
+from app.repositories.members import customer_ids
 
 
 def _random_code(length, chars):

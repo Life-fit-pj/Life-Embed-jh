@@ -1,7 +1,7 @@
 # Last Updated: 2026-09-08
 """좋아요·기록 창구. app/api가 부르는 문."""
 
-from app.tables.history import (
+from app.repositories.history import (
     add_chat_history, add_like, add_search_history,
     list_chat_history, list_search_history, remove_like,
 )

@@ -2,7 +2,7 @@
 
 from app.core.db import dicts, one, query     # 실행기는 core 에서 가져온다
 from app.domain.dong import dong_variants
-from app.tables.members import _run_update    # 공용 쓰기 헬퍼. members 에 있다
+from app.repositories.members import _run_update    # 공용 쓰기 헬퍼. members 에 있다
 
 
 # ── 프로젝트 전용 조회 함수 ─────────────────────────────

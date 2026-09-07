@@ -1,5 +1,5 @@
 # Last Updated : 2026-09-07
-"""고객 정보 API 응답 모양. customers 표 칸과 1:1 (app/tables/members.py:customer_one)."""
+"""고객 정보 API 응답 모양. customers 표 칸과 1:1 (app/repositories/members.py:customer_one)."""
 
 from datetime import date
 

@@ -7,10 +7,12 @@
 
 **LIFE,FIT** — 서울 427개 행정동 중 사용자의 자연어 검색어(예: "애들 학원 보내기 좋은 곳")에 맞는 동네
 TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스의 백엔드 파이프라인이다.
-실제 코드는 `app/` 아래 다섯 계층(`domain` 순수 함수 / `core` 설정·SQL 실행기 /
-`tables` 표 SQL·`llm.py` 외부 모델 / `engine` 추천 알고리즘 / `features` 창구)과
-`pipeline/`(CSV → DB 적재)에 있다. 추천 로직은 `pipeline/`이 아니라 `app/engine/`에 있다
-— 2026-08~09에 옮겼다. 계층 구조는 2026-09-06~07에 한 번 더 정리했다(아래 Architecture).
+실제 코드는 `app/` 아래 여섯 계층(`domain` 순수 함수 / `core` 설정·SQL 실행기 /
+`repositories` 표 SQL·`llm.py` 외부 모델 / `engine` 추천 알고리즘 / `features` 창구·`schemas` 요청·응답
+모양 / `api` FastAPI 라우터)과 `pipeline/`(CSV → DB 적재)에 있다. 추천 로직은 `pipeline/`이
+아니라 `app/engine/`에 있다 — 2026-08~09에 옮겼다. 계층 구조는 2026-09-06~07에 한 번 더
+정리했고, `schemas`·`api` 두 계층은 2026-09-08에 이 저장소 자체 FastAPI 서버로 얹었다
+(아래 Architecture, `docs/adr/0001-move-fastapi-to-embed.md`).
 
 패키지 목록은 `requirements.txt`에 있다. `pyproject.toml`·린트 설정은 아직 없다.
 검증은 `tests/`(pytest 4파일)와 Testing instructions 절의 grep 세 줄로 한다.
@@ -37,8 +39,12 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
 > python -m app.engine.recommend       # 가중치 -> TOP 5만 떼어 확인
 > python -m app.engine.explain         # TOP 5 -> 설명문
 >
-> 이 저장소엔 서버가 없다 — 별도 sibling 저장소 `Life-Web`이 `sys.path`로 이 엔진을 import해서
-> `uvicorn main:app --reload`로 띄운다 (이 저장소가 아니
+> **API 서버 (app/api/ 라우터들)**
+> uvicorn app.main:app --reload --port 8000
+>
+> sibling 저장소 `Life-Web`이 이 서버를 `httpx`로 호출한다(`EMBED_API_BASE`, 기본
+> `http://127.0.0.1:8000`) — 2026-09-08 이전엔 `sys.path` 직접 import였다
+> (`docs/adr/0001-move-fastapi-to-embed.md`).
 
 
 ## Code style
@@ -63,8 +69,8 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
 
 ### 계층이 지켜지나 — grep 세 줄
 
-    # ① 창구·엔진에 SQL이 있으면 안 된다
-    grep -rnE "SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE" --include=*.py app/features app/engine
+    # ① 창구·엔진·API 라우터에 SQL이 있으면 안 된다
+    grep -rnE "SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE" --include=*.py app/features app/engine app/api
 
     # ② 함수 안 import 가 있으면 안 된다
     grep -rn "^ \+from app\." --include=*.py app/
@@ -78,10 +84,10 @@ Windows PowerShell 에는 `grep` 이 없다. 셋 중 하나를 쓴다 —
 VSCode `Ctrl+Shift+F`(files to include 에 `*.py`), Git Bash 터미널,
 또는 `Select-String`:
 
-    Get-ChildItem -Recurse -Filter *.py app/features, app/engine |
+    Get-ChildItem -Recurse -Filter *.py app/features, app/engine, app/api |
       Select-String -Pattern "SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE"
 
-마지막 확인은 2026-09-07 — ① 0줄, ② 0줄, ③ 3 passed.
+마지막 확인은 2026-09-08 — ① 0줄, ② 0줄, ③ 3 passed.
 
 ## Security considerations
 
@@ -99,7 +105,7 @@ API, Key 등 민감정보가 포함된 데이터는 .env폴더에서 별도로 �
 app/domain/     dong.py, masking.py        순수 계산. DB·네트워크·LLM 을 모른다
 app/core/       config.py, db.py           설정 + SQL 실행기 5개
                                            (get_con query one dicts table_columns)
-app/tables/     members.py, regions.py,    표를 다루는 SQL. 여기에만 있다.
+app/repositories/ members.py, regions.py,  표를 다루는 SQL. 여기에만 있다.
                 chunks.py, history.py      이름 붙은 함수만 낸다
                                            (WHERE 조각이나 SQL 문자열을 인자로 안 받는다)
 app/llm.py                                 외부 모델 — 임베딩(e5-small)·Claude 생성.
@@ -109,6 +115,12 @@ app/engine/     weights, recommend,        검색어 -> 가중치 -> TOP 5 -> �
 app/features/   search, admin, analysis,   바깥(Life-Web)이 부르는 창구.
                 auth, chat, region_explain,   SQL 도 표 이름도 여기 없다
                 privacy, survey
+app/schemas/    admin, analysis, auth,     API 요청·응답 모양(pydantic). 도메인 파일 하나당
+                chat, customers, history,  하나씩. features 함수 시그니처와 1:1로 맞춘다
+                recommend, regions, survey
+app/api/        admin, analysis, auth,     FastAPI 라우터. features 함수를 호출하고
+                chat, customers, history,  schemas 로 검증/직렬화만 한다 — 로직 없음
+                recommend, regions, survey (app/main.py 가 이 라우터들을 include_router)
 pipeline/       schema, sample_kb,         CSV -> life.db 와 벡터 표를 만드는 적재
                 chunk_kb, embed_kb,        파이프라인. 배포에는 안 따라간다.
                 embed_member, search_kb,   io.py(CSV 읽기/쓰기),
@@ -120,7 +132,7 @@ tests/          test_dong, test_masking,   DB·서버·LLM 없이 도는 것만 
 **층 번호 — 아래층은 위층을 부르지 않는다.**
 
 ```
-0 domain  →  1 core  →  2 tables · llm  →  3 engine  →  4 features  →  Life-Web
+0 domain  →  1 core  →  2 repositories · llm  →  3 engine  →  4 features · schemas  →  5 api  →  Life-Web
 ```
 
 이 번호표는 `tests/test_layers.py`의 `LAYER` 표와 짝이다. 한쪽만 고치면 어긋난다.
@@ -173,7 +185,7 @@ nemotron.csv ──────────────────────�
   반드시 짝을 맞춰야 한다 — dtype이 어긋나면 384차원이 조용히 192차원으로 잘못 해석되는데 에러가
   안 나서 찾기 매우 힘들다.
 - 행정동 이름 표기가 파일마다 다르다 (`고덕제1동` vs `고덕1동`). **`app/domain/dong.py`의
-  `dong_variants()`가 유일한 정의처**이고 `app/tables/regions.py`가 그걸 import해서 쓴다.
+  `dong_variants()`가 유일한 정의처**이고 `app/repositories/regions.py`가 그걸 import해서 쓴다.
   양방향 변형(제N동 제거 /
   제N동 삽입)을 모두 만들어 SQL `IN (...)`으로 한 번에 시도한다. docstring은 반대 방향을 안 만든다고
   적혀 있지만 실제 코드는 두 방향 다 만든다 — 이 서술은 신뢰하지 말고 코드를 직접 볼 것.
@@ -183,7 +195,7 @@ nemotron.csv ──────────────────────�
   지하철역 169, 경찰관서 164) 동점 처리를 안 하면 "값이 같은데 점수가 다른" 일이 생긴다.
   구현이 두 곳에 있고 **규칙이 반드시 같아야 한다**:
   `app/engine/recommend.py`의 `to_percentile(values, invert)` (427개 배열 배치용, 순위 계산),
-  `app/tables/regions.py`의 `column_percentile(column, value, invert)` (칸+값 하나, 화면 표시용).
+  `app/repositories/regions.py`의 `column_percentile(column, value, invert)` (칸+값 하나, 화면 표시용).
   둘 다 화면에서 똑같이 "상위 N%"로 제시되므로 한쪽만 고치면 같은 동네가 다른 점수로 보인다.
 - **"시세" 점수는 방향이 반대다.** `build_price_score()`가 `invert=True`로 만들기 때문에 **값이
   클수록 저렴한 동네**다. 가격 조건이 없는 검색에서만 `app/features/search.py`가 8번째 지표로 얹는다

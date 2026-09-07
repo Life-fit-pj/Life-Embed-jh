@@ -1,7 +1,7 @@
 # Last Updated: 2026-09-08
 """동네 시설 조회 창구. app/api가 부르는 문."""
 
-from app.tables.regions import facilities, facility_counts, region_extras
+from app.repositories.regions import facilities, facility_counts, region_extras
 
 
 def get_facilities(gu, dong, limit=5):

@@ -1,8 +1,8 @@
 """DB의 회원 이름과 마스킹 규칙을 연결한다. 앱은 이 파일의 mask_text 만 부른다."""
 
 from app.domain import masking
-from app.tables.members import customer_names
-from app.tables.regions import dong_names, gu_names
+from app.repositories.members import customer_names
+from app.repositories.regions import dong_names, gu_names
 
 _names = None
 _address = None

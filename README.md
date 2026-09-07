@@ -191,9 +191,9 @@ Life-Embed-jh/
 아래층은 위층을 부르지 않습니다. `tests/test_layers.py`의 `LAYER` 표가 이 번호를
 들고 있으므로, 폴더를 옮기면 그 표도 같이 고쳐야 합니다.
 
-**SQL 은 `app/tables/` 에만 있습니다.** 창구(`features`)와 엔진(`engine`)에는 SQL 도
+**SQL 은 `app/repositories/` 에만 있습니다.** 창구(`features`)와 엔진(`engine`)에는 SQL 도
 표 이름도 없습니다 — 표가 바뀔 때 고칠 곳이 한 폴더로 모이게 하려는 것입니다.
-`app/tables/` 는 이름 붙은 함수만 냅니다(`WHERE` 조각이나 SQL 문자열을 인자로 받지 않음).
+`app/repositories/` 는 이름 붙은 함수만 냅니다(`WHERE` 조각이나 SQL 문자열을 인자로 받지 않음).
 
 `app/`에는 `__init__.py`가 없는 네임스페이스 패키지가 섞여 있어, **저장소 루트가
 검색 경로에 있어야** `app.*` / `pipeline.*`이 resolve됩니다. 위 `-m` 규칙이 그래서 필요합니다.
@@ -264,7 +264,7 @@ import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적�
 자치구 단위 편향이 생겼습니다. 지금은 동점 그룹이 순위를 평균내어 나눠 갖습니다.
 
 백분위 구현은 두 곳에 있고 **규칙이 같아야 합니다** — `app/engine/recommend.py`의
-`to_percentile()`(427개 배열, 순위 계산용)과 `app/tables/regions.py`의
+`to_percentile()`(427개 배열, 순위 계산용)과 `app/repositories/regions.py`의
 `column_percentile()`(칸+값 하나, 화면 표시용). 둘 다 화면에서 똑같이 "상위 N%"로
 보이기 때문입니다. 입력이 달라서 **합칠 수는 없고**, 한쪽만 고치면 같은 동네가
 화면마다 다른 점수로 보입니다.
@@ -313,7 +313,7 @@ import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적�
 
 **행정동 이름 표기가 파일마다 다릅니다.** `고덕제1동` vs `고덕1동`.
 `app/domain/dong.py`의 `dong_variants()`가 양쪽을 다 시도합니다
-(`app/tables/regions.py`가 이걸 import해서 씁니다 — 사본을 만들지 마세요).
+(`app/repositories/regions.py`가 이걸 import해서 씁니다 — 사본을 만들지 마세요).
 
 **LLM 프롬프트에 가중치를 실었으면 그 지표의 점수도 함께 실으세요.**
 근거 수치 없이 항목 이름만 보이면 Claude가 그 항목을 지어내서 설명합니다.

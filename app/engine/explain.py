@@ -13,8 +13,8 @@ import numpy as np
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
                                 region_price_note, price_gap_text, format_won)
 from app.engine.recommend import load_regions, build_scores, build_relative, recommend
-from app.tables.chunks import kb_chunks
-from app.tables.regions import region_densities
+from app.repositories.chunks import kb_chunks
+from app.repositories.regions import region_densities
 from app.llm import get_llm, get_embedder, to_query
 
 

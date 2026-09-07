@@ -15,11 +15,12 @@ ROOT = Path(__file__).resolve().parent.parent
 LAYER = {
     "app.domain": 0,
     "app.core": 1,
-    "app.tables": 2,
+    "app.repositories": 2,
     "app.adapters": 2,
     "app.llm": 2,
     "app.engine": 3,
     "app.features": 4,
+    "app.schemas": 4,
     "app.api": 5,
 }
 
