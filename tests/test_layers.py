@@ -20,6 +20,7 @@ LAYER = {
     "app.llm": 2,
     "app.engine": 3,
     "app.features": 4,
+    "app.api": 5,
 }
 
 # app 이 pipeline 을 부르는 건 이 한 줄만 허락한다 (청킹 규칙을 두 벌 두지 않으려고)
