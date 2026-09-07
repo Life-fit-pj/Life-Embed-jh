@@ -603,3 +603,49 @@ if not {f"{name}_초기" for name in INDICATORS} <= table_columns("user_preferen
 - **DB 를 고칠 때 재적재가 유일한 답은 아니다.** `life.db` 에는 CSV 에서 다시 만들 수 없는 것들이
   들어 있다. 칸 하나 때문에 그걸 다 버리지 말 것.
 
+
+---
+
+# 21. `_run_update` 가 없는 줄을 고쳐도 "고쳤다"고 답한다 (2026-09-08 발견 · **안 고침**)
+
+## 증상
+
+`app/tables/members.py` 의 `_run_update` 는 대상 줄이 **하나도 없어도** 고친 칸 수를 돌려준다.
+
+```python
+update_customer("아무도아님", {"name": "X"}, ALLOWED)   # -> 1
+```
+
+`UPDATE ... WHERE customer_id = '아무도아님'` 은 0줄을 고치지만, 코드는 `len(fields)` 를
+그냥 돌려준다. **"몇 줄을 고쳤나"가 아니라 "몇 칸을 고치려 했나"를 세고 있다.**
+
+## 영향
+
+`app/features/admin.py` 가 이 값으로 "수정됨"을 판단한다면, **없는 회원을 고쳐도 성공으로
+보인다.** 관리자 화면에서 오타난 ID 로 PATCH 를 보내면 조용히 성공 응답이 간다.
+
+## 왜 지금 안 고쳤나
+
+**3단계 리팩터링(`app/tables/` → `app/repositories/`) 도중에 발견했다.**
+리팩터링의 규칙은 "겉보기 동작을 안 바꾼다" 이고, 그래야 결과가 달라졌을 때
+**"옮겨서 깨진 건지 고쳐서 바뀐 건지"** 를 구분할 수 있다.
+
+그래서 새 `member_repository._apply()` 도 **이 동작을 일부러 그대로 재현했다.**
+사본 DB 두 개로 옛/새 구현을 대조했을 때 이 경우도 **양쪽 다 `1`** 이 나오는 것을 확인했다.
+
+## 고칠 때 할 것
+
+리팩터링이 끝난 뒤(8단계 이후) 별도 커밋으로 —
+
+```python
+    row = db.query(model).filter(where).first()
+    if row is None:
+        return 0                      # ← 이 줄을 넣는다
+    for name in fields:
+        setattr(row, name, patch[name])
+    db.commit()
+    return len(fields)
+```
+
+**고치기 전에 `app/features/admin.py` 가 반환값을 어떻게 쓰는지 먼저 본다.**
+`0` 을 404 로 바꿔 내보내는 게 맞는지, 아니면 그냥 무시해도 되는지가 거기서 정해진다.

@@ -15,27 +15,45 @@ from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, Search
 from app.models.preference import Preference
 
 
-# (모델, 실제로 들어 있어야 할 줄 수) — 0 은 "표는 있는데 비어 있다"
-EXPECTED = [
+# 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
+# 여기서 숫자가 틀리면 데이터가 유실된 것이므로 정확히 대조한다.
+FIXED = [
     (Customer, 100),
     (Preference, 100),
     (MemberChunk, 900),
     (KbChunk, 9000),
-    (Like, 0),
-    (SearchHistory, 0),
-    (ChatHistory, 0),
-    (AnalysisChat, 0),
-    (AdminLog, 0),
 ]
 
+# 기록용 표 — 서버를 켜서 검색 한 번만 해도 늘어난다.
+# 줄 수를 단언하면 "앱을 쓰면 깨지는 테스트" 가 되고, 그런 테스트는 곧 무시당한다.
+GROWING = [Like, SearchHistory, ChatHistory, AnalysisChat, AdminLog]
 
-@pytest.mark.parametrize("model,expected", EXPECTED, ids=lambda v: getattr(v, "__name__", v))
-def test_모델이_실제_표와_맞는다(model, expected):
+ALL_MODELS = [model for model, _ in FIXED] + GROWING
+
+
+@pytest.mark.parametrize("model,expected", FIXED, ids=lambda v: getattr(v, "__name__", v))
+def test_고정_표는_줄_수가_맞는다(model, expected):
     db = SessionLocal()
     try:
         assert db.query(func.count()).select_from(model).scalar() == expected
     finally:
         db.close()
+
+
+@pytest.mark.parametrize("model", ALL_MODELS, ids=lambda v: v.__name__)
+def test_모델의_칸_이름이_실제_표와_맞는다(model):
+    """COUNT(*) 는 칸 이름을 하나도 안 본다. 오타가 나도 통과한다.
+
+    db.query(model) 은 모델에 적은 칸을 전부 SELECT 하므로,
+    줄이 하나도 없는 표에서도 없는 칸을 부르면 OperationalError 가 난다.
+    기록용 표를 검사하는 방법이 이것이다 — 개수 말고 모양을 본다.
+    """
+    db = SessionLocal()
+    try:
+        db.query(model).limit(1).all()
+    finally:
+        db.close()
+
 
 
 def test_한글_칸을_이름으로_꺼낼_수_있다():
