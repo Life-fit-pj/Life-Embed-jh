@@ -3,8 +3,10 @@
 
 from fastapi import FastAPI
 
-from app.api import customers, recommend
+from app.api import chat, customers, recommend, regions
 
 app = FastAPI(title="Life-Embed-jh")
 app.include_router(customers.router)
 app.include_router(recommend.router)
+app.include_router(regions.router)
+app.include_router(chat.router)
