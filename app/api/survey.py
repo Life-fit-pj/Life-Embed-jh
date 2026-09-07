@@ -16,5 +16,5 @@ router = APIRouter(prefix="/survey", tags=["survey"])
 
 @router.post("/score", response_model=SurveyScoreOut)
 def post_survey_score(body: SurveyScoreRequest):
-    """설문 프롬프트를 Claude에게 채점시킨다."""
+    """설문 프롬프트를 Claude에게 채점시킨다. => LLM 교차 검증?..""" 
     return {"result": score_survey(body.prompt)}
