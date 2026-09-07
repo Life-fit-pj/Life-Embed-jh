@@ -3,7 +3,8 @@
 
 from fastapi import FastAPI
 
-from app.api import customers
+from app.api import customers, recommend
 
 app = FastAPI(title="Life-Embed-jh")
 app.include_router(customers.router)
+app.include_router(recommend.router)

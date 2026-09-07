@@ -3,8 +3,8 @@
 
 from fastapi import APIRouter, HTTPException
 
+from app.features.customers import customer_one
 from app.schemas.customers import CustomerOut
-from app.tables.members import customer_one
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
