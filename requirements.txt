@@ -3,3 +3,5 @@ python-dotenv==1.2.2
 langchain-anthropic==1.6.1
 langchain-huggingface==1.2.2
 sentence-transformers==5.7.0
+fastapi==0.121.2
+uvicorn==0.38.0
