@@ -3,7 +3,7 @@
 프롬프트를 만드는 쪽(Life-Web/services/persona_type.py)과 LLM 을 부르는 쪽을
 나눈 이유 — 문항·프롬프트는 화면 쪽 관심사고, LLM 키와 모델은 엔진 쪽 관심사다.
 """
-from app.adapters.llm import get_llm
+from app.llm import get_llm
 
 
 def score_survey(prompt: str) -> str:

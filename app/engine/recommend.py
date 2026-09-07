@@ -7,7 +7,7 @@
 
 import numpy as np
 
-from app.core.db import region_densities
+from app.tables.regions import region_densities
 from app.engine.housing import DEAL_COLUMNS
 
 INDICATOR_COLUMNS = {

@@ -38,8 +38,8 @@ py -m pip install -r requirements.txt
 버전이 고정돼 있습니다 — numpy 2.5.1 · python-dotenv 1.2.2 · langchain-anthropic 1.6.1 ·
 langchain-huggingface 1.2.2 · sentence-transformers 5.7.0.
 
-빌드·린트·테스트 도구를 정의하는 매니페스트(`pyproject.toml` 등)는 아직 없습니다.
-검증은 각 파일 맨 아래 `if __name__ == "__main__":` 블록을 직접 돌려서 눈으로 확인합니다.
+빌드·린트 도구를 정의하는 매니페스트(`pyproject.toml` 등)는 아직 없습니다.
+테스트는 `tests/`에 있습니다 — `py -m pytest tests -q` (아래 "확인하는 법" 참고).
 
 ### 2. API 키
 
@@ -84,11 +84,10 @@ py -m pipeline.embed_member    # 회원 900청크 임베딩 (30초)
 **반드시 프로젝트 루트에서 `-m`으로 실행합니다.**
 
 ```bash
-py -m app.core.db                  # DB 상태 확인
 py -m app.engine.weights           # 검색어 → 가중치
 py -m app.engine.recommend         # 가중치 → TOP 5
 py -m app.engine.explain           # TOP 5 → 설명문
-py -m app.features.pipeline_api    # 전체 흐름 한 번에
+py -m app.features.search          # 전체 흐름 한 번에
 py -m app.features.region_explain  # 동네 하나 설명 (시설명 근거)
 py -m app.features.chat            # 추천 뒤 후속 질문
 py -m pipeline.search_kb           # 저장된 벡터로 검색만 (디버깅용)
@@ -97,8 +96,33 @@ py -m pipeline.search_kb           # 저장된 벡터로 검색만 (디버깅용
 추천 알고리즘은 2026-08~09에 `pipeline/`에서 `app/engine/`으로 옮겼습니다 —
 `py -m pipeline.weights` / `pipeline.recommend`는 더 이상 없습니다.
 
-`py pipeline/weights.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
+`py pipeline/schema.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
 `-m` 없이 실행하면 프로젝트 루트가 검색 경로에 안 잡히기 때문입니다.
+
+---
+
+## 확인하는 법
+
+```bash
+py -m pytest tests -q     # 테스트 4파일
+bash check.sh             # 계층이 지켜지나 세 가지
+```
+
+`check.sh`는 세 가지를 셉니다.
+
+| | 무엇 | 통과 기준 |
+| --- | --- | --- |
+| ① | 창구·엔진에 SQL이 있나 | 0곳 |
+| ② | 함수 안 import 가 있나 | 0곳 |
+| ③ | 계층 방향 (`tests/test_layers.py`) | `3 passed` |
+
+②가 왜 규칙인가 — 함수 안 import 는 순환 참조를 **고치는 게 아니라 눈에 안 보이게
+덮습니다.** 파일 맨 위만 봐서는 이 파일이 무엇에 기대는지 알 수 없고, 증상이
+"서버는 뜨는데 특정 기능만 죽음"으로 나타납니다. 필요해지면 그건 공통 부분을
+아래층으로 내리라는 신호입니다.
+
+> Windows PowerShell 에는 `bash`·`grep` 이 없습니다. Git Bash 터미널에서 돌리거나
+> (VSCode 터미널 `∨` → Git Bash), VSCode 전체 검색(`Ctrl+Shift+F`)을 쓰세요.
 
 ---
 
@@ -107,48 +131,69 @@ py -m pipeline.search_kb           # 저장된 벡터로 검색만 (디버깅용
 ```
 Life-Embed-jh/
 ├── app/
-│   ├── core/              인프라 계층 — 혼자서도 돈다
-│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표 · 청킹 대상 칸
-│   │   └── db.py            SQLite 연결·조회 함수 모음 (회원 SQL도 아직 여기 있음)
-│   ├── domain/            DB·네트워크를 모르는 순수 함수
+│   ├── domain/            DB·네트워크·LLM 을 모르는 순수 함수 (테스트가 붙는 곳)
 │   │   ├── dong.py          행정동 이름 표기 변형 (dong_variants)
 │   │   └── masking.py       전화·이메일·이름·주소·연락처 문장 가리기 규칙
-│   ├── adapters/          외부 모델 어댑터
-│   │   └── llm.py           임베딩 모델과 Claude 를 만드는 유일한 곳 (to_passage/to_query)
+│   ├── core/              제일 밑바닥
+│   │   ├── config.py        경로 · API키 · 모델명 · 7개 지표 · 청킹 대상 칸
+│   │   └── db.py            SQLite 연결과 실행기 5개뿐
+│   │                        (get_con · query · one · dicts · table_columns)
+│   ├── tables/            표를 다루는 SQL. 여기에만 있다
+│   │   ├── members.py       회원 프로필 · 가중치 · 페르소나 · 수정 · 집계
+│   │   ├── regions.py       행정동 지표 · 시설 · 백분위 · 시세 · 수정
+│   │   ├── chunks.py        임베딩 청크 조회와 재임베딩 쓰기(replace_*)
+│   │   └── history.py       좋아요 · 검색기록 · 채팅기록 · 로그인 · 관리자로그 · 분석대화
+│   ├── llm.py             임베딩 모델과 Claude 를 만드는 유일한 곳 (to_passage/to_query)
 │   ├── engine/            추천 알고리즘
 │   │   ├── weights.py       검색어 → 가중치
 │   │   ├── recommend.py     가중치 → TOP 5
 │   │   ├── explain.py       TOP 5 → 설명문
 │   │   ├── housing.py       건물유형·거래유형·예산 → 시세 근접 필터·신뢰등급/거래건수/분포
 │   │   └── resync.py        회원 한 명만 재임베딩 (관리자 수정 직후 반영)
-│   ├── features/          서비스 계층 — 위 계층을 엮는다
-│   │   ├── pipeline_api.py  search(query) 통합 창구
-│   │   ├── region_explain.py  동네 하나를 시설명 근거로 설명
-│   │   ├── chat.py          추천 뒤 후속 질문에 답변
-│   │   ├── admin.py         관리자 조회·수정·대시보드 창구
-│   │   └── privacy.py       DB 이름·지역명을 masking.py 규칙에 물려 주는 얇은 층
-│   └── repositories/
-│       └── members.py       ⚠ 미완성 스텁 — 함수 본문이 전부 `pass`, 아무도 import 안 함
-├── pipeline/              한 번만 돌리는 준비 작업
+│   └── features/          창구 — Life-Web 이 부르는 문. SQL 도 표 이름도 여기 없다
+│       ├── search.py        search(query) 통합 창구
+│       ├── region_explain.py  동네 하나를 시설명 근거로 설명
+│       ├── chat.py          추천 뒤 후속 질문에 답변
+│       ├── admin.py         관리자 조회·수정·대시보드 창구
+│       ├── analysis.py      DB 집계를 Claude 에게 해석시키는 관리자 분석
+│       ├── auth.py          임시 로그인 발급·검증
+│       ├── survey.py        설문 답변을 Claude 에게 채점시키는 창구
+│       └── privacy.py       DB 이름·지역명을 masking.py 규칙에 물려 주는 얇은 층
+├── pipeline/              한 번만 돌리는 준비 작업 (배포에 안 따라감)
 │   ├── schema.py            CSV → SQLite
 │   ├── sample_kb.py         18.5만 명 → 2,500명 층화추출
 │   ├── chunk_kb.py          페르소나 → 22,500청크
 │   ├── embed_kb.py          청크 → 벡터
 │   ├── embed_member.py      회원 100명 → 900청크 벡터
 │   ├── search_kb.py         벡터 검색 (테스트용 CLI)
-│   ├── migrate_vector_blob.py  옛 JSON 벡터 칸 → float32 BLOB 1회성 변환
+│   ├── fix_member_persona.py  회원 페르소나 불일치 교정 (1회성)
 │   ├── io.py                CSV 읽기/쓰기 (utf-8 ↔ cp949 자동 판별)
 │   └── prep/chunking.py     청킹 로직 (chunk_kb · embed_member · resync 공용)
-├── docs/                  DESIGN.md · WORK.md — 아직 빈 파일
-├── eval/golden.py         정답셋 평가 — 아직 빈 파일
-├── test/                  test-chunk · test-embed · test-masking · test-safety — 아직 빈 파일
-├── src/                   빈 폴더 (안 씀)
-└── data/                  깃으로 관리하지 않음 (life.db·nemotron.csv 등은 Git LFS)
+├── tests/                 DB·서버·LLM 없이 도는 것만 둔다
+│   ├── test_dong.py         행정동 이름 표기 변형
+│   ├── test_masking.py      마스킹 (긴 이름부터 지우는 순서까지)
+│   ├── test_percentile.py   백분위 동점 처리
+│   └── test_layers.py       import 그래프가 한 방향인가
+├── check.sh               계층이 지켜지나 세 가지를 센다
+└── data/                  life.db·nemotron.csv 등은 Git LFS
     ├── life.db              약 73MB
     ├── master_dataset_v3.csv  427개 행정동 × 86칸 (밀도 62칸 + 시세 24칸)
     ├── 시세_지역별_전처리.csv  동×건물유형×거래유형별 신뢰등급·거래건수·분포
     └── 전처리 CSV들          문화시설 · 의료 · 학원 · 공원 · 점포 등
 ```
+
+**층은 한 방향으로만 흐릅니다.**
+
+```
+0 domain  →  1 core  →  2 tables · llm  →  3 engine  →  4 features  →  Life-Web
+```
+
+아래층은 위층을 부르지 않습니다. `tests/test_layers.py`의 `LAYER` 표가 이 번호를
+들고 있으므로, 폴더를 옮기면 그 표도 같이 고쳐야 합니다.
+
+**SQL 은 `app/tables/` 에만 있습니다.** 창구(`features`)와 엔진(`engine`)에는 SQL 도
+표 이름도 없습니다 — 표가 바뀔 때 고칠 곳이 한 폴더로 모이게 하려는 것입니다.
+`app/tables/` 는 이름 붙은 함수만 냅니다(`WHERE` 조각이나 SQL 문자열을 인자로 받지 않음).
 
 `app/`에는 `__init__.py`가 없는 네임스페이스 패키지가 섞여 있어, **저장소 루트가
 검색 경로에 있어야** `app.*` / `pipeline.*`이 resolve됩니다. 위 `-m` 규칙이 그래서 필요합니다.
@@ -218,9 +263,11 @@ import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적�
 줄 세워졌고, 도서관이 똑같이 0곳인데 영등포구는 평균 56점 · 성동구는 14점을 받는
 자치구 단위 편향이 생겼습니다. 지금은 동점 그룹이 순위를 평균내어 나눠 갖습니다.
 
-백분위 구현은 두 곳에 있고 **규칙이 같아야 합니다** — `recommend.py`의
-`to_percentile()`(427개 배열, 순위 계산용)과 `db.py`의 `column_percentile()`
-(칸+값 하나, 화면 표시용). 둘 다 화면에서 똑같이 "상위 N%"로 보이기 때문입니다.
+백분위 구현은 두 곳에 있고 **규칙이 같아야 합니다** — `app/engine/recommend.py`의
+`to_percentile()`(427개 배열, 순위 계산용)과 `app/tables/regions.py`의
+`column_percentile()`(칸+값 하나, 화면 표시용). 둘 다 화면에서 똑같이 "상위 N%"로
+보이기 때문입니다. 입력이 달라서 **합칠 수는 없고**, 한쪽만 고치면 같은 동네가
+화면마다 다른 점수로 보입니다.
 
 ### 절대점수만 쓰면 "만능 동네"가 항상 이긴다
 
@@ -266,7 +313,7 @@ import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적�
 
 **행정동 이름 표기가 파일마다 다릅니다.** `고덕제1동` vs `고덕1동`.
 `app/domain/dong.py`의 `dong_variants()`가 양쪽을 다 시도합니다
-(`db.py`는 이걸 import해서 씁니다 — 사본을 만들지 마세요).
+(`app/tables/regions.py`가 이걸 import해서 씁니다 — 사본을 만들지 마세요).
 
 **LLM 프롬프트에 가중치를 실었으면 그 지표의 점수도 함께 실으세요.**
 근거 수치 없이 항목 이름만 보이면 Claude가 그 항목을 지어내서 설명합니다.
@@ -297,10 +344,7 @@ import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적�
   실행됨 — `import pipeline.schema`만 해도 즉시 돈다
 - 월세는 시세 25~75% 분포를 못 보여줌 — 원본 `시세_지역별_전처리.csv`에 `월임대료`용
   25/75 분위 칼럼 자체가 없음(매매가·보증금엔 있음). 신뢰등급·거래건수는 월세도 정상 표시됨
-- `app/repositories/members.py`는 함수 본문이 전부 `pass`인 스텁 — 회원 SQL은 아직
-  `app/core/db.py`에 있음. 있는 줄 알고 부르면 에러 없이 `None`이 돌아옴
-- `docs/DESIGN.md` · `docs/WORK.md` · `eval/golden.py` · `test/*.py`는 파일만 있고 내용이 비어 있음
-  (평가 정답셋과 자동 테스트가 아직 없다는 뜻) · `src/`는 빈 폴더
+- 추천 정확도(hit@k)를 재는 평가 도구가 없음 — 지금 실측 기록은 전부 **속도**뿐
 ---
 
 ## 논의 필요
@@ -308,7 +352,7 @@ import합니다(`make_chunks`, `KB_KEYS`, `MEMBER_KEYS`). 청킹 규칙이 적�
 ### 목표가 일치도를 순위에도 반영할 것인가 (2026-09-01 제기)
 
 현재 `housing.py`의 `housing_fit_score()`(목표가 대비 0~100점)는 **후보를 추리는 필터로만**
-쓰입니다. `pipeline_api.py`의 `recommend_by_weights()`가 `matching_regions()`로 tolerance
+쓰입니다. `app/features/search.py`의 `recommend_by_weights()`가 `matching_regions()`로 tolerance
 (±30%) 안의 동만 남긴 뒤, 그 안에서의 순위는 기존 7개 지표로만 매깁니다.
 
 그래서 "전세 6억 5천" 검색에서 62,000만원인 동(일치도 85점)과 73,000만원인 동(59점)이

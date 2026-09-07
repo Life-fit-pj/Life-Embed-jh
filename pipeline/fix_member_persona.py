@@ -23,7 +23,7 @@ import time
 
 from app.core.config import CHUNK_COLUMNS
 from app.core.db import get_con, dicts
-from app.adapters.llm import get_llm
+from app.llm import get_llm
 from app.engine.resync import resync_member
 
 LABELS = {
@@ -117,7 +117,7 @@ def fix_all():
             continue
 
         row = {**persona, "customer_id": customer["customer_id"]}
-        resync_member(con, customer["customer_id"], row)
+        resync_member(customer["customer_id"], row)
         fixed += 1
         print(f"  [{i}/{len(targets)}] {customer['customer_id']} ({customer['name']}) 완료")
 

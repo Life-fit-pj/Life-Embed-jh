@@ -18,11 +18,18 @@
 import json
 from datetime import datetime
 
-from app.adapters.llm import get_llm
+from app.llm import get_llm
 from app.core.config import INDICATORS
-from app.core.db import (dicts, get_con, one, table_columns,
-                         ensure_search_history, ensure_chat_history)
-from app.features.admin import dashboard, pairs
+from app.features.admin import dashboard, to_pairs
+from app.tables.history import (
+    add_analysis_chat, analysis_chat_one, chat_count, delete_analysis_chat,
+    ensure_analysis_chat,
+    like_region_counts, list_analysis_chat, search_count, top_searches,
+)
+from app.tables.members import (
+    has_initial_columns, indicator_drift, indicator_spread,
+    preference_count, work_city_counts,
+)
 
 # ── 집계 ────────────────────────────────────────
 # 전부 (label, value) 두 칸으로 통일한다. 화면 차트 하나로 다 그릴 수 있고,
@@ -34,13 +41,7 @@ def facts_spread() -> dict:
     dashboard() 는 평균만 준다. 평균 3.0 이 "다들 3점"인지 "1점과 5점이 반반"인지
     구분이 안 되므로, 판단에 필요한 분포를 여기서 따로 센다
     """
-    return {
-        name: pairs(
-            f'SELECT CAST("{name}" AS INT), COUNT(*) FROM user_preferences '
-            f'WHERE "{name}" IS NOT NULL GROUP BY 1 ORDER BY 1'
-        )
-        for name in INDICATORS
-    }
+    return {name: to_pairs(indicator_spread(name)) for name in INDICATORS}
     
     
 def facts_drift() -> dict:
@@ -53,7 +54,7 @@ def facts_drift() -> dict:
     없는 칸 이름을 문자열로 해석해 버려서, 그냥 돌리면 "100명 전원이 평균
     3.53 만큼 움직였다" 같은 그럴듯한 거짓 숫자가 나온다
     """
-    if not {f"{name}_초기" for name in INDICATORS} <= table_columns("user_preferences"):
+    if not has_initial_columns():
         return {
             "변동_있는_칸수": 0,
             "지표별_평균변화": [],
@@ -63,11 +64,7 @@ def facts_drift() -> dict:
 
     changed, moves = 0, []
     for name in INDICATORS:
-        row = one(
-            f'SELECT COUNT(*), AVG("{name}" - "{name}_초기") FROM user_preferences '
-            f'WHERE "{name}_초기" IS NOT NULL AND ABS("{name}" - "{name}_초기") >= 0.005'
-        )
-        n, delta = (row or (0, None))
+        n, delta = (indicator_drift(name) or (0, None))
         changed += n or 0
         if n:
             moves.append({"label": name, "value": round(delta, 3), "인원": n})
@@ -88,17 +85,11 @@ def facts_searches(top=20) -> dict:
     customer_id 가 들어간다) 여기서는 "누가"가 아니라 "무엇을 많이 찾았나"만 세므로
     그대로 읽으면 된다
     """
-    ensure_search_history()      # ← 팀원 함수를 그대로 부른다 (1-2에서 import 함)
-    ensure_chat_history()
-
-    total = one("SELECT COUNT(*) FROM search_history")[0]
+    total = search_count()
     return {
         "검색_건수": total,
-        "많이_찾은_말": pairs(
-            "SELECT query, COUNT(*) FROM search_history GROUP BY 1 "
-            "ORDER BY 2 DESC LIMIT ?", (top,)
-        ),
-        "대화_건수": one("SELECT COUNT(*) FROM chat_history")[0],
+        "많이_찾은_말": to_pairs(top_searches(top)),
+        "대화_건수": chat_count(),
         "비어있는_이유": None if total else
             "아직 아무도 검색하지 않았다. 사용자가 검색창을 쓰면 여기에 쌓인다",
     }
@@ -117,7 +108,7 @@ def collect_facts() -> dict:
         "회원_성향": {
             # ⚠ 표본은 counts["members"] 가 아니다 —
             #   그건 customers 표(로그인만 발급된 빈 계정 포함)라 가중치가 없는 사람까지 센다
-            "표본": one("SELECT COUNT(*) FROM user_preferences")[0],
+            "표본": preference_count(),
             "지표평균": d["charts"]["weights"],
             "지표분포": facts_spread(),
             "연령대": d["charts"]["ages"],
@@ -127,12 +118,8 @@ def collect_facts() -> dict:
         },
         "지역_수요": {
             "거주_자치구": d["charts"]["memberGu"],
-            "직장_자치구": pairs(
-                "SELECT work_city, COUNT(*) FROM customers WHERE work_city IS NOT NULL "
-                "GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
-            "좋아요_동네": pairs(
-                "SELECT 구 || ' ' || 행정동명, COUNT(*) FROM likes "
-                "GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
+            "직장_자치구": to_pairs(work_city_counts(15)),
+            "좋아요_동네": to_pairs(like_region_counts(15)),
         },
         "변동_추이": facts_drift(),
         "검색_트렌드": facts_searches(),
@@ -179,26 +166,12 @@ def ask(question: str) -> dict:
 
 
 # ── 대화 보관 ────────────────────────────────────
-
-_ready = False
+# SQL 은 app/tables/history.py 에 있다. 여기는 "무엇을 남기고 어떻게 읽을까"만 정한다
 
 
 def ensure_table():
-    """분석 대화 표가 없으면 만든다. likes·history 와 같은 방식이다."""
-    global _ready
-    if _ready:
-        return
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS analysis_chat (
-            chat_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-            question   TEXT NOT NULL,
-            answer     TEXT,
-            facts      TEXT,
-            created_at TEXT
-        )
-    """)
-    get_con().commit()
-    _ready = True
+    """예전 이름. 표를 만드는 일은 tables 로 갔다."""
+    ensure_analysis_chat()
 
 
 def save_chat(question, answer, facts) -> int:
@@ -207,37 +180,23 @@ def save_chat(question, answer, facts) -> int:
     집계까지 남기는 이유 — 데이터는 계속 바뀐다. 한 달 뒤 이 답을 다시 열었을 때
     "그때는 무슨 숫자를 보고 이렇게 답했나"를 알 수 없으면 답을 믿을 수 없다
     """
-    ensure_table()
-    con = get_con()
-    cur = con.execute(
-        "INSERT INTO analysis_chat (question, answer, facts, created_at) VALUES (?, ?, ?, ?)",
-        (question, answer, json.dumps(facts, ensure_ascii=False),
-         datetime.now().isoformat(timespec="seconds")),
+    return add_analysis_chat(
+        question, answer,
+        json.dumps(facts, ensure_ascii=False),
+        datetime.now().isoformat(timespec="seconds"),
     )
-    con.commit()
-    return cur.lastrowid
 
 
 def list_chats(limit=50) -> list:
     """저장된 분석 대화 목록. 목록에는 답을 짧게만 싣는다."""
-    ensure_table()
-    rows = dicts(
-        "SELECT chat_id, question, substr(answer, 1, 90) AS preview, created_at "
-        "FROM analysis_chat ORDER BY chat_id DESC LIMIT ?", (limit,)
-    )
-    return rows
+    return list_analysis_chat(limit)
 
 
 def get_chat(chat_id: int) -> dict | None:
     """대화 하나를 통째로. 그때의 집계도 같이 돌려준다."""
-    ensure_table()
-    rows = dicts(
-        "SELECT chat_id, question, answer, facts, created_at "
-        "FROM analysis_chat WHERE chat_id = ?", (chat_id,)
-    )
-    if not rows:
+    row = analysis_chat_one(chat_id)
+    if row is None:
         return None
-    row = rows[0]
     try:
         row["facts"] = json.loads(row["facts"]) if row["facts"] else None
     except json.JSONDecodeError:
@@ -246,8 +205,4 @@ def get_chat(chat_id: int) -> dict | None:
 
 
 def delete_chat(chat_id: int) -> int:
-    ensure_table()
-    con = get_con()
-    n = con.execute("DELETE FROM analysis_chat WHERE chat_id = ?", (chat_id,)).rowcount
-    con.commit()
-    return n
+    return delete_analysis_chat(chat_id)

@@ -11,8 +11,10 @@ explain.py 는 TOP 5 전체를 한 번에 설명한다.
 
 from collections import Counter
 
-from app.core.db import facilities, facility_counts, region_densities
-from app.adapters.llm import get_llm
+from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
+                                region_price_note, price_gap_text, format_won)
+from app.tables.regions import facilities, facility_counts, region_densities
+from app.llm import get_llm
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
 사용자가 지도에서 특정 동네를 눌렀습니다. 그 동네가 왜 이 사람에게 맞는지
@@ -108,8 +110,6 @@ def build_context(gu, dong, query, weights, scores, housing=None):
                 lines.append(f"    많은 분류 순: {top}")
     
     if housing:
-        from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
-                                        region_price_note, price_gap_text, format_won)
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
         lines.append("")
         # 사용자가 말한 금액을 먼저 밝힌다 — 이게 없으면 Claude 는 "비싸다/싸다"를

@@ -6,7 +6,8 @@
 
 import numpy as np
 
-from app.adapters.llm import get_embedder, to_passage
+from app.llm import get_embedder, to_passage
+from app.tables.chunks import replace_kb_chunks, replace_member_chunks
 from pipeline.prep.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
 
 
@@ -17,7 +18,7 @@ def _embed(chunks):
     return [np.asarray(v, dtype="float32").tobytes() for v in vectors]
 
 
-def resync_kb_person(con, uuid, row):
+def resync_kb_person(uuid, row):
     """kb 페르소나 한 명을 다시 임베딩한다.
 
     row 는 kb_persona.csv 한 줄과 같은 모양이어야 한다
@@ -26,18 +27,13 @@ def resync_kb_person(con, uuid, row):
     chunks = make_chunks([row], KB_KEYS)
     vectors = _embed(chunks)
 
-    cur = con.cursor()
-    cur.execute("DELETE FROM kb_chunk WHERE uuid = ?", (uuid,))
-    cur.executemany(
-        "INSERT INTO kb_chunk (uuid, district, category, text, vector) "
-        "VALUES (?, ?, ?, ?, ?)",
-        [(c["uuid"], c["district"], c["category"], c["text"], vec)
-         for c, vec in zip(chunks, vectors)],
-    )
-    con.commit()
+    replace_kb_chunks(uuid, [
+        (c["uuid"], c["district"], c["category"], c["text"], vec)
+        for c, vec in zip(chunks, vectors)
+    ])
 
 
-def resync_member(con, customer_id, row):
+def resync_member(customer_id, row):
     """회원 한 명을 다시 임베딩한다.
 
     row 는 nemotron.csv 한 줄 + customer_id 가 들어간 모양이어야 한다.
@@ -45,12 +41,7 @@ def resync_member(con, customer_id, row):
     chunks = make_chunks([row], MEMBER_KEYS)
     vectors = _embed(chunks)
 
-    cur = con.cursor()
-    cur.execute("DELETE FROM member_chunk WHERE customer_id = ?", (customer_id,))
-    cur.executemany(
-        "INSERT INTO member_chunk (customer_id, category, text, vector) "
-        "VALUES (?, ?, ?, ?)",
-        [(c["customer_id"], c["category"], c["text"], vec)
-         for c, vec in zip(chunks, vectors)],
-    )
-    con.commit()
+    replace_member_chunks(customer_id, [
+        (c["customer_id"], c["category"], c["text"], vec)
+        for c, vec in zip(chunks, vectors)
+    ])
