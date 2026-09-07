@@ -3,7 +3,7 @@
 
 from fastapi import FastAPI
 
-from app.api import auth, chat, customers, history, recommend, regions, survey
+from app.api import admin, analysis, auth, chat, customers, history, recommend, regions, survey
 
 app = FastAPI(title="Life-Embed-jh")
 app.include_router(customers.router)
@@ -13,3 +13,5 @@ app.include_router(chat.router)
 app.include_router(auth.router)
 app.include_router(survey.router)
 app.include_router(history.router)
+app.include_router(admin.router)
+app.include_router(analysis.router)

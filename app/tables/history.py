@@ -241,6 +241,7 @@ def get_login_row(login_id):
 
 # 로그인이 이미 붙어 있는 회원 번호
 def login_customer_ids():
+    ensure_user_login()
     return [r["customer_id"] for r in dicts("SELECT customer_id FROM user_login")]
 
 
