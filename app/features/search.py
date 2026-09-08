@@ -1,3 +1,4 @@
+# Last updated: 2026-09-08
 """
 검색어 하나로 전체 파이프라인을 돌리는 통합 창구.
 
@@ -15,17 +16,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.engine.explain import explain, find_cases, load_kb_vectors, with_scores
+from app.engine.explain import explain, find_cases, with_scores
 from app.engine.recommend import (
     load_regions, build_scores, build_relative, recommend,
     PRICE_COLUMNS, load_price_values, build_price_score,
 )
-from app.engine.weights import load_member_vectors, ask_claude, blend, find_similar_members
+from app.engine.weights import ask_claude, blend, find_similar_members
 from app.engine.housing import matching_regions, attach_price
 
 from app.repositories.members import member_weights
 from app.repositories.regions import region_densities
-from app.llm import get_embedder
 from app.core.config import INDICATORS
 
 # ── 준비물 보관함 ──────────────────────────────
@@ -33,15 +33,15 @@ _ready = None
 
 
 def get_ready():
-    """벡터·점수 등 무거운 준비물. 처음 한 번만 만든다."""
+    """행정동 점수 등 무거운 준비물. 처음 한 번만 만든다.
+
+    벡터는 여기 없다 — app/ai/vector_store.py 가 자기 캐시를 들고,
+    청크가 바뀌면 스스로 버린다(7-8절)
+    """
     global _ready
-    if _ready is None :
+    if _ready is None:
         print("⏳ 파이프라인 준비 중...")
-        
-        get_embedder()   # [E] 임베딩 모델도 여기서 한 번 올려둔다 — 첫 검색자만 로딩 비용을 떠안지 않도록
-                
-        member_rows, member_vectors = load_member_vectors()
-        kb_rows, kb_vectors = load_kb_vectors()          # [A] 지식베이스 벡터도 여기서 한 번만
+
         names, values = load_regions()
         scores = build_scores(values)
         relative = build_relative(scores)
@@ -50,17 +50,12 @@ def get_ready():
         price_score = build_price_score(price_values)   # 427개 동, 0~100 — housing 없을 때만 쓴다
 
         _ready = {
-            "member_rows": member_rows,
-            "member_vectors": member_vectors,
-            "kb_rows": kb_rows,
-            "kb_vectors": kb_vectors,
             "names": names,
             "scores": scores,
             "relative": relative,
             "price_score": price_score,
         }
-        print(f"✅ 준비 완료 · 회원 청크 {len(member_rows)}개 · "
-              f"지식베이스 청크 {len(kb_rows)}개 · 행정동 {len(names)}개")
+        print(f"✅ 준비 완료 · 행정동 {len(names)}개")
     return _ready
 
 
@@ -109,7 +104,7 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
     """
     r = get_ready()
     detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
-    cases = find_cases(persona_query, r["kb_rows"], r["kb_vectors"])
+    cases = find_cases(persona_query)
     text = explain(persona_query, weights, detailed, cases, housing=housing)
     return {
         "weights": weights,
@@ -133,7 +128,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
 
     # 1) 검색어 → 가중치
     draft, persona_query = ask_claude(query)
-    similar = find_similar_members(persona_query, r["member_rows"], r["member_vectors"])
+    similar = find_similar_members(persona_query)
     ids = [cid for cid, _ in similar]
     weights = blend(draft, member_weights(ids))
 
@@ -159,7 +154,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
     detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
 
     # 3) 설명문
-    cases = find_cases(persona_query, r["kb_rows"], r["kb_vectors"])   # 캐시된 걸 넘겨준다
+    cases = find_cases(persona_query)
     text = explain(query, weights, detailed, cases, housing=housing)
 
     return{

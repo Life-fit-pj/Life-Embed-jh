@@ -1,3 +1,4 @@
+# Last updated: 2026-09-08
 """지금 동작을 파일로 굳힌다. 리팩터링을 시작하기 전에 한 번만 돌린다.
 
 실행: py -m tests.make_golden      (Life-Embed-jh 안에서)
@@ -34,14 +35,15 @@ def snap_recommend():
 
 
 def snap_embed():
-    """같은 문장이 같은 숫자가 되나. 4단계에서 이것만 본다.
+    """같은 문장이 같은 숫자가 되나.
 
-    6단계(OpenAI 로 교체)에서는 이 사진을 지우고 다시 찍는다 — 거기서는
-    "안 바뀌었나"가 아니라 "차원이 1536이 됐나"를 보게 된다.
+    6단계에서 OpenAI 로 갈아 끼우며 다시 찍었다 — 차원이 384 에서 1536 이 됐고,
+    e5 전용이던 질문 접두사도 사라졌다(이론 9).
     """
-    from app.llm import get_embedder, to_query
+    from app.ai.embedder import embed_query
 
-    vector = get_embedder().embed_query(to_query(SENTENCE))
+    vector = embed_query(SENTENCE)
+
     return {
         "문장": SENTENCE,
         "차원": len(vector),
@@ -51,8 +53,8 @@ def snap_embed():
 
 def snap_tables():
     """조회 함수가 무엇을 어떤 모양으로 돌려주나. 3단계에서 이것을 본다."""
-    from app.tables.chunks import member_chunk_count
-    from app.tables.members import member_weights
+    from app.repositories.chunks import member_chunk_count
+    from app.repositories.members import member_weights
 
     return {
         "member_chunk_count": member_chunk_count(),
@@ -69,7 +71,7 @@ def snap_chunks():
     """
     import hashlib
 
-    from app.tables.chunks import kb_chunks, member_chunks
+    from app.repositories.chunks import kb_chunks, member_chunks
 
     def fingerprint(rows, key):
         # 정렬해서 담는다 — 새 파이프라인이 다른 순서로 넣어도 통과해야 한다.

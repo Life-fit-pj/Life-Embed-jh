@@ -1,3 +1,4 @@
+# Last updated: 2026-09-08
 import ast
 from pathlib import Path
 
@@ -11,21 +12,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # 번호가 작을수록 아래층. 아래층은 위층을 부르면 안 된다.
-# app.adapters 와 app.llm 이 둘 다 있는 건 2단계 전/후 모두에서 돌게 하려는 것이다
 LAYER = {
     "app.domain": 0,
     "app.core": 1,
     "app.repositories": 2,
-    "app.adapters": 2,
-    "app.llm": 2,
-    "app.engine": 3,
-    "app.features": 4,
-    "app.schemas": 4,
-    "app.api": 5,
+    "app.ai": 2,
+    "app.rag": 3,          # 7단계 — ai 위, engine 아래
+    "app.engine": 4,
+    "app.features": 5,
+    "app.schemas": 5,
+    "app.api": 6,
 }
 
-# app 이 pipeline 을 부르는 건 이 한 줄만 허락한다 (청킹 규칙을 두 벌 두지 않으려고)
-ALLOWED_PIPELINE = {("app.engine.resync", "pipeline.prep.chunking")}
+# 4단계에서 chunker 가 app/ai/ 로 올라와 예외가 사라졌다.
+# 다시 채워야 할 일이 생기면 그건 층을 거스른다는 뜻이다
+ALLOWED_PIPELINE = set()
 
 
 # 파일 경로를 app.core.db 같은 모듈 이름으로 바꾼다

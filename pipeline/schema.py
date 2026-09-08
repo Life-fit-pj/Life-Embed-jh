@@ -31,7 +31,7 @@ TABLE_ALIAS = {
 # data/ 에 있다고 전부 DB 표가 되어야 하는 건 아니다.
 # 파일명이 자주 바뀌므로 정확한 이름 대신 접두어로 거른다
 EXCLUDE_PREFIX = (
-    "kb_",                 # 02·03번 산출물 (kb_chunk 표는 04번이 vector 칸까지 넣어 따로 만든다)
+    "kb_",                 # 02·03번 산출물 (청크는 pipeline/chunk.py 가 chunks 표에 직접 넣는다)
     "member_persona",      # 다른 AI 에게 넘기려고 뽑은 파일
     "user_preferences_v",  # 버전 보관용
     "nemotron",            # 원본 11만 줄. 회원 100명은 06번이 CSV 를 직접 읽는다
