@@ -46,7 +46,7 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 | # | 제목 | 저장소 | 상태 | 선행 |
 |---|---|---|---|---|
 | 1 | `requirements.txt` 의 인라인 주석 문법 오류 수정 (pip 파싱 실패) | Embed | 착수 가능 | — |
-| 2 | 베이스 이미지·파이썬 버전 확정 (`python:3.12-slim` 기준 검증) | 공통 | 착수 가능 | 1 |
+| 2 | 베이스 이미지·파이썬 버전 확정 (`python:3.12-slim` 기준 검증) | 공통 | **완료** | 1 |
 | 3 | `Life-Embed-jh/Dockerfile` 작성 — `uvicorn app.main:app --port 8000` | Embed | 착수 가능 | 2 |
 | 4 | torch/sentence-transformers 를 CPU 전용 휠로 설치해 이미지 경량화 | Embed | **보류 (KAN-86)** | 3 |
 | 5 | 임베딩 모델(e5-small) 가중치를 빌드 단계에 캐시 (런타임 다운로드 제거) | Embed | **보류 (KAN-86)** | 3 |
@@ -79,6 +79,12 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 끝나면 주석을 풀고, 그때 `langchain-anthropic`·`langchain-huggingface`·
 `sentence-transformers` 를 대신 걷어낸다.
 
+**주의 — 주석 처리해도 `anthropic` 은 설치된다.** `langchain-anthropic` 이 의존성으로
+끌고 오기 때문인데, 그것도 고정하려던 `0.75.0` 이 아니라 **`0.125.0`** 이 들어온다
+(2번 검증에서 확인). 지금은 코드가 langchain 경유로만 부르니 문제가 없지만, KAN-84 에서
+langchain 을 걷어내며 주석을 풀 때 **`0.75.0` 을 그대로 되살리면 그 사이 바뀐 SDK API 와
+어긋날 수 있다** — 그 시점에 버전을 다시 정해야 한다.
+
 `#` 는 **줄 맨 앞**에 붙여야 한다. `anthropic==0.75.0        # 4단계` 처럼 버전 뒤에 붙이면
 pip 가 인라인 주석으로 읽어 **패키지는 그대로 설치된다** — 파싱 오류만 사라지고 이미지가
 커지는 건 그대로다.
@@ -94,10 +100,20 @@ pip 가 인라인 주석으로 읽어 **패키지는 그대로 설치된다** �
   새 패키지를 어디에 넣을지는 — `app/` 이 import 하면 `requirements.txt`,
   `tests/` 만 import 하면 `requirements-dev.txt`.
 
-### 2. 베이스 이미지·파이썬 버전 확정
-로컬은 3.14 이지만 `numpy==2.5.1`, `sentence-transformers` 등 휠 제공 범위를 보고
-`python:3.12-slim` 기준으로 맞춘다. slim 에 없는 빌드 도구가 필요하면 빌더 스테이지에서만
-설치하고 런타임 스테이지에는 남기지 않는다.
+### 2. 베이스 이미지·파이썬 버전 확정 — **검증 완료 (2026-09-08)**
+로컬은 3.14 이지만 `numpy==2.5.1`, `sentence-transformers` 등 휠 제공 범위를 고려해
+`python:3.12-slim` 을 후보로 잡고 실제로 돌려봤다.
+
+    docker run --rm -v <repo>/requirements.txt:/tmp/req.txt:ro python:3.12-slim \
+      sh -c "pip install --dry-run --only-binary=:all: -r /tmp/req.txt"
+    -> exit 0
+
+`--only-binary=:all:` 로 소스 배포를 금지했는데도 통과했다 = **모든 패키지가 cp312 휠로
+설치된다.** 컴파일이 한 번도 안 일어나므로 **빌더 스테이지가 필요 없고 단일 스테이지로
+충분하다.** `python:3.12-slim` 으로 확정한다.
+
+alpine 은 검토하지 않는다 — musl 기반이라 numpy·torch 휠이 안 맞아 소스 빌드로 떨어진다.
+`docker desktop` 설치(powershell) : winget install -e --id Docker.DockerDesktop
 
 ### 3. `Life-Embed-jh/Dockerfile`
 - 엔트리포인트는 `app.main:app`, 포트 8000. **저장소 루트를 WORKDIR 로 둬야 한다** —
@@ -106,14 +122,40 @@ pip 가 인라인 주석으로 읽어 **패키지는 그대로 설치된다** �
 - `pipeline/` 은 배포에 따라가지 않는다(AGENTS.md) — 런타임 스테이지에서 제외할지 7번과 함께 정한다.
 - `COPY app/` 단위로 담으므로 KAN-87~89 의 내부 모듈 재배치가 끝나도 이 파일은 안 바뀐다.
 
-### 4. CPU 전용 휠로 이미지 경량화 — **보류 (KAN-86 대기)**
-`sentence-transformers` 가 끌고 오는 torch 기본 휠은 CUDA 런타임을 포함해 수 GB 다.
-`--index-url https://download.pytorch.org/whl/cpu` 로 CPU 빌드를 받으면 줄일 수 있다.
-DEPLOY.md 가 "ML 의존성 때문에 이미지가 커진다"고 미리 지목한 항목이다.
+### 4. CPU 전용 휠로 이미지 경량화 — 보류 (KAN-86 대기) / **측정은 완료**
+기본 설치로는 `sentence-transformers` → `torch 2.14.0` 이 **NVIDIA CUDA 스택을 통째로**
+끌고 온다. GPU 가 없는 서버에 올릴 건데도 아래가 전부 들어온다 —
 
-다만 **KAN-86(임베더를 OpenAI SDK 기반으로 교체)이 끝나면 torch 가 의존성에서 통째로
-빠지므로 이 티켓은 폐기된다.** KAN-86 이 크게 지연되거나 로컬 임베딩을 유지하는 쪽으로
-결정이 뒤집힐 때만 착수한다.
+    nvidia-cublas, nvidia-cudnn-cu13, nvidia-nccl-cu13, nvidia-cufft,
+    nvidia-cusolver, nvidia-cusparse, nvidia-curand, nvidia-cuda-runtime,
+    nvidia-nvshmem-cu13, cuda-toolkit, cuda-bindings, triton(248MB) ...
+
+torch 를 CPU 전용 인덱스에서 받으면 이게 전부 사라진다. **실측(2026-09-08)** —
+
+    pip install --index-url https://download.pytorch.org/whl/cpu \
+                --extra-index-url https://pypi.org/simple -r requirements.txt
+
+    site-packages 합계   1.5G   (nvidia*/cuda*/triton 잔존 0개)
+    torch                769M
+    transformers         113M
+    scipy                109M
+    sympy                 74M
+    sklearn               49M
+    numpy                 43M
+
+CPU 전용으로도 **1.5GB** 다. 베이스 이미지와 레이어를 더하면 최종 이미지는 1.8GB 안팎이
+된다. 기본 설치본은 측정하지 않았지만 위 CUDA 패키지 목록으로 보아 그 3배 이상이다.
+DEPLOY.md 가 "이미지가 커질 수 있다"고 지목한 수준을 넘어 **Render 저가 티어 적재가
+어려운 크기**다.
+
+다만 **KAN-86(임베더를 OpenAI SDK 기반으로 교체)이 끝나면 torch·transformers·
+sentence-transformers 가 의존성에서 통째로 빠지므로 이 티켓은 폐기된다.** 위 목록에서
+그 셋과 부속(sympy, networkx, safetensors, tokenizers)을 걷어내면 남는 건 numpy·scipy
+정도이고 이미지는 수백 MB 급이 된다.
+
+**따라서 이 티켓은 KAN-86 의 우선순위를 올릴 근거로 쓴다.** KAN-86 이 크게 지연되거나
+로컬 임베딩을 유지하는 쪽으로 결정이 뒤집힐 때만 착수한다 — 그때는 위 명령 두 줄을
+Dockerfile 에 옮기면 끝이라 작업량 자체는 작다.
 
 ### 5. 모델 가중치 빌드 시점 캐시 — **보류 (KAN-86 대기)**
 `intfloat/multilingual-e5-small` 을 런타임에 처음 임베딩할 때 HuggingFace 에서 내려받으면
