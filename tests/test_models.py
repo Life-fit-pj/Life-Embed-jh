@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import func
 
 from app.db import SessionLocal
-from app.models.chunk import KbChunk, MemberChunk
+from app.models.chunk import Chunk
 from app.models.customer import Customer
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory
 from app.models.preference import Preference
@@ -20,8 +20,7 @@ from app.models.preference import Preference
 FIXED = [
     (Customer, 100),
     (Preference, 100),
-    (MemberChunk, 900),
-    (KbChunk, 9000),
+    (Chunk, 9900),          # member 900 + kb 9,000
 ]
 
 # 기록용 표 — 서버를 켜서 검색 한 번만 해도 늘어난다.
@@ -73,8 +72,20 @@ def test_벡터가_1536바이트다():
     """LargeBinary 로 적은 게 맞는지. Text 로 적었으면 여기서 깨진다."""
     db = SessionLocal()
     try:
-        chunk = db.query(MemberChunk).first()
+        chunk = db.query(Chunk).first()
         assert isinstance(chunk.vector, bytes)
         assert len(chunk.vector) == 384 * 4
+    finally:
+        db.close()
+
+
+def test_chunks_는_source_로_나뉜다():
+    """합계 9,900 만 세면 source 가 전부 한쪽으로 쏠려도 통과한다."""
+    db = SessionLocal()
+    try:
+        counts = dict(
+            db.query(Chunk.source, func.count()).group_by(Chunk.source).all()
+        )
+        assert counts == {"member": 900, "kb": 9000}
     finally:
         db.close()

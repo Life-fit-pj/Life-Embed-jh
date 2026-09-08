@@ -1,5 +1,5 @@
 """
-회원 페르소나 정상화 — customers 표와 member_chunk 의 인물이 다른 문제를 고친다.
+회원 페르소나 정상화 — customers 표와 chunks 의 인물이 다른 문제를 고친다.
 
 원인 (embed_member.py 주석 참고):
   nemotron.csv 는 customer_id 가 없어 "customers.csv 와 순서로 맞춘다"는
@@ -48,7 +48,8 @@ def _mismatched_customers(con):
     out = []
     for c in customers:
         row = con.execute(
-            "SELECT text FROM member_chunk WHERE customer_id = ? AND category = 'persona'",
+            "SELECT text FROM chunks "
+            "WHERE source = 'member' AND source_id = ? AND category = 'persona'",
             (c["customer_id"],),
         ).fetchone()
         if row is None or not row[0].startswith(c["name"]):

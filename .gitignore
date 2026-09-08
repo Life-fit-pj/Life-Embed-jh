@@ -223,3 +223,4 @@ __marimo__/
 # Claude Code — 기계마다 다른 로컬 설정 (.claude/settings.json 과 skills/ 는 공유한다)
 .claude/settings.local.json
 .claude/.headroom_*
+*.db.bak

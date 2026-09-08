@@ -12,7 +12,7 @@ from sqlalchemy import Integer, cast, func, inspect
 
 from app.core.config import INDICATORS
 from app.db import engine
-from app.models.chunk import MemberChunk
+from app.models.chunk import Chunk
 from app.models.customer import Customer
 from app.models.preference import Preference
 
@@ -128,10 +128,14 @@ def customer_preferences_initial(db, customer_id):
 
 
 def customer_persona(db, customer_id):
-    """member_chunk 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다"""
+    """chunks 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다.
+
+    표를 합친 뒤로는 source 로 회원 줄만 걸러야 한다 — 옛 member_chunk 였을 때는
+    표 이름이 그 일을 대신해 줬다(5-10절).
+    """
     rows = (
-        db.query(MemberChunk.category, MemberChunk.text)
-        .filter(MemberChunk.customer_id == customer_id)
+        db.query(Chunk.category, Chunk.text)
+        .filter(Chunk.source == "member", Chunk.source_id == customer_id)
         .all()
     )
     return {category: text for category, text in rows}

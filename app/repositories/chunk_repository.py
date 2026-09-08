@@ -1,4 +1,4 @@
-"""청크 표 둘을 다룬다. member_chunk 와 kb_chunk.
+"""청크 표 하나를 다룬다. chunks — source 로 member 와 kb 를 가른다.
 
 돌려주는 것은 전부 딕셔너리·튜플이다 — ORM 객체를 내보내면
 세션이 닫힌 뒤 쓸 수 없다(DetachedInstanceError).
