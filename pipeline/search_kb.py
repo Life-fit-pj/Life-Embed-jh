@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from app.ai.embedder import embed_query, to_query
+from app.ai.embedder import embed_query
 from app.tables.chunks import kb_chunks
 
 
@@ -18,7 +18,7 @@ def load_vectors():
     
     # json.loads 로 글자를 다시 숫자 목록으로 되돌린다
     vectors = np.array(
-        [np.frombuffer(r["vector"], dtype="float32") for r in rows]
+        [json.loads(r["embedding"]) for r in rows]
     )
 
     return rows, vectors
@@ -28,8 +28,7 @@ def load_vectors():
 def search(query, rows, vectors, top_k=5):
     """검색어와 비슷한 청크 top_k 개를 찾는다."""
 
-    # e5 규칙: 질문에는 query: 를 붙인다 (저장할 때는 passage: 였다)
-    q = np.array(embed_query(to_query(query)), dtype="float32")
+    q = np.array(embed_query(persona_query), dtype="float32")
     
     # 저장할 때 길이를 1로 맞춰뒀으므로, 곱하기만으로 유사도가 나온다
     scores = vectors @ q

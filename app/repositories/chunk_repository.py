@@ -12,15 +12,15 @@ from app.models.chunk import Chunk
 # 부르는 쪽이 쓰는 딕셔너리 키다. 표를 합친 뒤에도 이 이름은 안 바꾼다 —
 # source_id 하나를 member 에서는 customer_id, kb 에서는 uuid 로 돌려준다.
 # 3-A 에서 _초기 를 뗀 키로 돌려주던 것과 같은 손놀림이다
-MEMBER_FIELDS = ("customer_id", "category", "text", "vector")
-KB_FIELDS = ("chunk_id", "uuid", "district", "category", "text", "vector")
+MEMBER_FIELDS = ("customer_id", "category", "text", "embedding")
+KB_FIELDS = ("chunk_id", "uuid", "district", "category", "text", "embedding")
 
 
 def _rows(db, source, fields, columns):
     """한 source 의 줄만 딕셔너리 목록으로 꺼낸다.
 
     db.query(Chunk) 가 아니라 db.query(칸, 칸, …) 을 쓴다.
-    벡터가 붙어 있는 표라 안 쓰는 칸까지 실어 오면 무겁다.
+    임베딩이 붙어 있는 표라 안 쓰는 칸까지 실어 오면 무겁다.
     """
     return [
         dict(zip(fields, row))
@@ -30,7 +30,7 @@ def _rows(db, source, fields, columns):
 
 def member_chunks(db):
     """회원 청크와 벡터를 전부 꺼낸다. 키는 옛 이름 그대로 customer_id 다."""
-    columns = (Chunk.source_id, Chunk.category, Chunk.text, Chunk.vector)
+    columns = (Chunk.source_id, Chunk.category, Chunk.text, Chunk.embedding)
     return _rows(db, "member", MEMBER_FIELDS, columns)
 
 
@@ -38,7 +38,7 @@ def kb_chunks(db):
     """지식베이스 청크와 벡터를 전부 꺼낸다. 키는 옛 이름 그대로 uuid 다."""
     columns = (
         Chunk.chunk_id, Chunk.source_id, Chunk.district,
-        Chunk.category, Chunk.text, Chunk.vector,
+        Chunk.category, Chunk.text, Chunk.embedding,
     )
     return _rows(db, "kb", KB_FIELDS, columns)
 
@@ -76,13 +76,14 @@ def persona_lengths(db):
 def replace_kb_chunks(db, uuid, rows):
     """kb 페르소나 한 명의 청크를 통째로 갈아 끼운다.
 
-    rows 는 (uuid, district, category, text, vector) 튜플 목록이다 — 옛 모양 그대로.
+    rows 는 (uuid, district, category, text, embedding) 튜플 목록이다 — 옛 모양 그대로.
+    embedding 은 6단계부터 float 리스트를 json.dumps 한 문자열이다(resync.py 가 만든다).
     """
     db.query(Chunk).filter(
         Chunk.source == "kb", Chunk.source_id == uuid
     ).delete(synchronize_session=False)
     db.add_all([
-        Chunk(source="kb", source_id=u, district=d, category=c, text=t, vector=v)
+        Chunk(source="kb", source_id=u, district=d, category=c, text=t, embedding=v)
         for u, d, c, t, v in rows
     ])
     db.commit()
@@ -91,13 +92,13 @@ def replace_kb_chunks(db, uuid, rows):
 def replace_member_chunks(db, customer_id, rows):
     """회원 한 명의 청크를 통째로 갈아 끼운다.
 
-    rows 는 (customer_id, category, text, vector) 튜플 목록이다.
+    rows 는 (customer_id, category, text, embedding) 튜플 목록이다.
     """
     db.query(Chunk).filter(
         Chunk.source == "member", Chunk.source_id == customer_id
     ).delete(synchronize_session=False)
     db.add_all([
-        Chunk(source="member", source_id=cid, category=c, text=t, vector=v)
+        Chunk(source="member", source_id=cid, category=c, text=t, embedding=v)
         for cid, c, t, v in rows
     ])
     db.commit()

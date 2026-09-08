@@ -4,18 +4,17 @@
 "뭐가 바뀌었나" 확인하는 절차 없이 그냥 그 사람 청크를 지우고 새로 만든다.
 """
 
-import numpy as np
+import json
 
-from app.ai.embedder import embed_documents, to_passage
+from app.ai.embedder import embed_documents
 from app.tables.chunks import replace_kb_chunks, replace_member_chunks
 from app.ai.chunker import make_chunks, KB_KEYS, MEMBER_KEYS
 
 
 # 임베딩해서 저장하는, 두 함수가 공통으로 하는 부분만 뽑은 것
 def _embed(chunks):
-    docs = [to_passage(c["text"]) for c in chunks]
-    vectors = embed_documents(docs)
-    return [np.asarray(v, dtype="float32").tobytes() for v in vectors]
+    vectors = embed_documents([c["text"] for c in chunks])
+    return [json.dumps(v) for v in vectors]
 
 
 def resync_kb_person(uuid, row):

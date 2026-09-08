@@ -7,12 +7,14 @@
 옛 member_chunk · kb_chunk 두 표는 5단계에서 chunks 로 합쳤고,
 골든이 통과한 뒤 표와 모델을 함께 지웠다(5-9절).
 
-vector 는 JSON 문자열이 아니라 float32 를 이어 붙인 BLOB 이다. 384개짜리.
-읽을 때는 np.frombuffer(vector, dtype=np.float32) 로 되돌린다.
-6단계에서 embedding = Column(Text) 로 바뀐다
+embedding 은 숫자 1,536개를 JSON 문자열로 담은 것이다.
+읽을 때는 json.loads(embedding) 으로 되돌린다.
+
+SQLite 에 숫자 배열 타입이 없어서 글자로 눌러 담는다.
+나중에 PostgreSQL(pgvector)로 가면 이 한 줄만 Vector(1536) 으로 바꾼다
 """
 
-from sqlalchemy import Column, Integer, LargeBinary, String, Text
+from sqlalchemy import Column, Integer, String, Text
 
 from app.db import Base
 
@@ -26,4 +28,5 @@ class Chunk(Base):
     district = Column(String)      # kb 만 있다. member 는 None
     category = Column(String)      # persona, sports_persona … config.py 의 CHUNK_COLUMNS
     text = Column(Text)
-    vector = Column(LargeBinary)   # float32 x 384 = 1536 바이트
+    embedding = Column(Text)       # json.dumps 로 담은 숫자 1,536개
+

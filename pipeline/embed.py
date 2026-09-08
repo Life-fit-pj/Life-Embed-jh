@@ -7,21 +7,21 @@
 중간에 끊겨도 그냥 다시 돌리면 남은 것부터 이어서 한다.
 """
 
+import json
 import time
 
-import numpy as np
-
-from app.ai.embedder import embed_documents, to_passage
+from app.ai.embedder import embed_documents
 from app.db import SessionLocal
 from app.models.chunk import Chunk
 
-# 한 번에 보낼 청크 수. 하나씩 보내면 9,900번을 불러야 해서 매우 느리다
-BATCH_SIZE = 32
+# 한 번에 보낼 청크 수. 하나씩 보내면 9,900번을 불러야 해서 매우 느리다.
+# 5단계까지는 내 컴퓨터가 계산해서 32개씩이었고, OpenAI 는 100개도 넉넉히 받는다
+BATCH_SIZE = 100
 
 
 def find_chunks_to_embed(db):
     """아직 벡터가 없는 청크. 이 한 줄이 '이어 하기' 를 공짜로 만든다."""
-    return db.query(Chunk).filter(Chunk.vector.is_(None)).all()
+    return db.query(Chunk).filter(Chunk.embedding.is_(None)).all()
 
 
 def main():
@@ -40,10 +40,10 @@ def main():
 
     for start in range(0, len(todo), BATCH_SIZE):
         batch = todo[start : start + BATCH_SIZE]
-        vectors = embed_documents([to_passage(chunk.text) for chunk in batch])
+        vectors = embed_documents([chunk.text for chunk in batch])
 
         for chunk, vector in zip(batch, vectors):
-            chunk.vector = np.asarray(vector, dtype="float32").tobytes()
+            chunk.embedding = json.dumps(vector)
 
         db.commit()   # 배치마다 저장 — 여기서 죽어도 앞 배치는 남는다
 

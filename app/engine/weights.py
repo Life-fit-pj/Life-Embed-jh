@@ -11,7 +11,7 @@ import numpy as np
 from app.core.config import INDICATORS
 from app.tables.chunks import member_chunks
 from app.tables.members import member_weights
-from app.ai.embedder import embed_query, to_query
+from app.ai.embedder import embed_query
 from app.ai.llm import ask
 
 
@@ -67,7 +67,7 @@ CLAUDE_RATIO = 0.7
 def load_member_vectors():
     """회원 청크 벡터를 전부 꺼낸다. numpy 배열로 만든다."""
     rows = member_chunks()
-    vectors = np.array([np.frombuffer(r["vector"], dtype="float32") for r in rows], dtype="float32")
+    vectors = np.array([json.loads(r["embedding"]) for r in rows], dtype="float32")
     return rows, vectors
 
 
@@ -77,7 +77,7 @@ def find_similar_members(query, rows, vectors, top_k=5) :
     청크 단위로 검색하면 한 사람이 여러 번 걸릴 수 있다.
     그래서 사람별 최고 점수만 남기고 상위 top_k 명을 고른다.
     """
-    q = np.array(embed_query(to_query(query)), dtype="float32")
+    q = np.array(embed_query(query), dtype="float32")
     scores = vectors @ q
     
     best = {}

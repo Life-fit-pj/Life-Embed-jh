@@ -55,7 +55,12 @@ def to_chunks(rows, source, id_key):
 
 
 def main():
-    Chunk.__table__.create(engine, checkfirst=True)
+    # 6단계에서 vector(BLOB) 가 embedding(TEXT) 로 바뀌었다.
+    # create 는 표가 이미 있으면 아무 일도 안 하므로, 칸이 바뀌었으면 지우고 다시 만든다.
+    # 텍스트는 CSV 에서 몇 초면 다시 나오고 벡터는 어차피 새로 만든다 —
+    # 수업의 pipeline/chunk.py 41행도 같은 방식이다
+    Chunk.__table__.drop(engine, checkfirst=True)
+    Chunk.__table__.create(engine)
 
     members = load_members(MEMBER_SOURCE)
     _, kb_people = read_csv(KB_SOURCE)
@@ -64,14 +69,9 @@ def main():
     kb_rows = make_chunks(kb_people, KB_KEYS)
 
     db = SessionLocal()
-    db.query(Chunk).delete()
     db.add_all(to_chunks(member_rows, "member", "customer_id"))
     db.add_all(to_chunks(kb_rows, "kb", "uuid"))
     db.commit()
-
-    print(f"member {len(member_rows):,}개 · kb {len(kb_rows):,}개 "
-          f"· 표에 든 줄 {db.query(Chunk).count():,}")
-    db.close()
 
 
 if __name__ == "__main__":

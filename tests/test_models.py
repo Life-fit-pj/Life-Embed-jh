@@ -68,13 +68,24 @@ def test_한글_칸을_이름으로_꺼낼_수_있다():
         db.close()
 
 
-def test_벡터가_1536바이트다():
-    """LargeBinary 로 적은 게 맞는지. Text 로 적었으면 여기서 깨진다."""
+def test_임베딩이_1536개다():
+    """Text 에 JSON 으로 담은 게 맞는지. 옛 이진 칸으로 남아 있으면 여기서 깨진다.
+
+    길이만 보지 않고 길이가 1 인지도 본다 — weights.py 의 `vectors @ q` 가
+    그걸 전제로 돌기 때문이다(6-11절)
+    """
+    import json
+    import math
+
+    from app.core.config import EMBED_DIMENSION
+
     db = SessionLocal()
     try:
         chunk = db.query(Chunk).first()
-        assert isinstance(chunk.vector, bytes)
-        assert len(chunk.vector) == 384 * 4
+        vector = json.loads(chunk.embedding)
+
+        assert len(vector) == EMBED_DIMENSION
+        assert math.isclose(math.sqrt(sum(x * x for x in vector)), 1.0, abs_tol=1e-3)
     finally:
         db.close()
 

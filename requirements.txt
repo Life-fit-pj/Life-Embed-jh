@@ -2,14 +2,12 @@ numpy==2.5.1
 python-dotenv==1.2.2
 sqlalchemy==2.0.52
 
-# ↓ 4단계에서 LangChain 두 줄을 지웠다. sentence-transformers 는 남는다 —
-#   껍데기(langchain-huggingface)를 벗기면 그 안에서 원래 돌던 것이 이거다
-sentence-transformers==5.7.0
-
 fastapi==0.121.2
 uvicorn==0.38.0
 
 # AI — 수업 저장소(rag-basic-master/requirements.txt)와 같은 버전으로 맞춘다
 anthropic==1.4.0
 
-# openai==3.8.0        6단계 — 임베딩. 아직 쓰는 곳이 없다
+# ↓ 6단계에서 임베딩이 OpenAI 로 넘어가면서 sentence-transformers 를 뺐다.
+#   그 줄이 있던 자리다 — 로컬 모델은 이제 쓰지 않는다
+openai==3.8.0

@@ -8,6 +8,7 @@
 Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제한한다.
 """
 
+import json
 import numpy as np
 
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
@@ -15,7 +16,7 @@ from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
 from app.engine.recommend import load_regions, build_scores, build_relative, recommend
 from app.tables.chunks import kb_chunks
 from app.tables.regions import region_densities
-from app.ai.embedder import embed_query, to_query
+from app.ai.embedder import embed_query
 from app.ai.llm import ask
 
 
@@ -87,7 +88,7 @@ def load_kb_vectors():
     """지식베이스 청크 벡터를 전부 꺼낸다. numpy 배열로 만든다."""
     rows = kb_chunks()
     vectors = np.array(
-        [np.frombuffer(r["vector"], dtype="float32") for r in rows]
+        [json.loads(r["embedding"]) for r in rows]
     )
     return rows, vectors
 
@@ -98,7 +99,7 @@ def find_cases(persona_query, rows, vectors, top_k=3):
     rows, vectors 는 get_ready() 가 미리 만들어 캐시해둔 것을 받는다.
     이 함수 안에서 다시 불러오지 않는다 — 그게 느려지는 원인이었다.
     """
-    q = np.array(embed_query(to_query(persona_query)), dtype="float32")
+    q = np.array(embed_query(persona_query), dtype="float32")
     scores = vectors @ q
 
     top = scores.argsort()[::-1][:top_k]

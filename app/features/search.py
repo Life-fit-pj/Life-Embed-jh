@@ -25,7 +25,6 @@ from app.engine.housing import matching_regions, attach_price
 
 from app.tables.members import member_weights
 from app.tables.regions import region_densities
-from app.ai.embedder import get_model
 from app.core.config import INDICATORS
 
 # ── 준비물 보관함 ──────────────────────────────
@@ -37,9 +36,7 @@ def get_ready():
     global _ready
     if _ready is None :
         print("⏳ 파이프라인 준비 중...")
-        
-        get_model()      # [E] 임베딩 모델도 여기서 한 번 올려둔다 — 첫 검색자만 로딩 비용을 떠안지 않도록
-                
+                        
         member_rows, member_vectors = load_member_vectors()
         kb_rows, kb_vectors = load_kb_vectors()          # [A] 지식베이스 벡터도 여기서 한 번만
         names, values = load_regions()
