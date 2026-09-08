@@ -8,7 +8,7 @@ region_service.py 는 동네 하나를 설명하고 끝난다.
 다른 점은 "무엇을 물었는지" 에 따라 필요한 동네만 골라 온다는 것이다.
 """
 
-from app.tables.regions import facility_counts, facility_categories, region_extras
+from app.repositories.regions import facility_counts, facility_categories, region_extras
 from app.ai.llm import ask
 from app.engine.housing import region_price_lines
 

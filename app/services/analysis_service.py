@@ -21,12 +21,12 @@ from datetime import datetime
 from app.ai.llm import ask as llm_ask
 from app.core.config import INDICATORS
 from app.services.admin_service import dashboard, to_pairs
-from app.tables.history import (
+from app.repositories.history import (
     add_analysis_chat, analysis_chat_one, chat_count, delete_analysis_chat,
     ensure_analysis_chat,
     like_region_counts, list_analysis_chat, search_count, top_searches,
 )
-from app.tables.members import (
+from app.repositories.members import (
     has_initial_columns, indicator_drift, indicator_spread,
     preference_count, work_city_counts,
 )

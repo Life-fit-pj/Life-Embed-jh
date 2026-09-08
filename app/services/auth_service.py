@@ -1,7 +1,8 @@
 """
-임시 로그인 발급/검증.
+Supabase Auth 로 인증된 사용자를 customer_id 에 연결한다.
 
-이 파일은 "규칙"만 담당한다 — SQL은 app/tables/ 에 있다.
+토큰 검증(진짜 인증)은 app/ai/supabase_auth.py 가 한다 — 여기는 검증된 사용자를
+user_login 표(app/tables/history.py)로 customer_id 와 잇는 "규칙"만 담당한다.
 app/services/admin_service.py 가 이미 쓰는 것과 같은 구조.
 """
 
@@ -10,70 +11,46 @@ import string
 
 from app.services import admin_service
 
-from app.tables.history import pick_customer_for_login, create_login, get_login_row, login_customer_ids
-from app.tables.members import customer_ids
+from app.repositories.history import create_login, get_login_row, login_customer_ids
+from app.repositories.members import customer_ids
 
 
 def _random_code(length, chars):
     return "".join(random.choice(chars) for _ in range(length))
 
 
-def login(login_id, password):
-    """아이디+비번으로 로그인한다. 성공하면 customer_id, 실패하면 None.
+def _login_id(supabase_user_id):
+    """일반 아이디·backfill 로 발급된 아이디와 안 겹치게 접두어를 못박는다."""
+    return f"supabase:{supabase_user_id}"
 
-    처음 보는 아이디면 그 자리에서 기존 회원(이름·나이·페르소나가 이미 있는
-    시드 데이터)에게 이 아이디/비번을 붙여 바로 로그인시킨다 — 로그인이 없는
-    회원이 남아 있으면 그 사람에게, 다 배정됐으면 로그인이 가장 적게 붙은
-    회원을 다시 쓴다. 빈 계정은 절대 새로 만들지 않는다(마이페이지는 그
-    회원의 기존 정보를 그대로 보여줄 뿐이라 정보가 있는 회원이어야 의미가
-    있다). 이미 있는 아이디면 비번이 맞는지만 본다. 별도 "계정 발급" 단계
-    없이 로그인 폼 하나로 발급+로그인을 겸하는 게 지금 요구사항이다 —
-    실 회원가입이 붙으면 이 즉석 발급 분기는 걷어내면 된다.
+
+def login_with_supabase(supabase_user_id):
+    """검증된 Supabase 사용자를 customer_id 에 연결한다. 가입한 적 없으면 None —
+    예전처럼 처음 보는 사용자를 시드 회원에 즉석으로 붙이지 않는다. 그 자리는
+    이제 signup() 이 진짜 회원가입으로 대신한다."""
+    row = get_login_row(_login_id(supabase_user_id))
+    return row["customer_id"] if row else None
+
+
+def signed_up(supabase_user_id):
+    """이 Supabase 사용자가 이미 가입돼 있는지. 회원가입 화면에서 로그인으로
+    돌릴지 판단하는 데 쓴다."""
+    return get_login_row(_login_id(supabase_user_id)) is not None
+
+
+def signup(supabase_user_id, payload):
+    """검증된 Supabase 사용자로 새 customer 를 만든다. 이미 가입돼 있으면 None(실패).
+
+    payload(기본정보+희망조건+persona)로 customer 행 자체를 새로 만든다 —
+    payload 모양은 app.services.admin_service.create_member() 와 같다. 비밀번호 칸은
+    Supabase 가 이미 인증을 끝냈으므로 아무도 확인하지 않아 빈 값을 넣어 둔다.
     """
-    row = get_login_row(login_id)
-    if row is None:
-        customer_id = pick_customer_for_login()
-        create_login(customer_id, login_id, password)
-        return customer_id
-
-    return row["customer_id"] if row["password"] == password else None
-
-
-def id_exists(login_id):
-    """이 아이디가 이미 쓰이고 있는지. 회원가입 화면의 '중복확인' 버튼이 부른다."""
-    return get_login_row(login_id) is not None
-
-
-def signup(login_id, password, payload):
-    """새 아이디로 명시적으로 가입한다. 이미 있는 아이디면 None(실패).
-
-    이전에는 login() 처럼 이미 있는 시드 회원(C001~)에게 로그인만 붙이는
-    즉석 발급이었다. 이제는 payload(기본정보+희망조건+persona)로 customer 행
-    자체를 새로 만든다 — payload 모양은 app.services.admin_service.create_member() 와 같다.
-    """
+    login_id = _login_id(supabase_user_id)
     if get_login_row(login_id) is not None:
         return None
     member = admin_service.create_member(payload)
     customer_id = member["customer"]["customer_id"]
-    create_login(customer_id, login_id, password)
-    return customer_id
-
-
-def google_login(email):
-    """구글 계정(이메일)으로 로그인한다. 처음이면 그 자리에서 계정을 배정하고,
-    다음부터는 같은 이메일이 항상 같은 계정으로 돌아온다.
-
-    아이디/비번 로그인과 같은 user_login 표를 쓰되, login_id 를 "google:이메일"
-    형태로 못박아 일반 아이디와 겹치지 않게 한다. 비밀번호 칸은 이 경로로는 아무도
-    확인하지 않으므로(구글 토큰 검증이 곧 인증이다) 아무도 못 맞힐 무작위 값을 넣어 둔다.
-    """
-    login_id = f"google:{email}"
-    row = get_login_row(login_id)
-    if row is not None:
-        return row["customer_id"]
-
-    customer_id = pick_customer_for_login()
-    create_login(customer_id, login_id, _random_code(24, string.ascii_letters + string.digits))
+    create_login(customer_id, login_id, "")
     return customer_id
 
 

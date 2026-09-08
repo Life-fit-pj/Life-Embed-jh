@@ -9,13 +9,13 @@ from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
 from app.engine.weights import find_similar_members
 from app.services import search_service, region_service, privacy_service
-from app.tables.chunks import member_chunk_count, persona_lengths
-from app.tables.history import (
+from app.repositories.chunks import member_chunk_count, persona_lengths
+from app.repositories.history import (
     write_admin_log,
     admin_log_count, admin_log_recent, like_count,
     list_likes, list_search_history, list_chat_history,
 )
-from app.tables.members import (
+from app.repositories.members import (
     customer_list, customer_one, customer_preferences, customer_preferences_initial,
     customer_persona, customer_ids, customer_count,
     update_customer, update_preferences,
@@ -23,7 +23,7 @@ from app.tables.members import (
     indicator_averages, age_group_counts, gender_counts,
     join_month_counts, home_city_counts, deal_type_counts,
 )
-from app.tables.regions import (
+from app.repositories.regions import (
     region_list, region_one, column_percentile, region_count,
     gu_count, region_gu_counts,
     update_region as db_update_region,

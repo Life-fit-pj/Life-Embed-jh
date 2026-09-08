@@ -3,8 +3,8 @@
 
 
 from app.ai import masking
-from app.tables.members import customer_names
-from app.tables.regions import dong_names, gu_names
+from app.repositories.members import customer_names
+from app.repositories.regions import dong_names, gu_names
 
 _names = None
 _address = None

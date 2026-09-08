@@ -19,8 +19,8 @@ from app.engine.recommend import (
 from app.engine.weights import ask_claude, blend, find_similar_members
 from app.engine.housing import matching_regions, attach_price
 
-from app.tables.members import member_weights
-from app.tables.regions import region_densities
+from app.repositories.members import member_weights
+from app.repositories.regions import region_densities
 from app.core.config import INDICATORS
 
 # ── 준비물 보관함 ──────────────────────────────
