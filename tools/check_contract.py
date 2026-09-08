@@ -28,7 +28,7 @@ CONTRACT = {
                            "update_member", "update_region", "preview_member",
                            "similar_members", "InvalidPatch", "health", "clear_caches",
                            "privacy_preview", "dashboard", "recent_logs", "create_member"],
-    "app.features.auth": ["login", "backfill_logins", "id_exists", "signup"],
+    "app.features.auth": ["login_with_supabase", "backfill_logins", "signed_up", "signup"],
 }
 
 

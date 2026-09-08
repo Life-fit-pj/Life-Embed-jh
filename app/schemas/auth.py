@@ -1,25 +1,22 @@
-# Last Updated: 2026-09-08
-"""인증 API 요청·응답 모양. app/features/auth.py 와 1:1."""
+# Last Updated: 2026-09-09
+"""인증 API 요청·응답 모양. app/features/auth.py 와 1:1.
+
+login_id·password 는 더 이상 안 받는다 — 인증은 Authorization 헤더의 Supabase
+access token 으로 한다(app/api/auth.py 의 _supabase_id 참고).
+"""
 
 from pydantic import BaseModel
-
-
-class LoginRequest(BaseModel):
-    login_id: str
-    password: str
 
 
 class LoginOut(BaseModel):
     customer_id: str
 
 
-class IdExistsOut(BaseModel):
-    exists: bool
+class SignedUpOut(BaseModel):
+    signed_up: bool
 
 
 class SignupRequest(BaseModel):
-    login_id: str
-    password: str
     payload: dict   # customers 표 화이트리스트(app/features/admin.py CUSTOMER_FIELDS 등)
 
 

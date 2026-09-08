@@ -33,6 +33,14 @@ API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not API_KEY:
     raise RuntimeError("ANTHROPIC_API_KEY 가 없다. .env 파일을 확인해라.")
 
+# ── Supabase Auth ─────────────────────────────
+# service_role 키는 RLS 를 무시하는 전권 키다. 토큰 검증(app/ai/supabase_auth.py)에만
+# 쓰고, 절대 Life-Web/프론트로 넘기지 않는다.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없다. .env 파일을 확인해라.")
+
 MODEL = "claude-haiku-4-5-20251001"
 
 # ── 임베딩 ────────────────────────────────────
