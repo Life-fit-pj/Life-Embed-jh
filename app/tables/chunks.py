@@ -1,11 +1,10 @@
 """옛 이름을 지키는 다리. 실제 내용은 app/repositories/chunk_repository.py 에 있다.
 
 부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
-  app/engine/weights.py    member_chunks
-  app/engine/explain.py    kb_chunks
-  app/engine/resync.py     replace_kb_chunks · replace_member_chunks
-  app/features/admin.py    member_chunk_count · persona_lengths
-  pipeline/search_kb.py    kb_chunks
+  app/ai/vector_store.py        member_chunks · kb_chunks (캐시에 올릴 때 한 번)
+  app/engine/resync.py          replace_kb_chunks · replace_member_chunks
+  app/services/admin_service.py member_chunk_count · persona_lengths
+  tests/make_golden.py          네 함수 모두 (골든 사진)
 
 8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
 """

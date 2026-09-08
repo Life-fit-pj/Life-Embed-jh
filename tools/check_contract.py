@@ -4,7 +4,11 @@ Life-Web/services/engine.py 20~36행이 계약이다.
 하나라도 없으면 웹이 화면을 그리기 전에 import 단계에서 죽는다.
 파일을 옮기는 작업(8단계) 중에는 한 파일 옮길 때마다 돌린다.
 
-실행: py tools/check_contract.py
+실행: py -m tools.check_contract      (저장소 뿌리에서)
+
+★ 반드시 -m 으로 부른다. 파일 경로로 실행하면(py tools/check_contract.py)
+  검색 경로 맨 앞이 tools/ 가 되어 저장소 뿌리가 안 잡힌다. 그러면 계약 39개가
+  전부 "import 자체가 실패" 로 나오는데, 코드는 멀쩡하고 부르는 법만 틀린 것이다
 """
 
 import importlib

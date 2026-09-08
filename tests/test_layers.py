@@ -1,14 +1,10 @@
-import ast
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-
 """계층이 한 방향으로만 흐르나. import 그래프를 떠서 본다."""
 
 import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
 
 # 번호가 작을수록 아래층. 아래층은 위층을 부르면 안 된다.
 LAYER = {
