@@ -1,30 +1,7 @@
-# Last updated: 2026-09-08
-"""DB의 회원 이름과 마스킹 규칙을 연결한다. 앱은 이 파일의 mask_text 만 부른다."""
+"""옛 이름을 지키는 다리. 실제 내용은 app/services/privacy_service.py 에 있다.
 
-from app.ai import masking
-from app.repositories.members import customer_names
-from app.repositories.regions import dong_names, gu_names
+Life-Web/services/engine.py 가 app.features.* 를 이름으로 직접 import 한다(8-0절).
+리팩토링 후 필요없어지면 팀원이 이 다리 여덟 개를 한꺼번에 지운다.
+"""
 
-_names = None
-_address = None
-
-
-def _load() -> None:
-    global _names, _address
-    if _names is not None:
-        return
-    _names = customer_names()
-    _address = masking.build_address_pattern(gu_names(), dong_names())
-
-
-
-def reset() -> None:
-    global _names, _address
-    _names = None
-    _address = None
-
-
-def mask_text(text: str) -> str:
-    _load()
-    return masking.mask(text, names=_names, address=_address)
-
+from app.services.privacy_service import *      # noqa: F401,F403

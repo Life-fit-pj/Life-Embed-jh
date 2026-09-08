@@ -1,7 +1,7 @@
 """
 회원 페르소나 정상화 — customers 표와 chunks 의 인물이 다른 문제를 고친다.
 
-원인 (embed_member.py 주석 참고):
+원인 (지금은 pipeline/chunk.py 의 load_members 가 그 규칙을 갖고 있다):
   nemotron.csv 는 customer_id 가 없어 "customers.csv 와 순서로 맞춘다"는
   규칙으로 앞 100줄에 C001~C100 을 순서대로 붙였다. 그런데 customers 표
   (customers_v2.csv)는 별도로 다시 생성되어 순서가 어긋났다 — C001·C002 는

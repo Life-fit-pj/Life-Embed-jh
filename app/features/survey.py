@@ -1,16 +1,7 @@
-"""설문 답변을 Claude 에게 채점시키는 창구.
+"""옛 이름을 지키는 다리. 실제 내용은 app/services/survey_service.py 에 있다.
 
-프롬프트를 만드는 쪽(Life-Web/services/persona_type.py)과 LLM 을 부르는 쪽을
-나눈 이유 — 문항·프롬프트는 화면 쪽 관심사고, LLM 키와 모델은 엔진 쪽 관심사다.
+Life-Web/services/engine.py 가 app.features.* 를 이름으로 직접 import 한다(8-0절).
+리팩토링 후 필요없어지면 팀원이 이 다리 여덟 개를 한꺼번에 지운다.
 """
-from app.ai.llm import ask
 
-
-def score_survey(prompt: str) -> str:
-    """프롬프트를 받아 Claude 의 답을 글자 그대로 돌려준다.
-
-    JSON 파싱은 안 한다 — 그건 문항을 아는 쪽(persona_type)이 할 일이다.
-    """
-    if not prompt:
-        return ""
-    return ask(prompt, max_tokens=500).strip()
+from app.services.survey_service import *      # noqa: F401,F403
