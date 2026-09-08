@@ -1,6 +1,7 @@
 numpy==2.5.1
 python-dotenv==1.2.2
 sqlalchemy==2.0.52
+pydantic==2.13.4
 
 langchain-anthropic==1.6.1
 langchain-huggingface==1.2.2
@@ -9,6 +10,7 @@ sentence-transformers==5.7.0
 fastapi==0.121.2
 uvicorn==0.38.0
 
-anthropic==0.75.0        4단계 — Claude 를 SDK 로 직접
-openai==3.8.0            6단계 — 임베딩
-
+### KAN-84·KAN-86 준비. 아직 app/llm.py 가 쓰지 않으므로 설치하지 않는다 —
+### 두 티켓이 끝나면 주석을 풀고 langchain-* 와 sentence-transformers 를 대신 걷어낸다.
+# anthropic==0.75.0        4단계 — Claude 를 SDK 로 직접
+# openai==3.8.0            6단계 — 임베딩
