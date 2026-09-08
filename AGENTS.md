@@ -15,7 +15,8 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
 (아래 Architecture, `docs/adr/0001-move-fastapi-to-embed.md`).
 
 패키지 목록은 `requirements.txt`에 있다. `pyproject.toml`·린트 설정은 아직 없다.
-검증은 `tests/`(pytest 4파일)와 Testing instructions 절의 grep 세 줄로 한다.
+검증은 `tests/`(pytest 7파일 + 스냅샷 생성기 make_golden.py 1개)와
+Testing instructions 절의 grep 세 줄로 한다.
 
 ## Setup / commands
 
@@ -66,6 +67,11 @@ TOP 5를 추천하고, LLM(Claude)이 근거를 들어 설명해주는 서비스
     tests/test_masking.py      개인정보 마스킹. 긴 이름부터 지우는 순서까지 지킨다
     tests/test_percentile.py   백분위 동점 처리
     tests/test_layers.py       import 그래프가 한 방향인가
+    tests/test_db.py           app/db.py 가 실제 DB 에 붙나 (SQLAlchemy 엔진/세션)
+    tests/test_models.py       app/models/ ORM 모델이 실제 DB 스키마와 맞나
+    tests/test_golden.py       리팩터링 전후 스냅샷 비교. 먼저 `python -m tests.make_golden`으로
+                               golden/*.json 을 만들어야 돈다 — 없으면 skip
+    tests/make_golden.py       test_golden.py 가 쓰는 스냅샷 생성기 (테스트 파일 아님, 한 번 실행용)
 
 ### 계층이 지켜지나 — grep 세 줄
 
@@ -87,7 +93,9 @@ VSCode `Ctrl+Shift+F`(files to include 에 `*.py`), Git Bash 터미널,
     Get-ChildItem -Recurse -Filter *.py app/features, app/engine, app/api |
       Select-String -Pattern "SELECT |INSERT |UPDATE |DELETE FROM|CREATE TABLE"
 
-마지막 확인은 2026-09-08 — ① 0줄, ② 0줄, ③ 3 passed.
+마지막 확인은 2026-09-08 — ① 0줄, ② 0줄, ③ 3 passed. `pytest tests -q`는 36 tests collected
+(test_db.py·test_models.py는 실제 DB가 있어야 통과, test_golden.py는 `python -m tests.make_golden`
+선행 없으면 skip).
 
 ## Security considerations
 
@@ -127,7 +135,16 @@ pipeline/       schema, sample_kb,         CSV -> life.db 와 벡터 표를 만�
                 io.py, prep/chunking.py    prep/chunking.py(청킹 규칙)도 여기 소속
 tests/          test_dong, test_masking,   DB·서버·LLM 없이 도는 것만 둔다
                 test_percentile, test_layers
+                test_db, test_models,      아래 app/db.py·app/models/ 짝. 실제 DB 필요
+                test_golden, make_golden   리팩터링 회귀용 스냅샷 비교 (선행 실행 필요)
 ```
+
+**`app/db.py`(SQLAlchemy `Base`/`engine`/`SessionLocal`)와 `app/models/`(ORM 모델 9종)는
+아직 실제 서비스 경로에서 쓰이지 않는다.** `app/api`·`app/features`·`app/engine`·
+`app/repositories` 어디서도 import하지 않고, `tests/test_db.py`·`test_models.py`만 이걸
+쓴다. 실제 DB 접근은 여전히 `app/core/db.py`(sqlite3 raw SQL 실행기) + `app/repositories/`가
+담당한다. 2026-09-08에 `dev-deploy`로 머지된 별도 작업이다 — ORM 레이어를 실제로 연결하는
+작업이 아니면 신경 쓰지 않아도 된다.
 
 **층 번호 — 아래층은 위층을 부르지 않는다.**
 
@@ -203,6 +220,20 @@ nemotron.csv ──────────────────────�
   반드시 같이 줘야 한다 — 안 주면 "시세 85점"을 "비싸다"로 정반대 해석한다.
 - **가중치와 점수는 항상 짝이 맞아야 한다.** 프롬프트에 어떤 지표의 가중치를 실었으면 그 지표의
   점수도 같이 실어야 한다. 가중치만 있고 근거 점수가 없으면 LLM이 그 항목을 지어내서 설명한다.
+- **인프라 지표는 자치구(25개) 단위가 아니라 행정동 단위 밀도(개수÷km²)로만 순위에 쓴다.**
+  자치구 단위면 같은 구 안 행정동이 전부 같은 값을 받아 구별이 안 된다. 소음·미세먼지처럼
+  구 단위밖에 없는 값은 참고 정보로만 쓰고 "○○구 평균"임을 화면에 밝힌다.
+- **절대점수만 쓰면 골고루 높은 "만능 동네"가 항상 1위가 된다.** `build_relative`로 "그 동네
+  안에서 이 지표가 상대적으로 강점인 정도"를 같이 반영한다(`mix` 파라미터로 비율 조절).
+- **지표 간 가중치 비율 차이가 작으면 합산 후 순위에 거의 안 먹힌다** (예: 4.6 vs 3.0 은 비율로
+  1.5배뿐). `sharpen=6`으로 평균 대비 편차를 지수로 키워 사용자가 중시한 지표가 실제로 순위를
+  좌우하게 만든다.
+- **목표가가 있으면 예산은 "낮을수록 좋다"가 아니라 "목표가에 가까울수록 좋다".** `housing.py`가
+  목표가 ±30%(`tolerance`) 안의 동만 후보로 거르고, 그 안에서만 기존 7개 지표로 순위를 매긴다.
+  목표가가 없을 때만 "낮을수록 좋다"를 8번째 참고 신호로 얹는다(`DEFAULT_PRICE_WEIGHT`).
+- **검색어(장소를 찾는 문장)와 회원 벡터(사람을 묘사한 문장)는 그대로 비교하면 안 된다.** Claude가
+  검색어를 `persona_query`("초등학생 자녀를 키우며 교육 환경을 중시하는 부모")로 바꾼 뒤 그
+  문장으로 검색한다. (이상 다섯 항목은 `README.md` "설계 원칙" 절에 배경 설명이 더 있다.)
 
 
 ### Optimaze History
