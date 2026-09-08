@@ -1,7 +1,10 @@
+import json
+from datetime import datetime
+
 from sqlalchemy import func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from app.models.history import AnalysisChat, Like, SearchHistory
+from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory
 
 
 
@@ -131,3 +134,110 @@ def list_likes(db, anon_id):
         .order_by(Like.created_at.desc())
         .all()
     ]
+
+
+def add_chat_history(db, anon_id, question, answer):
+    """채팅 질문/답변 기록 추가.
+
+    created_at 을 안 넣는다 — 모델의 server_default 가 DB 에게 맡긴다.
+    """
+    db.add(ChatHistory(anon_id=anon_id, question=question, answer=answer))
+    db.commit()
+
+
+def list_chat_history(db, anon_id, limit=20):
+    """최근 대화부터 반환."""
+    fields = ("question", "answer", "created_at")
+
+    return [
+        dict(zip(fields, row))
+        for row in db.query(ChatHistory.question, ChatHistory.answer, ChatHistory.created_at)
+        .filter(ChatHistory.anon_id == anon_id)
+        .order_by(ChatHistory.created_at.desc())
+        .limit(limit)
+        .all()
+    ]
+
+
+def write_admin_log(db, target, target_id, patch):
+    """수정 한 건을 남긴다.
+
+    json.dumps 와 datetime.now() 는 옛 함수가 하던 그대로 여기에 둔다.
+    admin_log 는 DDL 에 DEFAULT 가 없어서 시각을 파이썬이 만들어 넣어야 한다
+    """
+    db.add(AdminLog(
+        target=target,
+        target_id=target_id,
+        patch=json.dumps(patch, ensure_ascii=False),
+        changed_at=datetime.now().isoformat(timespec="seconds"),
+    ))
+    db.commit()
+
+
+def admin_log_recent(db, limit=8):
+    """관리자 수정 이력 최근 몇 건."""
+    fields = ("target", "target_id", "patch", "changed_at")
+
+    return [
+        dict(zip(fields, row))
+        for row in db.query(
+            AdminLog.target, AdminLog.target_id, AdminLog.patch, AdminLog.changed_at
+        )
+        .order_by(AdminLog.log_id.desc())
+        .limit(limit)
+        .all()
+    ]
+
+
+def like_count(db, gu, dong):
+    """이 동네에 좋아요가 몇 개 눌렸나."""
+    return (
+        db.query(func.count())
+        .select_from(Like)
+        .filter(Like.구 == gu, Like.행정동명 == dong)
+        .scalar()
+    )
+
+
+def search_count(db):
+    """검색이 몇 건 쌓였나."""
+    return db.query(func.count()).select_from(SearchHistory).scalar()
+
+
+def chat_count(db):
+    """대화가 몇 건 쌓였나."""
+    return db.query(func.count()).select_from(ChatHistory).scalar()
+
+
+def admin_log_count(db):
+    """관리자가 몇 번 고쳤나."""
+    return db.query(func.count()).select_from(AdminLog).scalar()
+
+
+def top_searches(db, top=20):
+    """많이 찾은 검색어. (검색어, 횟수) 목록."""
+    total = func.count()
+
+    return [
+        tuple(row)
+        for row in db.query(SearchHistory.query, total)
+        .group_by(SearchHistory.query)
+        .order_by(total.desc())
+        .limit(top)
+        .all()
+    ]
+
+
+def analysis_chat_one(db, chat_id):
+    """대화 하나를 통째로. 없으면 None."""
+    row = db.query(AnalysisChat).filter(AnalysisChat.chat_id == chat_id).first()
+    if row is None:
+        return None
+
+    return {
+        "chat_id": row.chat_id,
+        "question": row.question,
+        "answer": row.answer,
+        "facts": row.facts,
+        "created_at": row.created_at,
+    }

@@ -1,31 +1,10 @@
-"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/history_repository.py 에 있다.
+"""쌓이는 기록 표를 다루는 SQL. 좋아요 · 검색기록 · 채팅기록 · 로그인 · 관리자로그."""
 
-⚠ 두 가지는 옛 SQL 그대로 여기 남아 있다 —
-   ① ensure_* 6개 (DDL). ORM 이 할 일이 아니다(이론 7)
-   ② user_login 관련 4개. 그 표는 모델이 없다 — DB 에 아직 존재하지 않기 때문이다
+import json
+from datetime import datetime
 
-부르는 쪽 —
-  app/features/admin.py     집계·관리자로그
-  app/features/analysis.py  분석대화·집계
-  app/features/auth.py      user_login 계열
-  Life-Web/services/engine.py 20행  add_like · remove_like · add_search_history ·
-                                    list_search_history · add_chat_history · list_chat_history
-"""
+from app.core.db import dicts, get_con, one, query      # 실행기는 core 에서 가져온다
 
-from app.core.db import dicts, get_con, one             # ensure_* 와 user_login 전용
-from app.db import SessionLocal
-from app.repositories import history_repository as repo
-
-
-def _run(fn, *args, **kwargs):
-    db = SessionLocal()
-    try:
-        return fn(db, *args, **kwargs)
-    finally:
-        db.close()
-
-
-# ══ 여기부터 옛 SQL 그대로 (DDL · user_login) ══════════════
 
 _like_ready = False
 
@@ -50,19 +29,30 @@ def ensure_likes():
 
 
 def add_like(anon_id, gu, dong):
+    """좋아요 추가. 이미 있을 경우 무시"""
     ensure_likes()
-    return _run(repo.add_like, anon_id, gu, dong)
+    get_con().execute("""
+        INSERT OR IGNORE INTO likes (anon_id, 구, 행정동명) VALUES (?, ?, ?)
+    """,(anon_id,gu,dong),)
+    get_con().commit()
 
 
 def remove_like(anon_id, gu, dong):
+    """좋아요 취소."""
     ensure_likes()
-    return _run(repo.remove_like, anon_id, gu, dong)
-
+    get_con().execute("""
+        DELETE FROM likes WHERE anon_id = ? AND 구 = ? AND 행정동명 =?
+    """, (anon_id, gu, dong),)
+    get_con().commit()
 
 
 def list_likes(anon_id):
+    """이 사람이 좋아요 누른 동네 목록. 최근 순."""
     ensure_likes()
-    return _run(repo.list_likes, anon_id)
+    return dicts("""
+        SELECT 구, 행정동명, created_at FROM likes
+        WHERE anon_id = ? ORDER BY created_at DESC
+    """, (anon_id,))
 
 
 # => 검색
@@ -86,13 +76,21 @@ def ensure_search_history():
 
 
 def add_search_history(anon_id, query):
+    """검색어 기록 추가. 같은 검색어라도 매번 새 줄로 남긴다(likes와 달리 유니크 제약 없음)"""
     ensure_search_history()
-    return _run(repo.add_search_history, anon_id, query)
+    get_con().execute("""
+        INSERT INTO search_history (anon_id, query) VALUES (?, ?)
+    """, (anon_id, query),)
+    get_con().commit()
 
 
 def list_search_history(anon_id, limit=20):
+    """최근 검색어부터 반환."""
     ensure_search_history()
-    return _run(repo.list_search_history, anon_id, limit)
+    return dicts("""
+        SELECT query, created_at FROM search_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
 
 
 # => 채팅
@@ -117,13 +115,21 @@ def ensure_chat_history():
 
 
 def add_chat_history(anon_id, question, answer):
+    """채팅 질문/답변 기록 추가."""
     ensure_chat_history()
-    return _run(repo.add_chat_history, anon_id, question, answer)
+    get_con().execute("""
+        INSERT INTO chat_history (anon_id, question, answer) VALUES (?, ?, ?)
+    """, (anon_id, question, answer),)
+    get_con().commit()
 
 
 def list_chat_history(anon_id, limit=20):
+    """최근 대화부터 반환."""
     ensure_chat_history()
-    return _run(repo.list_chat_history, anon_id, limit)
+    return dicts("""
+        SELECT question, answer, created_at FROM chat_history
+        WHERE anon_id = ? ORDER BY created_at DESC LIMIT ?
+    """, (anon_id, limit))
 
 
 def ensure_admin_log() -> None:
@@ -141,8 +147,14 @@ def ensure_admin_log() -> None:
 
 
 def write_admin_log(target: str, target_id: str, patch: dict) -> None:
+    """수정 한 건을 남긴다."""
     ensure_admin_log()
-    return _run(repo.write_admin_log, target, target_id, patch)
+    get_con().execute(
+        "INSERT INTO admin_log (target, target_id, patch, changed_at) VALUES (?, ?, ?, ?)",
+        (target, target_id, json.dumps(patch, ensure_ascii=False),
+         datetime.now().isoformat(timespec="seconds")),
+    )
+    get_con().commit()
 
 
 # => 로그인
@@ -236,38 +248,56 @@ def login_customer_ids():
 # 두 칸짜리 결과는 (이름, 개수) 튜플 목록으로 돌려준다
 
 def like_count(gu, dong):
+    """이 동네에 좋아요가 몇 개 눌렸나."""
     ensure_likes()
-    return _run(repo.like_count, gu, dong)
+    return one(
+        "SELECT COUNT(*) FROM likes WHERE 구 = ? AND 행정동명 = ?", (gu, dong)
+    )[0]
 
 
 def like_region_counts(limit=15):
+    """좋아요가 많이 눌린 동네. (동네이름, 개수) 목록."""
     ensure_likes()
-    return _run(repo.like_region_counts, limit)
+    return query(
+        "SELECT 구 || ' ' || 행정동명, COUNT(*) FROM likes "
+        "GROUP BY 1 ORDER BY 2 DESC LIMIT ?", (limit,)
+    )
 
 
 def search_count():
+    """검색이 몇 건 쌓였나."""
     ensure_search_history()
-    return _run(repo.search_count)
+    return one("SELECT COUNT(*) FROM search_history")[0]
 
 
 def top_searches(top=20):
+    """많이 찾은 검색어. (검색어, 횟수) 목록."""
     ensure_search_history()
-    return _run(repo.top_searches, top)
+    return query(
+        "SELECT query, COUNT(*) FROM search_history GROUP BY 1 "
+        "ORDER BY 2 DESC LIMIT ?", (top,)
+    )
 
 
 def chat_count():
+    """대화가 몇 건 쌓였나."""
     ensure_chat_history()
-    return _run(repo.chat_count)
+    return one("SELECT COUNT(*) FROM chat_history")[0]
 
 
 def admin_log_count():
+    """관리자가 몇 번 고쳤나."""
     ensure_admin_log()
-    return _run(repo.admin_log_count)
+    return one("SELECT COUNT(*) FROM admin_log")[0]
 
 
 def admin_log_recent(limit=8):
+    """관리자 수정 이력 최근 몇 건."""
     ensure_admin_log()
-    return _run(repo.admin_log_recent, limit)
+    return dicts(
+        "SELECT target, target_id, patch, changed_at FROM admin_log "
+        "ORDER BY log_id DESC LIMIT ?", (limit,),
+    )
 
 
 # ── 분석 대화 (app/features/analysis.py 가 쓴다) ────────
@@ -294,20 +324,44 @@ def ensure_analysis_chat():
 
 
 def add_analysis_chat(question, answer, facts_json, created_at):
+    """대화 한 건을 남기고 새 chat_id 를 돌려준다.
+
+    facts 는 이미 JSON 글자로 바꿔서 받는다 — 무엇을 어떻게 직렬화할지는
+    부르는 쪽(분석 창구)이 정할 일이다
+    """
     ensure_analysis_chat()
-    return _run(repo.add_analysis_chat, question, answer, facts_json, created_at)
+    con = get_con()
+    cur = con.execute(
+        "INSERT INTO analysis_chat (question, answer, facts, created_at) VALUES (?, ?, ?, ?)",
+        (question, answer, facts_json, created_at),
+    )
+    con.commit()
+    return cur.lastrowid
 
 
 def list_analysis_chat(limit=50):
+    """대화 목록. 답은 90자까지만 미리보기로 싣는다."""
     ensure_analysis_chat()
-    return _run(repo.list_analysis_chat, limit)
+    return dicts(
+        "SELECT chat_id, question, substr(answer, 1, 90) AS preview, created_at "
+        "FROM analysis_chat ORDER BY chat_id DESC LIMIT ?", (limit,)
+    )
 
 
 def analysis_chat_one(chat_id):
+    """대화 하나를 통째로. 없으면 None."""
     ensure_analysis_chat()
-    return _run(repo.analysis_chat_one, chat_id)
+    rows = dicts(
+        "SELECT chat_id, question, answer, facts, created_at "
+        "FROM analysis_chat WHERE chat_id = ?", (chat_id,)
+    )
+    return rows[0] if rows else None
 
 
 def delete_analysis_chat(chat_id):
+    """대화 하나를 지운다. 지운 줄 수를 돌려준다."""
     ensure_analysis_chat()
-    return _run(repo.delete_analysis_chat, chat_id)
+    con = get_con()
+    n = con.execute("DELETE FROM analysis_chat WHERE chat_id = ?", (chat_id,)).rowcount
+    con.commit()
+    return n
