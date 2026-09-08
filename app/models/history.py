@@ -4,9 +4,14 @@
 전부 익명 id(anon_id)로 남긴다 — 로그인 없이도 기록이 쌓이게 하려는 것이다.
 """
 
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, Integer, String, Text, text
 
 from app.db import Base
+
+# 표를 만들 때 DDL 에 DEFAULT CURRENT_TIMESTAMP 가 붙어 있다(app/tables/history.py).
+# 모델에 그대로 적어 두면 SQLAlchemy 가 INSERT 에서 이 칸을 빼고, DB 가 채운다.
+# 안 적으면 NULL 이 들어갈 수 있다 — 기록 표에서 시각이 NULL 이면 정렬이 무너진다
+NOW = text("CURRENT_TIMESTAMP")
 
 
 class Like(Base):
@@ -16,7 +21,7 @@ class Like(Base):
     anon_id = Column(String, primary_key=True)
     구 = Column(String, primary_key=True)
     행정동명 = Column(String, primary_key=True)
-    created_at = Column(String)
+    created_at = Column(String, server_default=NOW)
 
 
 class SearchHistory(Base):
@@ -24,7 +29,7 @@ class SearchHistory(Base):
 
     anon_id = Column(String, primary_key=True)
     query = Column(Text, primary_key=True)
-    created_at = Column(String, primary_key=True)
+    created_at = Column(String, primary_key=True, server_default=NOW)
 
 
 class ChatHistory(Base):
@@ -33,7 +38,7 @@ class ChatHistory(Base):
     anon_id = Column(String, primary_key=True)
     question = Column(Text, primary_key=True)
     answer = Column(Text)
-    created_at = Column(String, primary_key=True)
+    created_at = Column(String, primary_key=True, server_default=NOW)
 
 
 class AnalysisChat(Base):

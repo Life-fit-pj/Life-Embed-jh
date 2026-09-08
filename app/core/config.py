@@ -31,18 +31,24 @@ if not DB_PATH.exists():
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not API_KEY:
-    raise RuntimeError("API 키가 없다. .env 파일을 확인해라.")
-
+    raise RuntimeError("ANTHROPIC_API_KEY 가 없다. .env 파일을 확인해라.")
 
 MODEL = "claude-haiku-4-5-20251001"
 
-# py -m pip install anthropic
-
 # ── 임베딩 ────────────────────────────────────
 # 저장할 때와 검색할 때 반드시 같은 모델을 써야 한다.
-# 모델이 다르면 벡터 차원부터 달라서(e5-small 384, bge-m3 1024)
+# 모델이 다르면 벡터 차원부터 달라서(e5-small 384, text-embedding-3-small 1536)
 # 저장해 둔 벡터를 아예 못 쓴다
-EMBED_MODEL = "intfloat/multilingual-e5-small"
+#
+# 키 확인을 여기서 하는 이유 — 없는 채로 재임베딩을 돌리면
+# 9,900번째가 아니라 첫 줄에서 알게 된다
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY 가 없다. .env 파일을 확인해라.")
+
+EMBED_MODEL = "text-embedding-3-small"
+EMBED_DIMENSION = 1536
+
 
 # ── 추천 지표 ─────────────────────────────────
 # user_preferences 의 칸 이름이자 08번 점수 계산의 기준.

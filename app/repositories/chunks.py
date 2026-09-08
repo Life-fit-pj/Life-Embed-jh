@@ -1,66 +1,55 @@
-"""임베딩 청크 표를 다루는 SQL. 회원 청크와 지식베이스 청크."""
+"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/chunk_repository.py 에 있다.
 
-from app.core.db import dicts, get_con, one, query      # 실행기는 core 에서 가져온다
+부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
+  app/engine/weights.py    member_chunks
+  app/engine/explain.py    kb_chunks
+  app/engine/resync.py     replace_kb_chunks · replace_member_chunks
+  app/features/admin.py    member_chunk_count · persona_lengths
+  pipeline/search_kb.py    kb_chunks
+
+8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
+"""
+
+from app.db import SessionLocal
+from app.repositories import chunk_repository as repo
+
+
+def _run(fn, *args):
+    """세션을 열고 fn(db, *args) 를 부른 뒤 반드시 닫는다.
+
+    옛 함수들은 db 를 인자로 안 받았다. 그 모양을 지켜야 부르는 쪽을
+    안 고칠 수 있으므로, 세션을 여기서 열고 닫는다.
+    """
+    db = SessionLocal()
+    try:
+        return fn(db, *args)
+    finally:
+        db.close()
 
 
 def member_chunks():
-    """회원 청크와 벡터를 전부 꺼낸다. (07번에서 쓰던 것)"""
-    return dicts(
-        "SELECT customer_id, category, text, vector FROM member_chunk"
-    )
+    return _run(repo.member_chunks)
 
 
 def kb_chunks():
-    """지식베이스 청크와 벡터를 전부 꺼낸다. (09번에서 쓸 것)"""
-    return dicts(
-        "SELECT chunk_id, uuid, district, category, text, vector FROM kb_chunk"
-    )
+    return _run(repo.kb_chunks)
 
 
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
 def member_chunk_count():
-    """회원 청크가 몇 개 쌓여 있나."""
-    return one("SELECT COUNT(*) FROM member_chunk")[0]
+    return _run(repo.member_chunk_count)
 
 
 def persona_lengths():
-    """페르소나 칸별 평균 글자 수. (칸이름, 평균길이) 목록."""
-    return query(
-        "SELECT category, CAST(AVG(LENGTH(text)) AS INT) FROM member_chunk "
-        "GROUP BY 1 ORDER BY 2 DESC"
-    )
+    return _run(repo.persona_lengths)
 
 
 # ── 재임베딩 쓰기 (app/engine/resync.py 가 쓴다) ────────
-# 지우기와 넣기는 항상 짝으로 돈다. 따로 두면 하나만 부르는 사고가 나므로
-# 한 함수로 묶고 이름을 replace_ 로 짓는다
 
 def replace_kb_chunks(uuid, rows):
-    """kb 페르소나 한 명의 청크를 통째로 갈아 끼운다.
-
-    rows 는 (uuid, district, category, text, vector) 튜플 목록이다.
-    """
-    con = get_con()
-    con.execute("DELETE FROM kb_chunk WHERE uuid = ?", (uuid,))
-    con.executemany(
-        "INSERT INTO kb_chunk (uuid, district, category, text, vector) "
-        "VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    con.commit()
+    return _run(repo.replace_kb_chunks, uuid, rows)
 
 
 def replace_member_chunks(customer_id, rows):
-    """회원 한 명의 청크를 통째로 갈아 끼운다.
-
-    rows 는 (customer_id, category, text, vector) 튜플 목록이다.
-    """
-    con = get_con()
-    con.execute("DELETE FROM member_chunk WHERE customer_id = ?", (customer_id,))
-    con.executemany(
-        "INSERT INTO member_chunk (customer_id, category, text, vector) "
-        "VALUES (?, ?, ?, ?)",
-        rows,
-    )
-    con.commit()
+    return _run(repo.replace_member_chunks, customer_id, rows)

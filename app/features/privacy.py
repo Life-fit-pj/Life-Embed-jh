@@ -1,6 +1,7 @@
+# Last updated: 2026-09-08
 """DB의 회원 이름과 마스킹 규칙을 연결한다. 앱은 이 파일의 mask_text 만 부른다."""
 
-from app.domain import masking
+from app.ai import masking
 from app.repositories.members import customer_names
 from app.repositories.regions import dong_names, gu_names
 

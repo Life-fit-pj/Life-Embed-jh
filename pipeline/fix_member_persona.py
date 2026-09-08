@@ -1,5 +1,5 @@
 """
-회원 페르소나 정상화 — customers 표와 member_chunk 의 인물이 다른 문제를 고친다.
+회원 페르소나 정상화 — customers 표와 chunks 의 인물이 다른 문제를 고친다.
 
 원인 (embed_member.py 주석 참고):
   nemotron.csv 는 customer_id 가 없어 "customers.csv 와 순서로 맞춘다"는
@@ -23,7 +23,7 @@ import time
 
 from app.core.config import CHUNK_COLUMNS
 from app.core.db import get_con, dicts
-from app.llm import get_llm
+from app.ai.llm import ask
 from app.engine.resync import resync_member
 
 LABELS = {
@@ -48,7 +48,8 @@ def _mismatched_customers(con):
     out = []
     for c in customers:
         row = con.execute(
-            "SELECT text FROM member_chunk WHERE customer_id = ? AND category = 'persona'",
+            "SELECT text FROM chunks "
+            "WHERE source = 'member' AND source_id = ? AND category = 'persona'",
             (c["customer_id"],),
         ).fetchone()
         if row is None or not row[0].startswith(c["name"]):
@@ -98,14 +99,13 @@ def fix_all():
     targets = _mismatched_customers(con)
     print(f"고칠 회원 {len(targets)}명")
 
-    llm = get_llm(max_tokens=1200)
     fixed, failed = 0, []
 
     for i, customer in enumerate(targets, start=1):
         prompt = _build_prompt(customer)
         persona = None
         for attempt in range(2):          # 한 번 실패하면 한 번만 더 시도
-            raw = llm.invoke(prompt).content
+            raw = ask(prompt, max_tokens=1200)
             persona = _parse(raw)
             if persona:
                 break
