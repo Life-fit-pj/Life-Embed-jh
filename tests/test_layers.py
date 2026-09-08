@@ -19,7 +19,8 @@ LAYER = {
     "app.ai": 2,
     "app.rag": 3,          # 7단계 — ai 위, engine 아래
     "app.engine": 4,
-    "app.features": 5,
+    "app.services": 5,     # 8단계 — 업무 로직
+    "app.features": 6,     # 다리만 남았다. 리팩토링 후 팀원이 지운다
 }
 
 # 4단계에서 chunker 가 app/ai/ 로 올라와 예외가 사라졌다.
