@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from app.llm import get_embedder, to_query
+from app.ai.embedder import embed_query, to_query
 from app.tables.chunks import kb_chunks
 
 
@@ -29,7 +29,7 @@ def search(query, rows, vectors, top_k=5):
     """검색어와 비슷한 청크 top_k 개를 찾는다."""
 
     # e5 규칙: 질문에는 query: 를 붙인다 (저장할 때는 passage: 였다)
-    q = np.array(get_embedder().embed_query(to_query(query)), dtype="float32")
+    q = np.array(embed_query(to_query(query)), dtype="float32")
     
     # 저장할 때 길이를 1로 맞춰뒀으므로, 곱하기만으로 유사도가 나온다
     scores = vectors @ q

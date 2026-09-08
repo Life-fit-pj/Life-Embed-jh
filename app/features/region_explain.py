@@ -14,7 +14,7 @@ from collections import Counter
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
                                 region_price_note, price_gap_text, format_won)
 from app.tables.regions import facilities, facility_counts, region_densities
-from app.llm import get_llm
+from app.ai.llm import ask
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
 사용자가 지도에서 특정 동네를 눌렀습니다. 그 동네가 왜 이 사람에게 맞는지
@@ -148,7 +148,7 @@ def region_explain(gu, dong, query="", weights=None, scores=None, housing=None):
         ("system", SYSTEM_PROMPT),
         ("human", context),
     ]
-    return get_llm(max_tokens=400).invoke(messages).content.strip()
+    return ask(messages, max_tokens=400).strip()
 
 
 # 같은 동네·같은 검색어면 설명이 같으므로 만들어 둔 것을 다시 쓴다.

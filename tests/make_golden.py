@@ -39,9 +39,10 @@ def snap_embed():
     6단계(OpenAI 로 교체)에서는 이 사진을 지우고 다시 찍는다 — 거기서는
     "안 바뀌었나"가 아니라 "차원이 1536이 됐나"를 보게 된다.
     """
-    from app.llm import get_embedder, to_query
+    from app.ai.embedder import embed_query, to_query
 
-    vector = get_embedder().embed_query(to_query(SENTENCE))
+    vector = embed_query(to_query(SENTENCE))
+
     return {
         "문장": SENTENCE,
         "차원": len(vector),

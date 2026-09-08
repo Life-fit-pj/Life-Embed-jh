@@ -18,7 +18,7 @@
 import json
 from datetime import datetime
 
-from app.llm import get_llm
+from app.ai.llm import ask as llm_ask
 from app.core.config import INDICATORS
 from app.features.admin import dashboard, to_pairs
 from app.tables.history import (
@@ -158,8 +158,7 @@ def ask(question: str) -> dict:
 
     facts = collect_facts()
     prompt = f"## 집계 자료\n{_facts_text(facts)}\n\n## 질문\n{question}"
-    answer = get_llm(max_tokens=900).invoke(
-        [("system", SYSTEM), ("human", prompt)]).content.strip()
+    answer = llm_ask([("system", SYSTEM), ("human", prompt)], max_tokens=900).strip()
 
     chat_id = save_chat(question, answer, facts)
     return {"chat_id": chat_id, "question": question, "answer": answer, "facts": facts}

@@ -4,7 +4,7 @@
 
 from app.core.config import DATA_DIR
 from pipeline.io import read_csv, save_csv
-from pipeline.prep.chunking import make_chunks, KB_KEYS
+from app.ai.chunker import make_chunks, KB_KEYS
 
 OUTPUT = DATA_DIR / "kb_chunk.csv"
 

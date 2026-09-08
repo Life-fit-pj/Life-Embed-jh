@@ -4,7 +4,7 @@
 chunk_kb.py(지식베이스)와 embed_member.py(회원)가 텍스트를 청크로 만드는
 방식이 완전히 똑같아서, 쪼개는 로직을 여기 한 곳에 모아뒀다. 두 파일에
 각자 넣으면 한쪽만 고치고 다른 쪽을 빠뜨리는 실수가 생기기 쉽다
-(app/adapters/llm.py 의 to_passage/to_query 를 한 곳에 모은 것과 같은 이유).
+(app/ai/embedder.py 의 to_passage/to_query 를 한 곳에 모은 것과 같은 이유).
 
 왜 필요한가 —
 임베딩 모델(intfloat/multilingual-e5-small)은 512 토큰까지만 받는다.

@@ -8,7 +8,7 @@ import numpy as np
 
 from app.core.config import DATA_DIR, DB_PATH, EMBED_MODEL
 from pipeline.io import read_csv
-from app.llm import get_embedder, to_passage
+from app.ai.embedder import embed_documents, to_passage
 
 BATCH_SIZE = 32
 
@@ -46,7 +46,7 @@ def embed_and_store(cur, con, rows):
         batch = rows[start:start + BATCH_SIZE]
         docs = [to_passage(r["text"]) for r in batch]
 
-        vectors = get_embedder().embed_documents(docs)
+        vectors = embed_documents(docs)
 
         values = [
             (r["uuid"], r["district"], r["category"], r["text"],

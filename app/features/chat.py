@@ -9,7 +9,7 @@ region_explain.py 는 동네 하나를 설명하고 끝난다.
 """
 
 from app.tables.regions import facility_counts, facility_categories, region_extras
-from app.llm import get_llm
+from app.ai.llm import ask
 from app.engine.housing import region_price_lines
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도우미입니다.
@@ -115,4 +115,4 @@ def chat(question, regions=None, weights=None, history=None):
         ("system", SYSTEM_PROMPT),
         ("human", f"{context}\n\n## 질문\n{question}"),
     ]
-    return get_llm(max_tokens=600).invoke(messages).content.strip()
+    return ask(messages, max_tokens=600).strip()

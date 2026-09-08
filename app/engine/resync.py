@@ -6,15 +6,15 @@
 
 import numpy as np
 
-from app.llm import get_embedder, to_passage
+from app.ai.embedder import embed_documents, to_passage
 from app.tables.chunks import replace_kb_chunks, replace_member_chunks
-from pipeline.prep.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
+from app.ai.chunker import make_chunks, KB_KEYS, MEMBER_KEYS
 
 
 # 임베딩해서 저장하는, 두 함수가 공통으로 하는 부분만 뽑은 것
 def _embed(chunks):
     docs = [to_passage(c["text"]) for c in chunks]
-    vectors = get_embedder().embed_documents(docs)
+    vectors = embed_documents(docs)
     return [np.asarray(v, dtype="float32").tobytes() for v in vectors]
 
 

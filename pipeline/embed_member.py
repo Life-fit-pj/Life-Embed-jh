@@ -12,8 +12,8 @@ import numpy as np
 
 from app.core.config import DATA_DIR, DB_PATH
 from pipeline.io import read_csv
-from app.llm import get_embedder, to_passage
-from pipeline.prep.chunking import make_chunks, MEMBER_KEYS
+from app.ai.embedder import embed_documents, to_passage
+from app.ai.chunker import make_chunks, MEMBER_KEYS
 
 MEMBER_COUNT = 100
 
@@ -61,7 +61,7 @@ def embed_and_store(cur, chunks) :
     print(f"⏳ {len(docs):,}개 청크를 벡터로 바꾸는 중...")
     started = time.time()
 
-    vectors = get_embedder().embed_documents(docs)
+    vectors = embed_documents(docs)
     
     print(f"✅ 완료 ({time.time() - started:.0f}초)")
     

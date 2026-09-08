@@ -11,7 +11,8 @@ import numpy as np
 from app.core.config import INDICATORS
 from app.tables.chunks import member_chunks
 from app.tables.members import member_weights
-from app.llm import get_llm, get_embedder, to_query
+from app.ai.embedder import embed_query, to_query
+from app.ai.llm import ask
 
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니다.
@@ -76,7 +77,7 @@ def find_similar_members(query, rows, vectors, top_k=5) :
     청크 단위로 검색하면 한 사람이 여러 번 걸릴 수 있다.
     그래서 사람별 최고 점수만 남기고 상위 top_k 명을 고른다.
     """
-    q = np.array(get_embedder().embed_query(to_query(query)), dtype="float32")
+    q = np.array(embed_query(to_query(query)), dtype="float32")
     scores = vectors @ q
     
     best = {}
@@ -106,7 +107,7 @@ def ask_claude(query):
         ("system", SYSTEM_PROMPT),
         ("human", query),
     ]        
-    text = get_llm(max_tokens=300).invoke(messages).content.strip()
+    text = ask(messages, max_tokens=300).strip()
     
         # 혹시 ```json 같은 게 붙어 나오면 떼어낸다
     text = text.replace("```json", "").replace("```","").strip()
