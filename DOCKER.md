@@ -79,6 +79,21 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 끝나면 주석을 풀고, 그때 `langchain-anthropic`·`langchain-huggingface`·
 `sentence-transformers` 를 대신 걷어낸다.
 
+`#` 는 **줄 맨 앞**에 붙여야 한다. `anthropic==0.75.0        # 4단계` 처럼 버전 뒤에 붙이면
+pip 가 인라인 주석으로 읽어 **패키지는 그대로 설치된다** — 파싱 오류만 사라지고 이미지가
+커지는 건 그대로다.
+
+같이 정리한 것 두 가지.
+
+- **`pydantic==2.13.4` 추가.** `app/schemas/` 9개 파일이 직접 import 하는데 명세에 없었다.
+  `fastapi` 가 전이 의존성으로 끌고 오지만, 직접 쓰는 패키지를 그렇게 두면 fastapi 버전이
+  바뀔 때 조용히 깨진다. `Life-Web` 도 같은 버전으로 핀하고 있어 두 컨테이너가 일치한다.
+- **`pytest==9.1.1` 은 `requirements-dev.txt` 로 분리.** 런타임 이미지에 테스트 러너가
+  들어갈 이유가 없고(13번 보안 기본값), 2번 멀티스테이지에서 builder 스테이지만 dev 목록을
+  설치해 pytest 를 **빌드 게이트**로 쓸 수 있다(테스트 실패 시 이미지가 안 만들어진다).
+  새 패키지를 어디에 넣을지는 — `app/` 이 import 하면 `requirements.txt`,
+  `tests/` 만 import 하면 `requirements-dev.txt`.
+
 ### 2. 베이스 이미지·파이썬 버전 확정
 로컬은 3.14 이지만 `numpy==2.5.1`, `sentence-transformers` 등 휠 제공 범위를 보고
 `python:3.12-slim` 기준으로 맞춘다. slim 에 없는 빌드 도구가 필요하면 빌더 스테이지에서만
