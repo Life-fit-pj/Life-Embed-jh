@@ -243,11 +243,9 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
     if not query:
         return []
 
-    r = search.get_ready()
     # 자기 자신이 반드시 1등으로 걸리므로 한 명 더 받아서 뺀다
-    ranked = find_similar_members(
-        query, r["member_rows"], r["member_vectors"], top_k=top_k + 1
-    )
+    # 벡터는 vector_store 가 들고 있다 — get_ready() 에서 뺐다(7-7절)
+    ranked = find_similar_members(query, top_k=top_k + 1)
 
     out = []
     for cid, (score, category, text) in ranked:     # ← 튜플 안에 튜플이라 이렇게 푼다

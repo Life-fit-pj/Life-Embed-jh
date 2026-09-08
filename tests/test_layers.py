@@ -17,8 +17,9 @@ LAYER = {
     "app.tables": 2,
     "app.repositories": 2,
     "app.ai": 2,
-    "app.engine": 3,
-    "app.features": 4,
+    "app.rag": 3,          # 7단계 — ai 위, engine 아래
+    "app.engine": 4,
+    "app.features": 5,
 }
 
 # 4단계에서 chunker 가 app/ai/ 로 올라와 예외가 사라졌다.

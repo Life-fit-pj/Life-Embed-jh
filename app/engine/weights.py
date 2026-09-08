@@ -6,12 +6,10 @@
 """
 
 import json
-import numpy as np
 
 from app.core.config import INDICATORS
-from app.tables.chunks import member_chunks
+from app.rag.retriever import retrieve_people
 from app.tables.members import member_weights
-from app.ai.embedder import embed_query
 from app.ai.llm import ask
 
 
@@ -63,31 +61,19 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니�
 CLAUDE_RATIO = 0.7
 
 
-# 함수들
-def load_member_vectors():
-    """회원 청크 벡터를 전부 꺼낸다. numpy 배열로 만든다."""
-    rows = member_chunks()
-    vectors = np.array([json.loads(r["embedding"]) for r in rows], dtype="float32")
-    return rows, vectors
+def find_similar_members(query, top_k=5):
+    """검색어와 비슷한 회원 top_k 명.
 
+    "사람별 최고 점수" 규칙은 vector_store.search_people 로 옮겼다 —
+    kb 쪽 find_cases 와 달리 여기만 필요한 규칙이 아니었기 때문이다.
 
-def find_similar_members(query, rows, vectors, top_k=5) :
-    """검색어와 비슷한 회원을 찾는다.
-
-    청크 단위로 검색하면 한 사람이 여러 번 걸릴 수 있다.
-    그래서 사람별 최고 점수만 남기고 상위 top_k 명을 고른다.
+    반환 모양은 옛것 그대로다: [(customer_id, (점수, 칸이름, 글))]
+    부르는 쪽(search.py 134행)이 [cid for cid, _ in similar] 로 쓴다
     """
-    q = np.array(embed_query(query), dtype="float32")
-    scores = vectors @ q
-    
-    best = {}
-    for row, score in zip(rows, scores):
-        cid = row["customer_id"]
-        if cid not in best or score > best[cid][0]:
-            best[cid] = (float(score), row["category"], row["text"])
-    
-    ranked = sorted(best.items(), key=lambda x: x[1][0], reverse=True)
-    return ranked[:top_k]
+    return [
+        (customer_id, (score, row["category"], row["text"]))
+        for customer_id, score, row in retrieve_people("member", query, top_k)
+    ]
 
 
 def ask_claude(query):
@@ -182,9 +168,6 @@ def blend(draft, members):
 
 
 if __name__ == "__main__":
-    rows, vectors = load_member_vectors()
-    print(f"✅ 회원 청크 {len(rows)}개")
-
     for q in ["애들 학원 보내기 좋은 곳",
               "병원이 가깝고 할머니를 모시고 살기 좋은 곳",
               "멀지 않은 거리에 백화점이 있는 곳"]:
@@ -195,7 +178,7 @@ if __name__ == "__main__":
         print(f"   [→] 검색용 문장 : {persona_query}")
         
         # 원래 검색어가 아니라 번역된 문장으로 검색한다
-        similar = find_similar_members(persona_query, rows, vectors)
+        similar = find_similar_members(persona_query)
         ids = [cid for cid, _ in similar]
         members = member_weights(ids)
         print(f"   [A] 유사 회원   : {ids}")

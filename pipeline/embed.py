@@ -7,12 +7,13 @@
 중간에 끊겨도 그냥 다시 돌리면 남은 것부터 이어서 한다.
 """
 
-import json
 import time
 
+from app.ai import vector_store
 from app.ai.embedder import embed_documents
 from app.db import SessionLocal
 from app.models.chunk import Chunk
+
 
 # 한 번에 보낼 청크 수. 하나씩 보내면 9,900번을 불러야 해서 매우 느리다.
 # 5단계까지는 내 컴퓨터가 계산해서 32개씩이었고, OpenAI 는 100개도 넉넉히 받는다
@@ -43,7 +44,7 @@ def main():
         vectors = embed_documents([chunk.text for chunk in batch])
 
         for chunk, vector in zip(batch, vectors):
-            chunk.embedding = json.dumps(vector)
+            chunk.embedding = vector_store.to_text(vector)
 
         db.commit()   # 배치마다 저장 — 여기서 죽어도 앞 배치는 남는다
 
