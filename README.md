@@ -56,7 +56,7 @@ OPENAI_API_KEY=sk-...
 ```
 
 **둘 중 하나라도 없으면** `app/core/config.py`가 import 시점에 `RuntimeError`를 냅니다.
-`.env`는 절대 깃에 올리지 마세요.
+`.env`는 절대 깃에 올리지 마세요..
 
 쓰는 모델도 `config.py`에 있습니다 — 설명문 LLM은 Claude `claude-haiku-4-5-20251001`(`MODEL`),
 임베딩은 OpenAI `text-embedding-3-small`(`EMBED_MODEL`, 1536차원 · `EMBED_DIMENSION`).
