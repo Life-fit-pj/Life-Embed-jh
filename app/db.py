@@ -4,9 +4,16 @@ Base          모든 표 모델이 물려받는 기준 (1단계에서 만들었�
 engine        실제 DB 와 이어 주는 통로. 프로그램에 하나만 있으면 된다
 SessionLocal  작업 한 건에 쓸 세션을 만들어 주는 공장
 
-get_db(요청마다 열고 닫아 주는 FastAPI 의존성)는 여기 없다.
-부르는 쪽(app/api/)이 9단계에 생기므로 그때 만든다.
+get_db(요청마다 열고 닫아 주는 FastAPI 의존성)는 안 만들었다.
+수업은 api 가 세션을 받아 service 에 넘기지만, 우리는 app/tables/ 의 다리가
+_run() 으로 세션을 열고 닫는다(3-A). 그래서 api 가 세션을 알 필요가 없다.
+
+  수업   api(db) -> service(db) -> repository(db)
+  우리   api     -> service     -> tables(다리가 세션을 연다) -> repository(db)
+
+한 요청 안에서 여러 조회를 한 트랜잭션으로 묶어야 할 일이 생기면 그때 만든다.
 """
+
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker

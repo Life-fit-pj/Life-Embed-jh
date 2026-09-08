@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # 번호가 작을수록 아래층. 아래층은 위층을 부르면 안 된다.
 LAYER = {
     "app.domain": 0,
+    "app.schemas": 1,      # 9단계 — 형식만 적은 것. 아무것도 안 부른다
     "app.core": 1,
     "app.tables": 2,
     "app.repositories": 2,
@@ -20,7 +21,8 @@ LAYER = {
     "app.rag": 3,          # 7단계 — ai 위, engine 아래
     "app.engine": 4,
     "app.services": 5,     # 8단계 — 업무 로직
-    "app.features": 6,     # 다리만 남았다. 리팩토링 후 팀원이 지운다
+    "app.features": 6,     # 다리만 남았다. 팀원이 웹을 합칠 때 지운다
+    "app.api": 7,          # 9단계 — 맨 위. 여기만 FastAPI 를 안다
 }
 
 # 4단계에서 chunker 가 app/ai/ 로 올라와 예외가 사라졌다.
@@ -83,3 +85,16 @@ def test_app_이_pipeline_을_부르는_곳은_허락된_한_줄뿐():
         "app 이 pipeline 을 새로 부른다:\n  "
         + "\n  ".join(f"{s} -> {t}" for s, t in sorted(found - ALLOWED_PIPELINE))
     )
+
+def test_api_는_다리를_안_부른다():
+    """app/features/ 는 Life-Web 을 위한 다리다. 팀원이 웹을 합칠 때 통째로 지운다.
+
+    새로 만드는 app/api/ 가 거기 기대면 그때 같이 깨진다.
+    api 는 app/services/ 를 곧장 부른다
+    """
+    leaning = [f"{s} -> {t}" for s, t in edges()
+               if s.startswith("app.api") and t.startswith("app.features")]
+
+    assert not leaning, "api 가 다리에 기댄다:\n  " + "\n  ".join(leaning)
+
+
