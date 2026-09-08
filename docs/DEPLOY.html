@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LIFE,FIT — 배포 구축 계획</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+/>
+
+<style>
+  :root {
+    --ground: #f4f6f8;
+    --surface: #ffffff;
+    --raise: #eef2f6;
+    --ink: #151b22;
+    --muted: #67727e;
+    --faint: #96a0ab;
+    --line: #dbe2e9;
+    --accent: #1d5c9a;
+    --accent-soft: #e4eef7;
+    --ok: #3e8556;
+    --ok-soft: #e6f2ea;
+    --warn: #a8562a;
+    --warn-soft: #f6e9e0;
+    --wip: #8a5a9e;
+    --wip-soft: #f0e6f5;
+    --code-bg: #0f151b;
+    --code-ink: #dee6ee;
+    --code-dim: #7d8b9a;
+    --code-str: #9ed6a8;
+    --shadow: 0 1px 2px rgba(21, 27, 34, 0.06), 0 8px 24px rgba(21, 27, 34, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101519;
+      --surface: #171e25;
+      --raise: #1e262e;
+      --ink: #e4eaf0;
+      --muted: #98a4b0;
+      --faint: #6d7883;
+      --line: #29323b;
+      --accent: #6ba6e0;
+      --accent-soft: #1b2c3d;
+      --ok: #74bb8b;
+      --ok-soft: #1b2e22;
+      --warn: #d99765;
+      --warn-soft: #332319;
+      --wip: #c298d6;
+      --wip-soft: #2a2033;
+      --code-bg: #0b1015;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101519;
+    --surface: #171e25;
+    --raise: #1e262e;
+    --ink: #e4eaf0;
+    --muted: #98a4b0;
+    --faint: #6d7883;
+    --line: #29323b;
+    --accent: #6ba6e0;
+    --accent-soft: #1b2c3d;
+    --ok: #74bb8b;
+    --ok-soft: #1b2e22;
+    --warn: #d99765;
+    --warn-soft: #332319;
+    --wip: #c298d6;
+    --wip-soft: #2a2033;
+    --code-bg: #0b1015;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", -apple-system, "Malgun Gothic", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── 뼈대 ─────────────────────────────────────── */
+
+  .shell {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  .rail {
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+    padding: 22px 0 40px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .rail-head { padding: 0 20px 16px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  .rail-day { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--accent); text-transform: uppercase; }
+  .rail-title { margin: 4px 0 0; font-size: 16px; font-weight: 600; line-height: 1.4; }
+  .rail-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+
+  .rail-list { display: flex; flex-direction: column; gap: 1px; padding: 0 10px; }
+
+  .rail-item {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 13.5px;
+    text-decoration: none;
+    scroll-margin-top: 20px;
+  }
+  .rail-item:hover { background: var(--raise); color: var(--ink); }
+
+  .rail-group {
+    margin: 16px 10px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  main { padding: 48px 48px 100px; max-width: 900px; }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  h1 { margin: 0 0 10px; font-size: 30px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
+  .lead { font-size: 16px; line-height: 1.8; color: var(--muted); margin: 0 0 8px; max-width: 68ch; }
+  .meta { font-size: 12.5px; color: var(--faint); margin-bottom: 40px; }
+
+  section { margin: 56px 0; scroll-margin-top: 20px; }
+  section h2 {
+    font-size: 21px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  section .sub { font-size: 13.5px; color: var(--muted); margin: 0 0 20px; }
+
+  h3 { font-size: 14.5px; font-weight: 600; margin: 26px 0 8px; }
+
+  p { margin: 0 0 14px; max-width: 68ch; color: var(--ink); }
+  ul, ol { margin: 0 0 14px; padding-left: 20px; }
+  li { margin-bottom: 6px; max-width: 64ch; }
+
+  code.inl {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.88em;
+    background: var(--raise);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ── 코드/다이어그램 블록 ─────────────────────── */
+
+  .file { margin: 16px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .file-bar { display: flex; align-items: center; gap: 12px; padding: 9px 14px; background: var(--code-bg); border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .file-name { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--code-dim); }
+  pre {
+    margin: 0; padding: 18px 20px; background: var(--code-bg); color: var(--code-ink);
+    font-family: "IBM Plex Mono", monospace; font-size: 12.5px; line-height: 1.7; overflow-x: auto;
+  }
+
+  /* ── 표 ───────────────────────────────────────── */
+
+  .tbl { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13.5px; }
+  .tbl th, .tbl td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl th { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+  .tbl td { color: var(--ink); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl-wrap { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+  .tbl-wrap .tbl { margin: 0; }
+
+  /* ── 강조 상자 ────────────────────────────────── */
+
+  .note { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 18px 0; }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note.wip { border-left-color: var(--wip); background: var(--wip-soft); }
+  .note-t { font-weight: 600; margin-bottom: 4px; font-size: 13.5px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note p { font-size: 13.5px; }
+
+  /* ── 담당 뱃지 ────────────────────────────────── */
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+  .badge.me { background: var(--accent-soft); color: var(--accent); }
+  .badge.wip { background: var(--wip-soft); color: var(--wip); }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* ── phase 카드 ───────────────────────────────── */
+
+  .phase-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 18px 0; }
+  .phase-card { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; background: var(--surface); box-shadow: var(--shadow); }
+  .phase-num { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--faint); margin-bottom: 6px; }
+  .phase-who { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .phase-desc { font-size: 12.8px; color: var(--muted); line-height: 1.6; }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; height: auto; }
+    .phase-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-head">
+      <div class="rail-day">DEPLOY PLAN</div>
+      <p class="rail-title">배포 구축 계획</p>
+      <p class="rail-sub">Docker · Supabase · Vercel · Render</p>
+    </div>
+    <div class="rail-list">
+      <a class="rail-item" href="#overview">전체 그림</a>
+      <a class="rail-item" href="#owners">담당 분리</a>
+      <a class="rail-item" href="#render">Render</a>
+      <a class="rail-item" href="#vercel">Vercel</a>
+      <a class="rail-item" href="#supabase">Supabase</a>
+      <a class="rail-item" href="#docker">Docker</a>
+      <a class="rail-item" href="#phase">Phase</a>
+      <a class="rail-item" href="#open">아직 안 정한 것</a>
+    </div>
+  </nav>
+
+  <main>
+    <div class="eyebrow">Life-Embed-jh / DEPLOY.md</div>
+    <h1>Docker / Supabase / Vercel / Render<br />구축 계획</h1>
+    <p class="lead">
+      Life-Embed-jh · Life-Web 두 저장소에 걸친 배포 계획이다. 아직 실행 전 — 계획 단계.
+    </p>
+    <p class="meta">작성일 2026-09-08</p>
+
+    <section id="overview">
+      <h2>전체 그림</h2>
+      <p class="sub">두 저장소가 지금도 독립 배포 단위(httpx 호출, sys.path 직접 import 아님)라서 Render에도 하나로 합치지 않고 서비스 2개로 나눠 올린다.</p>
+
+      <div class="file">
+        <div class="file-bar"><span class="file-name">topology</span></div>
+        <pre>                    ┌─────────────┐
+   브라우저  ──────▶ │   Vercel    │  Life-Web/frontend (정적, 빌드 없음)
+                    └──────┬──────┘
+                           │ fetch(API_BASE + "/api/...")   ← CORS
+                           ▼
+                    ┌─────────────┐        ┌─────────────┐
+                    │   Render    │──httpx─▶│   Render    │
+                    │  Life-Web   │EMBED_API│Life-Embed-jh│
+                    │  (:5000역)  │  _BASE  │  (:8000역)  │
+                    └──────┬──────┘        └──────┬──────┘
+                           │                       │
+                           └─────────┬─────────────┘
+                                     ▼
+                            ┌─────────────┐
+                            │  Supabase   │  Postgres (life.db 대체)
+                            └─────────────┘
+
+   Docker: 위 두 Render 서비스를 담는 컨테이너 규격 (지금은 native runtime, 나중에 교체)</pre>
+      </div>
+    </section>
+
+    <section id="owners">
+      <h2>담당 분리</h2>
+      <p class="sub">지금 당장 할 수 있는 건 Vercel·Render뿐이다. sqlite(data/life.db)를 그대로 두고 움직이는 걸 목표로 하고, Docker·Supabase는 나중에 값만 갈아끼우면 합류되도록 자리만 잡아둔다.</p>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <tr><th>영역</th><th>담당</th><th>상태</th></tr>
+          <tr><td>Vercel(프론트 배포), Render(백엔드 배포), CORS</td><td><span class="badge me">나</span></td><td>계획 완료, 착수 전</td></tr>
+          <tr><td>Docker화</td><td><span class="badge wip">팀원 A</span></td><td>R&amp;D 중</td></tr>
+          <tr><td>Supabase + SQLAlchemy ORM (<code class="inl">app/db.py</code>, <code class="inl">app/models/</code>)</td><td><span class="badge wip">팀원 B</span></td><td>작업 중</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section id="render">
+      <h2>Render — 백엔드 2개</h2>
+      <p class="sub"><code class="inl">render.yaml</code>은 각 저장소가 자기 걸 들고 있는다 — Life-Web이 Life-Embed-jh 배포 설정까지 아는 건 계층 규칙(창구는 SQL·배포 세부를 모른다) 위반이다.</p>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <tr><th>항목</th><th>Life-Embed-jh</th><th>Life-Web</th></tr>
+          <tr><td>타입</td><td>Web Service</td><td>Web Service</td></tr>
+          <tr>
+            <td>지금 단계</td>
+            <td>native Python (<code class="inl">buildCommand: pip install -r requirements.txt</code>, <code class="inl">startCommand: uvicorn app.main:app</code>)</td>
+            <td>동일 (<code class="inl">uvicorn main:app</code>)</td>
+          </tr>
+          <tr>
+            <td>Docker 완성 후</td>
+            <td><code class="inl">env: python</code> → <code class="inl">env: docker</code>로 필드만 교체 (Dockerfile만 있으면 그대로 인식)</td>
+            <td>동일</td>
+          </tr>
+          <tr>
+            <td>DB</td>
+            <td>지금: Persistent Disk에 <code class="inl">life.db</code> 1회 수동 업로드 / Supabase 완성 후: <code class="inl">DATABASE_URL</code> 환경변수로 교체하고 디스크 제거</td>
+            <td>없음 (Life-Embed-jh 경유)</td>
+          </tr>
+          <tr>
+            <td>필수 env</td>
+            <td><code class="inl">ANTHROPIC_API_KEY</code>, (나중에) <code class="inl">DATABASE_URL</code></td>
+            <td><code class="inl">EMBED_API_BASE</code> = Life-Embed-jh의 Render 내부 URL</td>
+          </tr>
+          <tr>
+            <td>서비스 간 통신</td>
+            <td colspan="2">같은 리전이면 Render private network(<code class="inl">onrender.com</code> 내부 호스트)로 무료 통신 가능</td>
+          </tr>
+        </table>
+      </div>
+    </section>
+
+    <section id="vercel">
+      <h2>Vercel — 프론트 1개</h2>
+      <ul>
+        <li>대상: <code class="inl">Life-Web/frontend/</code>만 (Life-Web FastAPI가 지금 겸하는 정적 서빙 역할을 대체).</li>
+        <li><code class="inl">vercel.json</code>: output directory만 <code class="inl">frontend</code>로 지정, 빌드 커맨드 없음(순수 HTML/JS/CSS).</li>
+        <li>환경변수 <code class="inl">API_BASE</code>(Render Life-Web URL) → <code class="inl">frontend/lib/api.js</code>가 이 값을 읽어 지금의 <code class="inl">/api/...</code> 상대경로 앞에 붙인다.</li>
+      </ul>
+      <div class="note warn">
+        <div class="note-t">선행 필요</div>
+        <p><code class="inl">api.js</code>는 지금 전부 상대경로라 그대로 두면 Vercel에 올라간 뒤 자기 자신을 호출하게 되어 깨진다 — 이 수정이 먼저다.</p>
+      </div>
+      <div class="note">
+        <div class="note-t">CORS 허용 범위</div>
+        <p>PR 프리뷰마다 도메인이 새로 생기므로, Render 쪽 CORS 허용 목록은 정확한 도메인 하나가 아니라 <code class="inl">*.vercel.app</code> 패턴으로 열어야 프리뷰에서도 API가 붙는다.</p>
+      </div>
+    </section>
+
+    <section id="supabase">
+      <h2>Supabase <span class="badge wip">팀원 B WIP</span></h2>
+      <p class="sub">이 프로젝트에서의 역할만 미리 정의 — 코드는 아직 안 만짐.</p>
+
+      <h3>역할</h3>
+      <p><code class="inl">life.db</code>(SQLite) 대체 Postgres. <code class="inl">app/core/config.py</code>의 <code class="inl">DATABASE_URL</code>이 이미 이 값을 받을 자리를 갖고 있다(지금은 미사용 <code class="inl">app/db.py</code> ORM 레이어만 봄).</p>
+
+      <h3>합류 지점</h3>
+      <p>실제 조회 경로인 <code class="inl">app/core/db.py</code>(지금 <code class="inl">sqlite3</code> 하드코딩, <code class="inl">PRAGMA table_info</code> 등 SQLite 전용 구문 사용)가 Postgres 드라이버로 바뀌면 <code class="inl">repositories/*</code>가 그걸 통해 자동으로 넘어간다 — 이 레이어 경계 덕분에 SQL을 직접 안 쓰는 다른 층(engine/features/api)은 한 줄도 안 고쳐도 된다.</p>
+
+      <h3>Render와의 연결</h3>
+      <p>Supabase가 완성되면 Render 환경변수 <code class="inl">DATABASE_URL</code>만 채우고 Persistent Disk 마운트를 빼면 끝 — 지금 Render 설정을 "DB 위치를 env var로 주입"하는 구조로 짜두는 이유가 이거다.</p>
+
+      <div class="note wip">
+        <div class="note-t">아직 안 정한 것</div>
+        <p>벡터(BLOB) 저장을 <code class="inl">pgvector</code>로 바꿀지는 팀원 B 판단 영역. <code class="inl">pipeline/schema.py</code>(적재)도 <code class="inl">sqlite3</code>/<code class="inl">PRAGMA</code> 하드코딩이라 함께 손볼 대상이다.</p>
+      </div>
+    </section>
+
+    <section id="docker">
+      <h2>Docker <span class="badge wip">팀원 A R&amp;D</span></h2>
+      <p class="sub">이 프로젝트에서의 역할만 미리 정의.</p>
+      <ul>
+        <li>역할: Render 배포 단위(Life-Embed-jh, Life-Web)를 컨테이너화. 로컬 개발용 <code class="inl">docker-compose.yml</code>(워크스페이스 루트, 두 저장소 사이드바이사이드 마운트)도 겸할 수 있다.</li>
+        <li>합류 지점: Render는 <code class="inl">render.yaml</code>의 <code class="inl">env</code> 필드만 <code class="inl">python → docker</code>로 바꾸면 같은 서비스가 그대로 Dockerfile 빌드로 전환된다 — 지금 native로 먼저 올려도 나중에 버리는 작업이 아니다.</li>
+        <li>Life-Embed-jh는 무거운 ML 의존성(sentence-transformers 등)이 있어 이미지가 커질 수 있다는 점만 팀원 A에게 공유하면 된다.</li>
+      </ul>
+    </section>
+
+    <section id="phase">
+      <h2>Phase</h2>
+      <p class="sub">Phase 1의 결과물(env var로 DB 위치·API 주소를 주입하는 구조)이 2·3이 합쳐질 때 코드 충돌 없이 값만 갈아끼우게 하는 접점이다.</p>
+
+      <div class="phase-grid">
+        <div class="phase-card">
+          <div class="phase-num">PHASE 1</div>
+          <div class="phase-who"><span class="badge me">나</span></div>
+          <div class="phase-desc">CORS 추가 + <code class="inl">api.js</code>에 <code class="inl">API_BASE</code> 도입 + 두 저장소 <code class="inl">render.yaml</code> + <code class="inl">vercel.json</code> → sqlite 그대로, Render Disk에 수동 업로드</div>
+        </div>
+        <div class="phase-card">
+          <div class="phase-num">PHASE 2 · 병행</div>
+          <div class="phase-who"><span class="badge wip">팀원 A</span></div>
+          <div class="phase-desc">Docker화 → <code class="inl">render.yaml</code>의 <code class="inl">env</code> 필드 교체</div>
+        </div>
+        <div class="phase-card">
+          <div class="phase-num">PHASE 3 · 병행</div>
+          <div class="phase-who"><span class="badge wip">팀원 B</span></div>
+          <div class="phase-desc">Supabase + ORM → <code class="inl">app/core/db.py</code>를 Postgres로, <code class="inl">DATABASE_URL</code> env 채우고 Disk 제거</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="open">
+      <h2>아직 안 정한 것</h2>
+      <div class="note warn">
+        <div class="note-t">life.db 이관 범위</div>
+        <p>통째로 Supabase로 옮길지, 자주 바뀌는 표(<code class="inl">customers</code>, <code class="inl">user_preferences</code>)만 옮기고 큰 벡터 표(<code class="inl">kb_chunk</code>, <code class="inl">member_chunk</code>)는 계속 파일/디스크로 둘지 — 팀원 B 결정 대기.</p>
+      </div>
+      <div class="note warn">
+        <div class="note-t">Supabase Auth 여부</div>
+        <p>지금 <code class="inl">app/features/auth.py</code>는 "임시 로그인 발급" 데모 수준이라 별개 결정이 필요하다.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

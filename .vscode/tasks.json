@@ -47,6 +47,29 @@
             "presentation": { "clear": true }
         },
         {
+            "label": "🚀 백엔드 서버 실행 (8000)",
+            "detail": "app.main:app 을 8000 포트로 띄운다. Life-Web 이 EMBED_API_BASE로 이 주소를 호출한다. --reload 라 코드를 고치면 자동으로 다시 뜬다.",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
+            "label": "🛑 8000 포트 종료",
+            "detail": "8000 포트를 잡고 있는 프로세스를 찾아 강제 종료한다. 열려 있지 않으면 아무 일도 하지 않는다.",
+            "type": "shell",
+            "command": "$pids = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($pids) { $pids | ForEach-Object { Stop-Process -Id $_ -Force; Write-Host \"PID $_ 종료\" } } else { Write-Host '8000 포트를 쓰는 프로세스가 없습니다.' }",
+            "options": {
+                "shell": {
+                    "executable": "powershell.exe",
+                    "args": ["-NoProfile", "-Command"]
+                }
+            },
+            "problemMatcher": [],
+            "presentation": { "clear": true }
+        },
+        {
             "label": "전체 재구축 (schema -> sample_kb -> chunk_kb -> embed_kb -> embed_member)",
             "detail": "CSV 원본이 바뀌었을 때 쓴다. 1~5를 순서대로 실행한다.",
             "dependsOrder": "sequence",

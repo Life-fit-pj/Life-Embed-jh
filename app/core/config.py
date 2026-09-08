@@ -15,6 +15,14 @@ load_dotenv(BASE_DIR / ".env")
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "life.db"
 
+# 두 번째 인자가 아니라 or 를 쓰는 이유 —
+# os.getenv 의 기본값은 "키가 아예 없을 때"만 쓰인다.
+# .env 에 DATABASE_URL= 처럼 빈 칸으로 적혀 있으면 키는 있는 것이라
+# 빈 문자열 "" 이 그대로 넘어와 create_engine 이 죽는다.
+# or 는 빈 문자열도 거짓으로 보므로 둘 다 걸러진다.
+DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH.as_posix()}"
+
+
 # sqlite3 는 파일이 없으면 조용히 새로 만든다.
 # 그래서 경로가 틀려도 오류가 안 나고, 표가 하나도 없는 빈 DB 로 돌아간다.
 # 죽이지는 않고 눈에 보이게만 한다
@@ -23,18 +31,32 @@ if not DB_PATH.exists():
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not API_KEY:
-    raise RuntimeError("API 키가 없다. .env 파일을 확인해라.")
+    raise RuntimeError("ANTHROPIC_API_KEY 가 없다. .env 파일을 확인해라.")
 
+# ── Supabase Auth ─────────────────────────────
+# service_role 키는 RLS 를 무시하는 전권 키다. 토큰 검증(app/ai/supabase_auth.py)에만
+# 쓰고, 절대 Life-Web/프론트로 넘기지 않는다.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없다. .env 파일을 확인해라.")
 
 MODEL = "claude-haiku-4-5-20251001"
 
-# py -m pip install anthropic
-
 # ── 임베딩 ────────────────────────────────────
 # 저장할 때와 검색할 때 반드시 같은 모델을 써야 한다.
-# 모델이 다르면 벡터 차원부터 달라서(e5-small 384, bge-m3 1024)
+# 모델이 다르면 벡터 차원부터 달라서(e5-small 384, text-embedding-3-small 1536)
 # 저장해 둔 벡터를 아예 못 쓴다
-EMBED_MODEL = "intfloat/multilingual-e5-small"
+#
+# 키 확인을 여기서 하는 이유 — 없는 채로 재임베딩을 돌리면
+# 9,900번째가 아니라 첫 줄에서 알게 된다
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY 가 없다. .env 파일을 확인해라.")
+
+EMBED_MODEL = "text-embedding-3-small"
+EMBED_DIMENSION = 1536
+
 
 # ── 추천 지표 ─────────────────────────────────
 # user_preferences 의 칸 이름이자 08번 점수 계산의 기준.
@@ -43,8 +65,8 @@ INDICATORS = ["녹지", "안전", "교통", "상권", "의료", "교육", "문�
 
 # ── 페르소나 청킹 ─────────────────────────────
 # 라이프스타일이 드러나는 서술형 칸들.
-# 지식베이스(chunk_kb)와 회원(embed_member)이 같은 방식으로 쪼개야
-# 나중에 두 벡터를 같은 기준으로 비교할 수 있다
+# 지식베이스와 회원을 같은 방식으로 쪼개야 두 벡터를 같은 기준으로 비교할 수 있다.
+# 쪼개는 것도 담는 것도 이제 한 곳이다 — pipeline/chunk.py 가 chunks 표에 넣는다
 # 청킹 대상 - 라이프스타일이 드러나는 서술형 칸들
 CHUNK_COLUMNS = [
     "persona",
