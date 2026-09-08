@@ -1,8 +1,12 @@
 """옛 이름을 지키는 다리. 실제 내용은 app/repositories/history_repository.py 에 있다.
 
-⚠ 두 가지는 옛 SQL 그대로 여기 남아 있다 —
-   ① ensure_* 6개 (DDL). ORM 이 할 일이 아니다(이론 7)
-   ② user_login 관련 4개. 그 표는 모델이 없다 — DB 에 아직 존재하지 않기 때문이다
+⚠ user_login 셋만 옛 SQL 그대로 여기 남아 있다 — ORM 다리를 안 거치고
+   app/core/db.py 의 실행기를 곧장 쓴다. 표 자체는 4-A 에서 모델이 생겼다
+   (app/models/history.py 의 UserLogin).
+
+   ensure_* 6개는 4-A 에서 지웠다. "쓸 때 표를 만든다" 는 SQLite 시절 습관이고,
+   Postgres 에서는 서비스 코드가 DDL 을 던질 자리가 아니다. 표를 세우는 일은
+   4-B 의 이관 스크립트가 create_all() 로 한 번에 한다.
 
 부르는 쪽 —
   app/features/admin.py     집계·관리자로그
@@ -12,7 +16,7 @@
                                     list_search_history · add_chat_history · list_chat_history
 """
 
-from app.core.db import dicts, get_con, one             # ensure_* 와 user_login 전용
+from app.core.db import dicts, one, run                 # user_login 전용
 from app.db import SessionLocal
 from app.repositories import history_repository as repo
 
@@ -25,211 +29,73 @@ def _run(fn, *args, **kwargs):
         db.close()
 
 
-# ══ 여기부터 옛 SQL 그대로 (DDL · user_login) ══════════════
-
-_like_ready = False
-
 # => 좋아요
 
-def ensure_likes():
-    """likes 테이블이 없으면 만든다."""
-    global _like_ready
-    if _like_ready: return
-
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS likes (
-            anon_id TEXT NOT NULL,
-            구 TEXT NOT NULL,
-            행정동명 TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (anon_id, 구, 행정동명)
-        )
-    """)
-    get_con().commit()
-    _like_ready = True
-
-
 def add_like(anon_id, gu, dong):
-    ensure_likes()
     return _run(repo.add_like, anon_id, gu, dong)
 
 
 def remove_like(anon_id, gu, dong):
-    ensure_likes()
     return _run(repo.remove_like, anon_id, gu, dong)
 
 
 
 def list_likes(anon_id):
-    ensure_likes()
     return _run(repo.list_likes, anon_id)
 
 
 # => 검색
 
-_search_history_ready = False
-
-def ensure_search_history():
-    """search_history 테이블이 없으면 만든다."""
-    global _search_history_ready
-    if _search_history_ready: return
-
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS search_history (
-            anon_id TEXT NOT NULL,
-            query TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    get_con().commit()
-    _search_history_ready = True
-
-
 def add_search_history(anon_id, query):
-    ensure_search_history()
     return _run(repo.add_search_history, anon_id, query)
 
 
 def list_search_history(anon_id, limit=20):
-    ensure_search_history()
     return _run(repo.list_search_history, anon_id, limit)
 
 
 # => 채팅
 
-_chat_history_ready = False
-
-def ensure_chat_history():
-    """chat_history 테이블이 없으면 만든다."""
-    global _chat_history_ready
-    if _chat_history_ready: return
-
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS chat_history (
-            anon_id TEXT NOT NULL,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    get_con().commit()
-    _chat_history_ready = True
-
-
 def add_chat_history(anon_id, question, answer):
-    ensure_chat_history()
     return _run(repo.add_chat_history, anon_id, question, answer)
 
 
 def list_chat_history(anon_id, limit=20):
-    ensure_chat_history()
     return _run(repo.list_chat_history, anon_id, limit)
 
 
-def ensure_admin_log() -> None:
-    """관리자 수정 이력 표. 없으면 만든다 (있으면 아무 일도 안 한다)."""
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS admin_log (
-            log_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-            target     TEXT,      -- 'member' 또는 'region'
-            target_id  TEXT,      -- 'C001' 또는 '강남구 역삼1동'
-            patch      TEXT,      -- 보낸 값 그대로 (JSON 문자열)
-            changed_at TEXT       -- 언제
-        )
-    """)
-    get_con().commit()
-
+# => 관리자 수정 이력
 
 def write_admin_log(target: str, target_id: str, patch: dict) -> None:
-    ensure_admin_log()
     return _run(repo.write_admin_log, target, target_id, patch)
 
 
+# ══ 여기부터 옛 SQL 그대로 (user_login) ══════════════
+# 이 셋만 ORM 다리를 안 거치고 app/core/db.py 의 실행기를 곧장 쓴다
+
 # => 로그인
-
-_user_login_ready = False
-
-def ensure_user_login():
-    """user_login 테이블이 없으면 만든다. login_id 가 기본키다 — 계정 풀이
-    소진되면 같은 customer_id 에 로그인이 여러 개 붙을 수 있어야 해서
-    (빈 계정을 새로 만드는 대신 기존 회원을 재사용하는 정책), customer_id는
-    더 이상 유일하지 않다.
-
-    예전 스키마(customer_id가 기본키)로 이미 만들어진 DB라면 데이터를
-    보존한 채 새 스키마로 옮긴다.
-    """
-    global _user_login_ready
-    if _user_login_ready: return
-
-    con = get_con()
-    pk_cols = [r[1] for r in con.execute("PRAGMA table_info(user_login)").fetchall() if r[5] == 1]
-    if pk_cols == ["customer_id"]:
-        con.execute("ALTER TABLE user_login RENAME TO user_login_old")
-        con.execute("""
-            CREATE TABLE user_login (
-                login_id    TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL,
-                password    TEXT NOT NULL,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        con.execute("""
-            INSERT INTO user_login (login_id, customer_id, password, created_at)
-            SELECT login_id, customer_id, password, created_at FROM user_login_old
-        """)
-        con.execute("DROP TABLE user_login_old")
-    else:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS user_login (
-                login_id    TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL,
-                password    TEXT NOT NULL,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-    con.commit()
-    _user_login_ready = True
-
-
-def pick_customer_for_login():
-    """새 아이디를 붙일 customer_id 를 고른다. 로그인이 아직 없는 회원을
-    우선하고, 전부 배정됐으면 로그인이 가장 적게 붙은 회원을 다시 쓴다 —
-    빈 계정은 절대 새로 만들지 않고 항상 기존 회원 정보에 붙인다."""
-    ensure_user_login()
-    row = one("""
-        SELECT c.customer_id FROM customers c
-        LEFT JOIN user_login u ON u.customer_id = c.customer_id
-        GROUP BY c.customer_id
-        ORDER BY COUNT(u.customer_id) ASC, c.customer_id ASC
-        LIMIT 1
-    """)
-    return row[0] if row else None
-
 
 def create_login(customer_id, login_id, password):
     """로그인 계정 발급."""
-    ensure_user_login()
-    get_con().execute(
-        "INSERT INTO user_login (customer_id, login_id, password) VALUES (?, ?, ?)",
-        (customer_id, login_id, password),
+    run(
+        "INSERT INTO user_login (customer_id, login_id, password) "
+        "VALUES (:customer_id, :login_id, :password)",
+        {"customer_id": customer_id, "login_id": login_id, "password": password},
     )
-    get_con().commit()
 
 
 def get_login_row(login_id):
     """login_id 하나의 계정 정보. 없으면 None. 로그인 시 "아이디가 아예 없는지"와
     "비번이 틀렸는지"를 구분해야 즉석 발급이 가능해서 find_login 대신 이걸 쓴다."""
-    ensure_user_login()
     row = one(
-        "SELECT customer_id, password FROM user_login WHERE login_id = ?",
-        (login_id,),
+        "SELECT customer_id, password FROM user_login WHERE login_id = :login_id",
+        {"login_id": login_id},
     )
     return {"customer_id": row[0], "password": row[1]} if row else None
 
 
 # 로그인이 이미 붙어 있는 회원 번호
 def login_customer_ids():
-    ensure_user_login()
     return [r["customer_id"] for r in dicts("SELECT customer_id FROM user_login")]
 
 
@@ -237,78 +103,46 @@ def login_customer_ids():
 # 두 칸짜리 결과는 (이름, 개수) 튜플 목록으로 돌려준다
 
 def like_count(gu, dong):
-    ensure_likes()
     return _run(repo.like_count, gu, dong)
 
 
 def like_region_counts(limit=15):
-    ensure_likes()
     return _run(repo.like_region_counts, limit)
 
 
 def search_count():
-    ensure_search_history()
     return _run(repo.search_count)
 
 
 def top_searches(top=20):
-    ensure_search_history()
     return _run(repo.top_searches, top)
 
 
 def chat_count():
-    ensure_chat_history()
     return _run(repo.chat_count)
 
 
 def admin_log_count():
-    ensure_admin_log()
     return _run(repo.admin_log_count)
 
 
 def admin_log_recent(limit=8):
-    ensure_admin_log()
     return _run(repo.admin_log_recent, limit)
 
 
 # ── 분석 대화 (app/features/analysis.py 가 쓴다) ────────
 
-_analysis_chat_ready = False
-
-
-def ensure_analysis_chat():
-    """분석 대화 표가 없으면 만든다. likes·history 와 같은 방식이다."""
-    global _analysis_chat_ready
-    if _analysis_chat_ready:
-        return
-    get_con().execute("""
-        CREATE TABLE IF NOT EXISTS analysis_chat (
-            chat_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-            question   TEXT NOT NULL,
-            answer     TEXT,
-            facts      TEXT,
-            created_at TEXT
-        )
-    """)
-    get_con().commit()
-    _analysis_chat_ready = True
-
-
 def add_analysis_chat(question, answer, facts_json, created_at):
-    ensure_analysis_chat()
     return _run(repo.add_analysis_chat, question, answer, facts_json, created_at)
 
 
 def list_analysis_chat(limit=50):
-    ensure_analysis_chat()
     return _run(repo.list_analysis_chat, limit)
 
 
 def analysis_chat_one(chat_id):
-    ensure_analysis_chat()
     return _run(repo.analysis_chat_one, chat_id)
 
 
 def delete_analysis_chat(chat_id):
-    ensure_analysis_chat()
     return _run(repo.delete_analysis_chat, chat_id)

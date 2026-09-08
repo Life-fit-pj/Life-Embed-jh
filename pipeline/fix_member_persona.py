@@ -22,7 +22,7 @@ import re
 import time
 
 from app.core.config import CHUNK_COLUMNS
-from app.core.db import get_con, dicts
+from app.core.db import dicts, one
 from app.ai.llm import ask
 from app.engine.resync import resync_member
 
@@ -39,7 +39,7 @@ LABELS = {
 }
 
 
-def _mismatched_customers(con):
+def _mismatched_customers():
     """persona 청크의 이름이 실제 회원 이름과 다른 사람만 골라낸다."""
     customers = dicts(
         "SELECT customer_id, name, gender, age, city, city_dong, work_city, work_dong "
@@ -47,11 +47,12 @@ def _mismatched_customers(con):
     )
     out = []
     for c in customers:
-        row = con.execute(
+        row = one(
             "SELECT text FROM chunks "
-            "WHERE source = 'member' AND source_id = ? AND category = 'persona'",
-            (c["customer_id"],),
-        ).fetchone()
+            "WHERE source = 'member' AND source_id = :customer_id "
+            "  AND category = 'persona'",
+            {"customer_id": c["customer_id"]},
+        )
         if row is None or not row[0].startswith(c["name"]):
             out.append(c)
     return out
@@ -95,8 +96,7 @@ def _parse(raw: str) -> dict | None:
 
 
 def fix_all():
-    con = get_con()
-    targets = _mismatched_customers(con)
+    targets = _mismatched_customers()
     print(f"고칠 회원 {len(targets)}명")
 
     fixed, failed = 0, []

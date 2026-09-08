@@ -16,7 +16,7 @@
   전부 한글)를 다뤄서 ORM 으로 안 옮기기 때문이다. 8단계에서 같이 없앤다.
 """
 
-from app.core.db import get_con                    # _run_update 전용. 다른 데 쓰지 않는다
+from app.core.db import run                        # _run_update 전용. 다른 데 쓰지 않는다
 from app.db import SessionLocal
 from app.repositories import member_repository as repo
 
@@ -40,20 +40,21 @@ def _run(fn, *args, **kwargs):
 def _run_update(table, where_sql, where_params, patch, allowed):
     """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
 
-    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지
+    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지.
+    SET 절 값에는 :set_0, :set_1 … 로 이름을 붙인다. 칸 이름을 그대로 쓰면
+    where_params 의 이름과 부딪힐 수 있다(둘 다 "구" 를 쓸 수 있다)
     """
     fields = [name for name in patch if name in allowed]
     if not fields:
         return 0
 
-    sets = ", ".join(f'"{name}" = ?' for name in fields)
-    values = [patch[name] for name in fields]
+    sets = ", ".join(f'"{name}" = :set_{i}' for i, name in enumerate(fields))
+    values = {f"set_{i}": patch[name] for i, name in enumerate(fields)}
 
-    get_con().execute(
+    run(
         f'UPDATE "{table}" SET {sets} WHERE {where_sql}',
-        (*values, *where_params),
+        {**values, **where_params},
     )
-    get_con().commit()
     return len(fields)
 
 
