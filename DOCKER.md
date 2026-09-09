@@ -66,14 +66,14 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 |---|---|---|---|---|
 | 1 | `requirements.txt` 정리 — 주석 문법 오류 / `pydantic` 핀 / dev 목록 분리 | Embed | **완료 (머지 시 재확인)** | — |
 | 2 | 베이스 이미지·파이썬 버전 확정 (`python:3.12-slim` 기준 검증) | 공통 | **완료** | 1 |
-| 3 | `Life-Embed-jh/Dockerfile` 작성 — `uvicorn app.main:app --port 8000` | Embed | 착수 가능 | 2 |
+| 3 | `Life-Embed-jh/Dockerfile` 작성 — `uvicorn app.main:app --port 8000` | Embed | **완료** | 2, 7 |
 | 4 | ~~torch/sentence-transformers 를 CPU 전용 휠로 설치해 이미지 경량화~~ | Embed | **폐기 (KAN-86 완료)** | — |
 | 5 | ~~임베딩 모델(e5-small) 가중치를 빌드 단계에 캐시~~ | Embed | **폐기 (KAN-86 완료)** | — |
 | 6 | `Life-Web/Dockerfile` 작성 — `uvicorn main:app --port 5000` + 정적 프론트 | Web | 착수 가능 | 2 |
-| 7 | 두 저장소에 `.dockerignore` 추가 (빌드 컨텍스트 축소) | 공통 | 착수 가능 | 3, 6 |
+| 7 | 두 저장소에 `.dockerignore` 추가 (빌드 컨텍스트 축소) | 공통 | Embed **완료** / Web 남음 | — (3·6보다 **먼저**) |
 | 8 | `data/life.db` 주입 방식 결정 — 이미지 포함 vs 볼륨 마운트 | Embed | 임시 확정 후 진행 | 3 |
 | 9 | 환경변수 주입 체계 정리 — `.env` 복사 금지, `env_file`/시크릿 사용 | 공통 | 착수 가능 | 3, 6 |
-| 10 | `/health` 엔드포인트 신설 + Dockerfile `HEALTHCHECK` 연결 | 공통 | 착수 가능 | 3, 6 |
+| 10 | `HEALTHCHECK` 연결 (엔진은 `/admin/health` 가 **이미 있음**) | 공통 | 착수 가능 | 3, 6 |
 | 11 | `docker-compose.yml` 작성 — 서비스 2개 + 내부 네트워크 + `EMBED_API_BASE` | 공통 | 착수 가능 | 3, 6, 9 |
 | 12 | 개발용 compose override — 소스 bind mount + `--reload` | 공통 | 착수 가능 | 11 |
 | 13 | 비루트 사용자 실행 등 컨테이너 보안 기본값 적용 | 공통 | 착수 가능 | 3, 6 |
@@ -173,12 +173,36 @@ alpine 은 검토하지 않는다 — musl 기반이라 numpy 휠이 안 맞아 
 못한다 — 빌드가 갑자기 몇 분씩 느려지면 소스 컴파일이 끼어들었다는 신호이니 그때 이
 명령으로 범인을 찾는다.
 
-### 3. `Life-Embed-jh/Dockerfile`
+### 3. `Life-Embed-jh/Dockerfile` — **작성·검증 완료 (2026-09-09)**
 - 엔트리포인트는 `app.main:app`, 포트 8000. **저장소 루트를 WORKDIR 로 둬야 한다** —
   `app/` 이 `__init__.py` 없는 네임스페이스 패키지라 루트가 sys.path 에 있어야 `app.*` 가 resolve 된다.
+  디렉터리 이름은 `/code` 로 뒀다. `/app` 으로 두면 패키지 이름 `app` 과 겹쳐 읽기 어려워진다.
 - `requirements.txt` 만 먼저 COPY → `pip install` → 그 다음 소스 COPY 로 레이어 캐시를 살린다.
-- `pipeline/` 은 배포에 따라가지 않는다(AGENTS.md) — 런타임 스테이지에서 제외할지 7번과 함께 정한다.
+- `pipeline/`·`tests/`·`data/`·`.env` 는 COPY 하지 않는다(각각 AGENTS.md, 13번, 8번, 9번).
 - `COPY app/` 단위로 담으므로 KAN-87~89 의 내부 모듈 재배치가 끝나도 이 파일은 안 바뀐다.
+- `RUN pip install --only-binary=:all:` — 2번의 "단일 스테이지" 결정을 **빌드가 스스로 지키게
+  만드는 장치**다. 휠 없는 패키지가 새로 들어오면 몇 분씩 조용히 컴파일하는 대신 즉시 실패한다.
+
+**빌드 실측 (2026-09-09)**
+
+    docker build -t life-embed:dev .
+    -> exit 0, 16.9초
+       DISK USAGE 386MB / CONTENT SIZE 84.1MB
+
+설치된 25개 패키지에 `torch`·CUDA 계열은 하나도 없다 — KAN-86 의 효과가 그대로 드러난다.
+보류했다 폐기한 4번(CPU 전용 휠)이 목표로 하던 1.5GB 보다도 훨씬 작다.
+
+**기동 검증 (2026-09-09)**
+
+    docker run -d -p 8010:8000 --env-file .env -v <repo>/data:/code/data life-embed:dev
+
+    uvicorn 기동          Application startup complete
+    GET /openapi.json     200 (라우터 29개 전부 노출)
+    GET /admin/health     200 {"ok":true,"regions":427,"members":100}
+    GET /regions/../facilities  200 (실제 시설 데이터 반환)
+
+`regions:427` 이 나왔다는 것은 **8번의 볼륨 마운트 방식이 실제로 동작한다**는 뜻이다
+(마운트가 실패했다면 빈 DB 로 돌아 `regions:0` 이 나왔을 것이다).
 
 ### 4. ~~CPU 전용 휠로 이미지 경량화~~ — **폐기 (KAN-86 완료, 2026-09-08)**
 **할 일이 남아 있지 않다.** KAN-86 이 임베딩을 OpenAI API 호출로 바꾸면서
@@ -229,10 +253,29 @@ CPU 전용으로 깎아도 1.5GB, 최종 이미지 1.8GB 안팎이라 **Render �
 - 프론트를 Vercel 로 옮기는 Phase 1 이 끝나면 정적 서빙이 빠질 수 있으므로,
   정적 파일 COPY 를 한 곳에 모아 나중에 제거하기 쉽게 둔다.
 
-### 7. `.dockerignore`
-`.git`(LFS 포함), `__pycache__`, `data/*.csv`, `*.csv.gz`, `.env`, `tests/`, 문서 `.md`,
-워크스페이스 루트의 `.mp4`/`.pdf` 를 제외한다. 특히 `data/` 아래 원본 CSV 는
-DB 재적재용이라 런타임 이미지에 들어갈 이유가 없다.
+### 7. `.dockerignore` — Embed **완료 (2026-09-09)** / Web 남음
+
+**선행 관계를 바로잡는다 — 이 항목은 3·6번보다 먼저 해야 한다.** 원래 "3, 6 이 끝난 뒤"로
+적어 뒀는데, 실제로 3번을 빌드해보니 순서가 반대였다.
+
+`.dockerignore` 가 없으면 Docker 는 **저장소 폴더 전체를 데몬으로 전송**한 뒤에야 빌드를
+시작한다. Dockerfile 이 `requirements.txt` 와 `app/` 만 COPY 하므로 **이미지 내용물은
+같지만**, 전송량이 다르다 —
+
+    .git    3.4GB   (data/ 의 대용량 파일이 Git LFS 로 들어 있다)
+    data/   1.0GB   (nemotron.csv 439M, life.db 332M, seoul_persona_full.csv.gz 225M)
+    ----------------
+    합계    4.4GB   매 빌드마다
+
+개발 중에는 Dockerfile 을 고쳐가며 여러 번 빌드하게 되는데, 매번 4.4GB 를 넘기면 그
+자체로 작업이 막힌다. 실제로 `.dockerignore` 를 먼저 넣은 뒤 빌드는 **16.9초**에 끝났다.
+
+제외 대상은 세 갈래다 — **버전 관리**(`.git`), **런타임에 안 쓰는 것**(`data/`, `pipeline/`,
+`tests/`, `eval/`, `tools/`, 문서), **비밀**(`.env`). `data/` 는 통째로 제외한다.
+`life.db` 는 볼륨으로 마운트하고(8번) 원본 CSV 는 적재 전용이라 런타임과 무관하다.
+
+`Life-Web` 쪽은 6번과 함께 만든다. 그쪽은 `frontend/` 와 `data/LH평면도` 가 **이미지에
+들어가야 하므로** 제외 목록이 이것과 다르다 — 그대로 복사하면 안 된다.
 
 ### 8. `data/life.db` 주입 방식 결정 — 임시 확정 후 진행
 Git LFS 로 관리되는 42MB(체크아웃에 따라 최대 216MB) 파일이다. 선택지 세 가지 —
@@ -257,11 +300,31 @@ Git LFS 로 관리되는 42MB(체크아웃에 따라 최대 216MB) 파일이다.
 - 팀원 작업으로 키가 **늘어나는 방향**이다. 키 이름을 Dockerfile 에 하나씩 박지 말고
   `.env.example` + compose `env_file` 로 통째로 넘겨, 키가 추가돼도 이미지를 안 고치게 한다.
 
-### 10. `/health` 엔드포인트 + HEALTHCHECK
-지금 두 서버 모두 헬스 엔드포인트가 없다 — 신규 코드가 필요하다. 엔진은 DB 연결과 표 존재까지,
-웹은 자기 자신 + `EMBED_API_BASE` 연결까지 확인하는 얕은 체크를 둔다.
-compose 의 `depends_on: condition: service_healthy` 와 Render 헬스체크가 이 값을 쓴다.
-라우터는 `app/api/` 에 두고 로직은 넣지 않는다(계층 규칙) — KAN-90 으로 이미 자리가 잡혀 있다.
+### 10. 헬스체크 — **엔진 쪽은 신규 코드가 필요 없다 (2026-09-09 정정)**
+
+"두 서버 모두 헬스 엔드포인트가 없다"고 적어 뒀는데 **틀렸다.** 3번 기동 검증에서
+`/openapi.json` 을 열어보니 엔진에 **`GET /admin/health` 가 이미 있다.**
+
+    GET /admin/health -> 200
+    {"ok":true,"regions":427,"members":100,"cache_warm":false,"error":null}
+
+우리가 신규로 만들려던 "DB 연결 + 표 존재 확인"을 이미 하고 있다. `regions:427`·
+`members:100` 처럼 **행 수까지 돌려주므로 8번에서 걱정한 "마운트 실패가 조용히 넘어가는"
+경우도 이걸로 잡힌다**(빈 DB 면 0 이 나온다). 인증 없이 200 이 떠서 `HEALTHCHECK` 에
+그대로 쓸 수 있다.
+
+따라서 엔진 쪽 할 일은 **엔드포인트 신설이 아니라 Dockerfile `HEALTHCHECK` 연결뿐**이다.
+남은 판단 두 가지 —
+
+- **경로가 `/admin/` 아래인 게 걸린다.** 지금은 인증이 없지만 나중에 관리자 라우터 전체에
+  토큰을 걸면 헬스체크가 401 로 죽는다. `/health` 별칭을 열어 두는 편이 안전한지 결정한다.
+- `HEALTHCHECK` 는 이미지 안에서 도는 명령이라 **`curl` 이 필요한데 slim 에는 없다.**
+  `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/health')"`
+  로 파이썬을 쓰면 패키지를 추가하지 않아도 된다.
+
+`Life-Web` 쪽은 확인 전이다 — 자기 자신 + `EMBED_API_BASE` 연결까지 보는 얕은 체크가
+필요한지 6번과 함께 본다. 신규로 만든다면 라우터는 `app/api/` 에 두고 로직은 넣지
+않는다(계층 규칙).
 
 ### 11. `docker-compose.yml`
 - 서비스 2개(`embed`, `web`). `web` 의 `EMBED_API_BASE` 를 `http://embed:8000` 으로 준다 —
