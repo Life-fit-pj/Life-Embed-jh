@@ -2,10 +2,21 @@ import json
 from datetime import datetime
 
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.db import engine
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory
 
+
+def _upsert(table):
+    """방언에 맞는 insert 를 고른다.
+
+    on_conflict_do_nothing() 은 SQLite 와 PostgreSQL 둘 다 있는 기능인데
+    import 경로만 다르다. 갈라지는 곳을 이 함수 하나로 가둬 두면
+    부르는 쪽을 고칠 일이 없다.
+    """
+    return pg_insert(table) if engine.dialect.name == "postgresql" else sqlite_insert(table)
 
 
 def add_like(db, anon_id, gu, dong):
@@ -14,11 +25,13 @@ def add_like(db, anon_id, gu, dong):
     db.add(Like(...)) 를 쓰면 이미 있을 때 IntegrityError 로 죽는다.
     옛 SQL 의 INSERT OR IGNORE 를 그대로 재현하려면 on_conflict_do_nothing 이 필요하다.
 
-    이 한 줄만 SQLite 전용이다. PostgreSQL 로 갈 때는 import 를
-    sqlalchemy.dialects.postgresql 로 바꾸면 된다 — 함수 이름은 같다
+    방언에 따라 insert 를 고르는 일은 위 _upsert() 가 맡는다.
+
+    on_conflict_do_nothing() 이 Postgres 에서 동작하려면 진짜 제약이 있어야 하는데,
+    likes 의 기본키 (anon_id, 구, 행정동명) 이 그것이다 (app/models/history.py).
     """
     db.execute(
-        sqlite_insert(Like)
+        _upsert(Like)
         .values(anon_id=anon_id, 구=gu, 행정동명=dong)
         .on_conflict_do_nothing()
     )
@@ -94,7 +107,14 @@ def delete_analysis_chat(db, chat_id):
 
 def like_region_counts(db, limit=15):
     """좋아요가 많이 눌린 동네. (동네이름, 개수) 목록."""
-    name = Like.구 + " " + Like.행정동명       # SQLite 의 || 로 번역된다
+    # 칸 + " " 로 잇지 않는 이유 — SQLAlchemy 가 "글자를 잇는 건가 더하는 건가"를
+    # 칸 타입을 보고 판단한다. 타입이 애매하면 조용히 덧셈이 되어 버린다.
+    #
+    # ⚠ func.concat 은 || 로 안 바뀐다. 양쪽 다 concat(...) 함수 그대로 나간다.
+    #   PostgreSQL 은 늘 있지만 SQLite 는 3.44(2023-11) 부터다. 그보다 낮으면
+    #   no such function: concat 으로 죽는다 — 그때는
+    #   Like.구.concat(" ").concat(Like.행정동명) 으로 바꾼다. 이건 || 로 나간다
+    name = func.concat(Like.구, " ", Like.행정동명)
     total = func.count()
 
     return [

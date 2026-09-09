@@ -5,6 +5,7 @@
 
 import threading
 
+import pytest
 from sqlalchemy import func
 
 from app.core.config import DB_PATH
@@ -16,7 +17,11 @@ def test_engine_이_그_life_db_를_본다():
     """DATABASE_URL 을 잘못 만들면 sqlite 가 빈 파일을 새로 만들어 버린다.
 
     그러면 표가 하나도 없는 DB 로 조용히 돌아가므로, 경로를 직접 대조한다.
+    "DB 가 파일 하나" 라는 것 자체가 SQLite 얘기라, 다른 DB 면 볼 것이 없다
     """
+    if engine.dialect.name != "sqlite":
+        pytest.skip(f"SQLite 전용 확인이다. 지금은 {engine.dialect.name}")
+
     assert engine.url.database.replace("\\", "/") == DB_PATH.as_posix()
 
 

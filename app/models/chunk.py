@@ -11,7 +11,8 @@ embedding 은 숫자 1,536개를 JSON 문자열로 담은 것이다.
 읽을 때는 json.loads(embedding) 으로 되돌린다.
 
 SQLite 에 숫자 배열 타입이 없어서 글자로 눌러 담는다.
-나중에 PostgreSQL(pgvector)로 가면 이 한 줄만 Vector(1536) 으로 바꾼다
+PostgreSQL 로 옮겨도 이대로 돈다 — Text 칸에 JSON 글자를 넣는 것뿐이라 방언을 안 탄다.
+pgvector 를 켜는 것은 그다음 단계이고, 그때 이 한 줄만 Vector(1536) 으로 바꾼다
 """
 
 from sqlalchemy import Column, Integer, String, Text
