@@ -133,11 +133,45 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 alpine 은 검토하지 않는다 — musl 기반이라 numpy 휠이 안 맞아 소스 빌드로 떨어진다.
 `docker desktop` 설치(powershell) : winget install -e --id Docker.DockerDesktop
 
-**갱신 필요 (KAN-86 반영).** 위 통과 기록은 `sentence-transformers` 가 들어 있던 목록
-기준이다. 지금 `dev-deploy` 의 목록은 `numpy`·`openai`·`anthropic`·`fastapi`·`uvicorn`·
-`sqlalchemy`·`python-dotenv` 뿐이라 cp312 휠 확보는 오히려 쉬워졌지만, 확정 근거로 쓰려면
-같은 명령을 새 목록으로 한 번 더 돌려 exit 0 을 기록해 둔다. 결론(`python:3.12-slim`,
-단일 스테이지)이 뒤집힐 가능성은 낮다.
+#### 재검증 완료 (2026-09-08, KAN-86 반영 후)
+
+위 통과 기록은 `sentence-transformers` 가 들어 있던 목록 기준이었다. `dev-deploy` 머지로
+`langchain-*` 3종이 빠지고 `anthropic`·`openai` 가 들어오면서 목록이 실제로 바뀌었으므로
+같은 명령을 새 `requirements.txt` 로 다시 돌렸다 — **exit 0**.
+
+    Would install (25개, 전부 휠)
+      직접 명시 8    numpy 2.5.1        python-dotenv 1.2.2  SQLAlchemy 2.0.52
+                     pydantic 2.13.4    fastapi 0.121.2      uvicorn 0.38.0
+                     anthropic 1.4.0    openai 3.8.0
+      전이 의존성 17  annotated-doc annotated-types anyio click docstring_parser
+                     greenlet h11 httpcore2 httpx2 idna jiter pydantic_core
+                     sniffio starlette truststore typing-inspection typing_extensions
+
+`greenlet`·`jiter`·`pydantic_core`·`numpy` 처럼 C 확장이 있는 것들도 전부 cp312 manylinux
+휠로 잡혔고, 나머지는 py3-none-any 다. **`torch`·CUDA 계열은 한 개도 안 딸려온다**(4번).
+**결론 유지 — `python:3.12-slim`, 단일 스테이지.**
+
+#### 이 검사의 성격 — 진단 도구가 아니라 결정의 근거다
+
+`--only-binary=:all:` dry-run 은 오류를 찾는 도구가 아니라 위 두 결정(`python:3.12-slim`,
+단일 스테이지)의 **근거를 재확인하는 검사**다. 실패는 "무언가 고장났다"가 아니라
+**"결정이 뒤집혔다"**는 뜻이고, 그때는 3번 Dockerfile 을 멀티스테이지로 다시 짜야 한다.
+
+    검사 실패 -> cp312 휠이 없는 패키지가 있다 -> 이미지 안에서 소스 컴파일이 일어난다
+             -> gcc·빌드 도구를 이미지에 넣어야 한다 -> 단일 스테이지가 거짓이 된다
+
+**언제 도나 — `requirements.txt` 또는 `FROM` 이 바뀔 때만.** 코드 수정과는 무관하다.
+고친 것과 짝이 되는 검사를 돌린다고 외워 두면 기억할 게 없다 —
+
+| 무엇을 고쳤나 | 짝이 되는 검사 |
+|---|---|
+| `app/**.py` | `py -m pytest tests -q` + AGENTS.md 의 계층 grep 세 줄 |
+| `requirements.txt` / `FROM` | 위 휠 가용성 dry-run |
+
+3번이 끝나 Dockerfile 이 생기면 평소에는 `docker build` 만 돌리면 된다. 다만 일반 빌드는
+휠이 없으면 **소스에서 컴파일해서라도 성공시켜 버리므로** 이 검사를 완전히 대체하지는
+못한다 — 빌드가 갑자기 몇 분씩 느려지면 소스 컴파일이 끼어들었다는 신호이니 그때 이
+명령으로 범인을 찾는다.
 
 ### 3. `Life-Embed-jh/Dockerfile`
 - 엔트리포인트는 `app.main:app`, 포트 8000. **저장소 루트를 WORKDIR 로 둬야 한다** —
