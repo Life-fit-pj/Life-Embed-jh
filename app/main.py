@@ -13,12 +13,13 @@
 
 from fastapi import FastAPI
 
-from app.api import auth, recommend_router
+from app.api import auth, customers, recommend_router
 
 app = FastAPI(title="LIFE,FIT 엔진", description="추천 엔진 API")
 
 app.include_router(recommend_router.router)
 app.include_router(auth.router)
+app.include_router(customers.router)
 
 
 @app.get("/")
