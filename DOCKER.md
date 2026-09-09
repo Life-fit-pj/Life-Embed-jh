@@ -69,8 +69,8 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 | 3 | `Life-Embed-jh/Dockerfile` 작성 — `uvicorn app.main:app --port 8000` | Embed | **완료** | 2, 7 |
 | 4 | ~~torch/sentence-transformers 를 CPU 전용 휠로 설치해 이미지 경량화~~ | Embed | **폐기 (KAN-86 완료)** | — |
 | 5 | ~~임베딩 모델(e5-small) 가중치를 빌드 단계에 캐시~~ | Embed | **폐기 (KAN-86 완료)** | — |
-| 6 | `Life-Web/Dockerfile` 작성 — `uvicorn main:app --port 5000` + 정적 프론트 | Web | 착수 가능 | 2 |
-| 7 | 두 저장소에 `.dockerignore` 추가 (빌드 컨텍스트 축소) | 공통 | Embed **완료** / Web 남음 | — (3·6보다 **먼저**) |
+| 6 | `Life-Web/Dockerfile` 작성 — `uvicorn main:app --port 5000` + 정적 프론트 | Web | **완료 (2026-09-09)** | 2, 7 |
+| 7 | 두 저장소에 `.dockerignore` 추가 (빌드 컨텍스트 축소) | 공통 | **완료 (양쪽)** | — (3·6보다 **먼저**) |
 | 8 | `data/life.db` 주입 방식 결정 — 이미지 포함 vs 볼륨 마운트 | Embed | 임시 확정 후 진행 | 3 |
 | 9 | 환경변수 주입 체계 정리 — `.env` 복사 금지, `env_file`/시크릿 사용 | 공통 | 착수 가능 | 3, 6 |
 | 10 | `HEALTHCHECK` 연결 (엔진은 `/admin/health` 가 **이미 있음**) | 공통 | 착수 가능 | 3, 6 |
@@ -78,7 +78,7 @@ KAN-87(`app/ai/vector_store.py`), KAN-88(`app/rag/retriever.py`), KAN-89(`app/se
 | 12 | 개발용 compose override — 소스 bind mount + `--reload` | 공통 | 착수 가능 | 11 |
 | 13 | 비루트 사용자 실행 등 컨테이너 보안 기본값 적용 | 공통 | 착수 가능 | 3, 6 |
 | 14 | 로그를 stdout 으로 내보내기 (`logs/` 볼륨 정책 확정) | 공통 | 착수 가능 | 11 |
-| 15 | UTF-8 로케일 및 한글 경로(`data/LH평면도`) 동작 검증 | Web | 착수 가능 | 6 |
+| 15 | UTF-8 로케일 및 한글 경로(`data/LH평면도`) 동작 검증 | Web | **완료 (6번과 함께 검증)** | 6 |
 | 16 | `render.yaml` 의 `env: docker` 전환 규격에 맞추기 | 공통 | 착수 가능 | 3, 6 |
 | 17 | 이미지 빌드·기동 스모크 테스트 + 실행 문서 작성 | 공통 | 착수 가능 | 11 |
 
@@ -246,14 +246,64 @@ CPU 전용으로 깎아도 1.5GB, 최종 이미지 1.8GB 안팎이라 **Render �
 이미 포함돼 있다. 컨테이너 안에서 파이프라인을 돌릴 필요가 없으므로 **`pipeline/` 을 런타임
 이미지에서 빼도 된다**(3·7번). 팀원 B 와 확인할 항목이었는데 그대로 해소됐다.
 
-### 6. `Life-Web/Dockerfile`
+### 6. `Life-Web/Dockerfile` — **작성·검증 완료 (2026-09-09)**
 - 엔트리포인트는 `main:app`, 포트 5000. `frontend/` 정적 파일과 `data/LH평면도` 가
   이미지 안에 있어야 `main.py` 의 `app.mount` 두 줄이 뜬다.
-- 의존성이 가벼워(`fastapi`, `httpx`, `pandas`) 엔진 쪽과 달리 단일 스테이지로 충분한지 판단한다.
-- 프론트를 Vercel 로 옮기는 Phase 1 이 끝나면 정적 서빙이 빠질 수 있으므로,
-  정적 파일 COPY 를 한 곳에 모아 나중에 제거하기 쉽게 둔다.
+- 휠 가용성 dry-run 을 이 저장소 `requirements.txt` 로도 따로 돌렸다 — `pandas 3.0.5`·
+  `cryptography 50.0.1` 포함 **26개 전부 cp312 휠, exit 0**. 엔진과 같이 **단일 스테이지**로 간다.
+- 정적 파일 COPY 를 `frontend/`·`data/` 두 줄로 한 블록에 모아 뒀다. Phase 1 에서 프론트가
+  Vercel 로 빠지면 그 블록만 지운다.
+- `PYTHONIOENCODING=utf-8` 을 넣었다 — `main.py` 가 `sys.stdout.encoding.lower()` 를 부르는데
+  값이 `None` 이면 그 줄에서 죽는다(15번).
 
-### 7. `.dockerignore` — Embed **완료 (2026-09-09)** / Web 남음
+**착수 전에 나온 문제 하나 — 웹도 `life.db` 를 파일로 직접 읽는다.**
+
+KAN-69 로 `services/engine.py` 의 `sys.path` import 는 사라졌지만, **1차 유형(비회원) 경로는
+아직 엔진 API 를 거치지 않는다.** `services/typespot.py` 가 `master_dataset_v3` 를 직접 읽는다 —
+
+    DB_PATH = os.environ.get("LIFE_DB_PATH") or _find("life.db")
+    # _find 는 형제 폴더 Life-Embed*/data 를 뒤진다. 컨테이너 안에는 형제 폴더가 없다
+
+**`LIFE_DB_PATH` 가 최우선이라 코드 수정 없이 마운트로 해결된다.** 엔진의 `data/` 를 읽기
+전용으로 붙이고 그 값을 준다(8번과 같은 임시 확정). 마운트 위치는 **`/code/data` 가 아니어야
+한다** — 거기에 붙이면 이미지에 구운 `LH평면도` 가 가려진다. `/engine/data` 로 뒀다.
+
+주의 — `typespot.py` 는 DB 를 못 찾아도 죽지 않고 **빈 결과를 돌려준다**(하드코딩 금지 정책).
+8번의 "마운트 실패가 조용히 넘어간다" 와 같은 함정이 여기도 있다. 응답의 `dataStatus` 가
+`dbFound`·`regions` 를 실어 주므로 그것으로 확인한다.
+
+> 근본 해결은 1차 유형 채점도 엔진 API 로 돌리는 것이다(웹은 DB 를 모르게). 두 저장소 코드가
+> 바뀌므로 Docker 범위 밖이고, **별도 티켓**으로 남긴다. KAN-79(Supabase) 때 같이 정리된다.
+
+**빌드·기동 실측 (2026-09-09)**
+
+    docker build -t life-web:dev .        -> exit 0, 64초
+       DISK USAGE 1.29GB / CONTENT SIZE 520MB   (레이어: data 430MB + 의존성 193MB + 베이스)
+
+    docker run -d -p 5010:5000 --env-file .env       -e LIFE_DB_PATH=/engine/data/life.db -v <Life-Embed-jh>/data:/engine/data:ro life-web:dev
+
+    기동 로그        동_좌표.csv 427개 / LH 평면도 281행 로드, Application startup complete
+    GET /                        200 (14KB, index.html)
+    GET /api/lifetype/keywords   200
+    POST /api/lifetype           200, dataStatus {dbFound:true, regions:427, priceLoaded:427}
+                                 spots 2곳 반환 (양천구 신정4동 / 중구 신당제5동)
+    GET /LH평면도/<한글경로>.png  200 image/png 365,943 bytes
+    메모리 (docker stats)        73.99MiB
+
+`regions:427` 이 나왔다는 것이 **엔진 data/ 마운트가 실제로 붙었다는 증거**다(실패했다면 0).
+
+**이미지 크기에 대한 판단.** `CONTENT SIZE 520MB` 중 430MB 가 `data/LH평면도`(262개 PNG)다.
+**구동에는 영향이 없다** — 정적 파일은 요청 때 디스크에서 스트리밍되므로 메모리에 안 올라가고,
+실제 사용량은 74MB 였다. 비용은 전부 배포 쪽이다(레지스트리 push/pull, 플랫폼 디스크, 콜드
+스타트 시 pull 시간). 그래서 **굽는 쪽으로 확정**하되 `COPY data ./data` 한 줄만 지우면 볼륨으로
+돌릴 수 있게 뒀다. Render 저가 티어의 이미지·디스크 상한은 16번에서 확인한다.
+
+**아직 안 한 것** — `/api/predict`(2차, 엔진 왕복)는 엔진 컨테이너와 같이 띄워야 해서
+11번 compose 이후 17번에서 확인한다. `docker run` 을 Git Bash 에서 칠 때는 `MSYS_NO_PATHCONV=1`
+을 앞에 붙여야 한다. 안 붙이면 `-e LIFE_DB_PATH=/engine/data/life.db` 의 값이
+`C:/Program Files/Git/engine/data/life.db` 로 바뀌어 마운트를 못 찾는다(실제로 겪었다).
+
+### 7. `.dockerignore` — **양쪽 완료 (2026-09-09)**
 
 **선행 관계를 바로잡는다 — 이 항목은 3·6번보다 먼저 해야 한다.** 원래 "3, 6 이 끝난 뒤"로
 적어 뒀는데, 실제로 3번을 빌드해보니 순서가 반대였다.
@@ -274,8 +324,11 @@ CPU 전용으로 깎아도 1.5GB, 최종 이미지 1.8GB 안팎이라 **Render �
 `tests/`, `eval/`, `tools/`, 문서), **비밀**(`.env`). `data/` 는 통째로 제외한다.
 `life.db` 는 볼륨으로 마운트하고(8번) 원본 CSV 는 적재 전용이라 런타임과 무관하다.
 
-`Life-Web` 쪽은 6번과 함께 만든다. 그쪽은 `frontend/` 와 `data/LH평면도` 가 **이미지에
-들어가야 하므로** 제외 목록이 이것과 다르다 — 그대로 복사하면 안 된다.
+**`Life-Web` 쪽도 완료했다 (2026-09-09).** 그쪽은 `frontend/` 와 `data/` 가 **이미지에
+들어가야 하므로** 제외 목록이 정반대다 — 그대로 복사하면 안 된다. 제외한 것은 `.git`
+(**719MB**, 262개 PNG 가 LFS 없이 그대로 tracked 돼 있다), `.env`, 문서, 캐시, 에디터 설정뿐이다.
+남긴 것 때문에 빌드 컨텍스트가 여전히 412MB 라 첫 빌드가 64초 걸렸지만, `.git` 719MB 를 뺀
+덕에 반복 빌드는 캐시로 넘어간다.
 
 ### 8. `data/life.db` 주입 방식 결정 — 임시 확정 후 진행
 Git LFS 로 관리되는 42MB(체크아웃에 따라 최대 216MB) 파일이다. 선택지 세 가지 —
@@ -349,11 +402,16 @@ AGENTS.md 는 "로그는 `logs/` 폴더에 적재"라고 정하고 있는데, �
 재기동 시 사라진다. stdout 으로 내보내 플랫폼 로그로 수집하는 쪽으로 바꿀지,
 `logs/` 를 볼륨으로 유지할지 정하고 결정을 AGENTS.md 에 반영한다.
 
-### 15. UTF-8 로케일 / 한글 경로 검증
-`data/LH평면도` 처럼 한글 디렉터리명이 마운트 경로에 들어간다. slim 이미지 기본 로케일에서
-`StaticFiles` 마운트와 파일 응답이 정상인지 확인한다. `main.py` 의 stdout UTF-8 재설정은
-Windows 콘솔용이라 리눅스 컨테이너에서는 무해하지만, `sys.stdout.encoding` 이 None 인
-환경에서 죽지 않는지만 확인한다.
+### 15. UTF-8 로케일 / 한글 경로 검증 — **완료 (2026-09-09, 6번과 함께)**
+`data/LH평면도` 처럼 한글 디렉터리명이 경로에 들어가는데, `python:3.12-slim` 기본 로케일에서
+문제없이 돌았다.
+
+    GET /LH평면도/부산울산본부_부산기장(뉴스테이)_A-2BL/..._평면_55A-1210.png
+    -> 200 image/png 365,943 bytes
+
+`main.py` 의 stdout UTF-8 재설정도 그대로 통과했고(기동 로그의 ✅ 이모지가 깨지지 않았다),
+`sys.stdout.encoding` 이 `None` 이 될 여지는 Dockerfile 의 `ENV PYTHONIOENCODING=utf-8` 로
+막아 뒀다 — 그 줄은 `.lower()` 를 바로 부르기 때문에 `None` 이면 서버 import 자체가 죽는다.
 
 ### 16. `render.yaml` 의 `env: docker` 대응
 DEPLOY.md 대로 Phase 1 은 native python 으로 먼저 올라간다. Docker 완성 후 `env` 필드만
