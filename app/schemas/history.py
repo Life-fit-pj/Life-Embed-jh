@@ -34,3 +34,9 @@ class ChatHistoryItem(BaseModel):
 class HistoryOut(BaseModel):
     searches: list[SearchHistoryItem]
     chats: list[ChatHistoryItem]
+
+
+class LikeItem(BaseModel):
+    gu: str
+    dong: str
+    created_at: str
