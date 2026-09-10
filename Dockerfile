@@ -32,10 +32,11 @@ RUN pip install --only-binary=:all: -r requirements.txt
 # COPY 단위가 app/ 통째라서 KAN-87~89 의 내부 모듈 재배치가 끝나도 이 줄은 안 바뀐다
 COPY app ./app
 
-# life.db 볼륨이 붙을 자리. 마운트가 없으면 config.py 가 경고만 찍고
-# 빈 DB 로 돌아간다 — 조용히 넘어가는 실패라 10번 헬스체크에서 표까지 확인한다
-VOLUME ["/code/data"]
-
+# life.db 마운트 자리 (/code/data) — Railway는 Dockerfile의 VOLUME 지시어를
+# 지원하지 않는다("use Railway Volumes"), 그래서 여기서 선언하지 않는다.
+# 실제 마운트는 Railway 서비스 설정(Volumes 탭)에서 /code/data 로 잡는다.
+# 마운트가 없으면 config.py 가 경고만 찍고 빈 DB 로 돌아간다 — 조용히 넘어가는
+# 실패라 10번 헬스체크에서 표까지 확인한다
 EXPOSE 8000
 
 # 컨테이너 안에서는 127.0.0.1 이 아니라 0.0.0.0 으로 열어야 바깥에서 붙는다
