@@ -17,6 +17,7 @@ import json
 
 import numpy as np
 
+from app.core.config import EMBED_DIMENSION
 from app.repositories.chunks import kb_chunks, member_chunks
 
 # source -> (행 목록, 벡터 배열). 처음 부를 때 채워진다
@@ -43,7 +44,14 @@ def load(source):
     """그 갈래의 (행 목록, 벡터 배열). 처음 한 번만 DB 를 읽는다."""
     if source not in _cache:
         rows = _LOADERS[source]()
-        vectors = np.array([from_text(r["embedding"]) for r in rows], dtype="float32")
+        # 한 줄씩 파싱해서 바로 배열 칸에 꽂는다 — [from_text(r["embedding"]) for r in rows]
+        # 처럼 한 번에 다 만들면 "boxed float 9,900 x 1,536개짜리 파이썬 리스트"가
+        # 통째로 잠깐 떠 있다가 배열로 압축되는데, 그 중간 리스트가 원본 JSON 글자보다도
+        # 훨씬 크다(청크 9,900개 기준 500MB 안팎) — 메모리가 작은 컨테이너에서 OOM 원인이었다.
+        # 한 줄씩 처리하면 그 순간 하나치 리스트만 떠 있다 사라진다.
+        vectors = np.empty((len(rows), EMBED_DIMENSION), dtype="float32")
+        for i, r in enumerate(rows):
+            vectors[i] = from_text(r.pop("embedding"))
         _cache[source] = (rows, vectors)
 
     return _cache[source]
