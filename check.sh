@@ -7,7 +7,7 @@ echo "① app/ 에 날 SQL 이 없다"
 #   \b        build_context( · mask_text( 처럼 이름 끝이 text 인 함수를 거른다
 #   ['\"]     text(변수) 가 아니라 text("SELECT …") 처럼 글자를 넘기는 것만 본다
 #   app/models/  server_default=text("CURRENT_TIMESTAMP") 는 DDL 기본값이라 예외
-if grep -rnE "\btext\(['\"]" --include=*.py app | grep -v "^app/models/"; then
+if grep -rnE "\btext\(['\"]" --include=*.py app pipeline | grep -v "^app/models/"; then
     echo "  X 전부 ORM 으로 간다 (app/repositories/*_repository.py)"
 else
     echo "  OK 0곳"
@@ -53,7 +53,10 @@ fi
 
 echo
 echo "⑦ SQLite 가 되살아났나"
-if grep -rniE "sqlite|DB_PATH|PRAGMA|check_same_thread" --include=*.py app pipeline tests tools; then
+# 글자 "SQLite" 가 아니라 SQLite 전용 **코드**만 본다.
+# 주석의 "SQLite 시절에는 …" 은 왜 이렇게 짰나를 남긴 기록이라 잡지 않는다 —
+# 잡으면 ⑦ 이 늘 X 로 끝나고, 그러면 아무도 안 보게 된다
+if grep -rnE "import sqlite3|sqlite3\.|\bDB_PATH\b|PRAGMA |check_same_thread|dialects\.sqlite|sqlite:///" --include=*.py app pipeline tests tools; then
     echo "  X 5단계에서 없앴다. 되살아났다"
 else
     echo "  OK 0곳"

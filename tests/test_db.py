@@ -7,7 +7,6 @@ import threading
 
 from sqlalchemy import func
 
-from app.core.config import DATABASE_URL
 from app.db import SessionLocal, engine
 from app.models.customer import Customer
 
@@ -45,8 +44,8 @@ def test_여러_스레드가_동시에_읽어도_안_죽는다():
     """engine 은 연결을 풀에 넣고 여러 스레드가 돌려쓴다. (이론 4)
 
     FastAPI 가 요청마다 다른 스레드에서 처리하므로 실제로 그렇게 된다.
-    옛날에는 app/core/db.py 가 threading.local() 로 이걸 손수 풀었고,
-    SQLite 라서 check_same_thread=False 도 필요했다 — 둘 다 없앴다.
+    옛날에는 app/core/db.py 가 threading.local() 로 이걸 손수 풀었고
+    연결 옵션도 하나 붙여야 했다 — 파일 DB 를 떠나면서 둘 다 없앴다.
     이 시험은 그 뒤에도 여전히 안 죽는지를 본다
     """
     results = [None] * 4

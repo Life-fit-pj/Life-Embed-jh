@@ -5,7 +5,8 @@ LLM이 근거를 들어 설명해 주는 파이프라인입니다.
 
 이 저장소는 자체 API 서버(`app/main.py` · `:8000`)를 갖고 있습니다.
 화면은 아직 [life-fit-web](https://github.com/easty00/life-fit-web)(`:5000`)에 있고,
-두 서버가 같은 `data/life.db`를 봅니다.
+**웹이 HTTP로 이 엔진을 부릅니다** — 그래서 서버를 둘 다 띄워야 화면이 돕니다.
+DB는 **Supabase PostgreSQL** 하나이고, 둘 다 `.env`의 `DATABASE_URL`로 붙습니다.
 
 ---
 
@@ -68,17 +69,18 @@ OPENAI_API_KEY=sk-...
 
 ### 3. DB 준비
 
-`data/life.db`(약 331MB)는 깃에 첨부되어있으나, 용량문제가 생기면 삭제 예정입니다. 삭제되어 존재하지 않을 경우 아래의 방안 둘 중 하나를 선택하세요.
+**DB는 Supabase PostgreSQL입니다.** 옛 `data/life.db`(SQLite 파일)는 2026-09-12에 지웠습니다.
 
-Git LFS로 관리되므로, 체크아웃 직후 이 파일이 133바이트 안팎이면(`version https://git-lfs...`로
-시작하는 텍스트) 실제 DB가 아니라 LFS 포인터입니다 — `git lfs pull`을 먼저 실행하세요.
+`.env`의 `DATABASE_URL`만 채우면 팀이 쓰는 DB에 그대로 붙습니다 — **표를 다시 만들 필요가 없습니다.**
+주소는 Supabase 콘솔 → Connect → **Session pooler**에서 가져오고, 반드시
+`postgresql+psycopg://`로 시작해야 합니다(`+psycopg`를 빼면 옛 `psycopg2`를 찾다가 죽습니다).
 
-**(A) 파일 전달받기** — 권장. `data/`에 넣으면 끝입니다.
-
-**(B) 직접 만들기** — 세 단계
+**표를 처음부터 만들어야 할 때만** 아래를 돌립니다. ⚠ **팀이 함께 쓰는 DB의 표를 지웁니다 —
+되돌릴 백업 파일이 없으니 미리 알리세요.** Supabase에 `create extension if not exists vector`가
+먼저 켜져 있어야 합니다(`chunks.embedding`이 `Vector(1536)`입니다).
 
 ```bash
-py -m pipeline.schema     # CSV → 표 생성 + 적재 (⚠ life.db 를 지우고 다시 만든다)
+py -m pipeline.schema     # CSV → 표 24개 생성 + 적재 (⚠ 기존 표를 DROP 한다)
 py -m pipeline.chunk      # kb_persona.csv · nemotron.csv → chunks 표 9,900줄 (벡터는 아직 빈 칸)
 py -m pipeline.embed      # 벡터가 빈 청크만 골라 OpenAI 로 채운다 (100개씩)
 ```
@@ -89,8 +91,8 @@ py -m pipeline.embed      # 벡터가 빈 청크만 골라 OpenAI 로 채운다 
 `pipeline.embed`는 `embedding IS NULL`인 것만 찾습니다 — **중간에 끊겨도 다시 돌리면
 남은 것부터 이어서** 합니다. 반대로 `pipeline.chunk`는 `chunks` 표를 지우고 다시 만드므로
 **돌리면 벡터 9,900개가 같이 날아가고**, `pipeline.embed`를 처음부터 다시 돌려야 합니다
-(OpenAI 요금이 다시 나갑니다). `pipeline.schema`는 `life.db` 파일 자체를 지우므로
-`chunks` 표까지 사라집니다 — 그때는 셋을 순서대로 다 돌려야 합니다.
+(약 0.1달러 · 10분). `pipeline.schema`는 `chunks`를 지우지는 않지만 `customers`를 다시
+적재하므로, 돌렸으면 셋을 순서대로 다 돌리는 편이 안전합니다.
 
 ---
 
@@ -127,35 +129,41 @@ py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    #
 ## 확인하는 법
 
 ```bash
-py -m pytest tests -q       # 테스트 7파일 40개
-bash check.sh               # 규칙이 지켜지나 여섯 가지
-py -m tools.check_contract  # Life-Web 이 부르는 이름 39개가 살아 있나
+py -m pytest tests -q       # 테스트 8파일 42개
+bash check.sh               # 규칙이 지켜지나 일곱 가지
+py -m tools.check_contract  # Life-Web 이 부르는 이름 36개가 살아 있나
 ```
 
-`check.sh`는 여섯 가지를 셉니다.
+`check.sh`는 일곱 가지를 셉니다.
 
 | | 무엇 | 통과 기준 |
 | --- | --- | --- |
-| ① | 창구·엔진에 SQL이 있나 | 0곳 |
+| ① | **`app/`·`pipeline/`에 날 SQL(`text("…")`)이 있나** | 0곳 |
 | ② | 함수 안 import 가 있나 | 0곳 |
-| ③ | 계층 방향 (`tests/test_layers.py`) | `4 passed` |
+| ③ | 계층 방향 (`tests/test_layers.py`) | `3 passed 1 failed` — 아래 참고 |
 | ④ | 0바이트 `__init__.py` 가 있나 | 0개 |
 | ⑤ | LangChain 이 되살아났나 | 0곳 |
 | ⑥ | `app` 밖(tests·tools·pipeline)이 다리에 기대나 | 0곳 |
+| ⑦ | **SQLite 전용 코드가 되살아났나** | 0곳 |
 
-마지막 확인은 2026-09-08 — 테스트 `40 passed`, ①~⑥ 전부 OK, 계약 39개 전부 생존.
+마지막 확인은 2026-09-12 — 테스트 `40 passed / 2 failed`, ①②④⑤⑥⑦ OK, 계약 36개 전부 생존.
 
-테스트 7파일 — `test_dong`(이름 표기 변형) · `test_masking`(개인정보) ·
+**실패 둘은 DB 작업과 무관합니다.** ③은 `app/api/` 라우터 열이 `app/services/`가 아니라
+다리(`app/features/`)를 부르는 것이고(`origin/dev-deploy`에 고쳐져 있음),
+`test_supabase_auth`는 한글 가짜 토큰을 HTTP 헤더에 넣어 요청 전에 `UnicodeEncodeError`로
+죽습니다(헤더는 latin-1만 담습니다) — 토큰을 ASCII로 바꾸면 통과합니다.
+
+테스트 8파일 — `test_dong`(이름 표기 변형) · `test_masking`(개인정보) ·
 `test_percentile`(백분위 동점) · `test_layers`(import 그래프) ·
-`test_db`(엔진이 그 `life.db`를 보나 · 여러 스레드) · `test_models`(모델 칸이 실제 표와 맞나) ·
-`test_golden`(리팩터링 전후가 같나).
+`test_db`(엔진이 설정한 DB를 보나 · 여러 스레드) · `test_models`(모델 칸이 실제 표와 맞나) ·
+`test_golden`(리팩터링 전후가 같나) · `test_supabase_auth`(가짜 토큰 거부).
 
 `tests/golden/` 4장은 **"달라졌나"만** 봅니다 — 추천이 정확한지는 안 봅니다.
 다시 찍으려면 파일을 지우고 `py -m tests.make_golden`을 돌립니다.
 그중 `embed.json` 한 장은 OpenAI 를 실제로 부릅니다(문장 하나).
 
 `tools/check_contract.py`는 **반드시 `-m`으로** 부릅니다. 파일 경로로 실행하면
-(`py tools/check_contract.py`) 저장소 뿌리가 검색 경로에 안 잡혀 39개가 전부
+(`py tools/check_contract.py`) 저장소 뿌리가 검색 경로에 안 잡혀 36개가 전부
 "import 자체가 실패"로 나옵니다 — 코드는 멀쩡한데 계약이 깨진 것처럼 보입니다.
 
 ②가 왜 규칙인가 — 함수 안 import 는 순환 참조를 **고치는 게 아니라 눈에 안 보이게
@@ -175,10 +183,10 @@ Life-Embed-jh/
 ├── app/          추천 엔진 본체 — 층 열둘. 지도는 바로 아래에 있다
 ├── pipeline/     한 번만 돌리는 준비 작업 (schema · sample_kb · chunk · embed · io)
 ├── tests/        DB·서버 없이 도는 것 + 골든 사진 4장
-├── tools/        check_contract.py — Life-Web 이 부르는 계약 39개를 센다
+├── tools/        check_contract.py — Life-Web 이 부르는 계약 36개를 센다
 ├── docs/         REFACTOR.md — 옛 계획 기록
-├── check.sh      규칙 여섯 가지를 센다
-└── data/         life.db (약 331MB · Git LFS) · 원본 CSV
+├── check.sh      규칙 일곱 가지를 센다
+└── data/         원본 CSV (DB 는 Supabase 에 있다. life.db 는 지웠다)
 ```
 
 ### app/ 지도
@@ -190,10 +198,10 @@ Life-Embed-jh/
 | --- | --- | --- |
 | 0 | `domain/` | `dong.py` — 행정동 이름 표기 변형. **아무것도 안 부르는 순수 함수** |
 | 1 | `schemas/` | `recommend_schema.py` — API 가 주고받는 형식. pydantic 만 안다 |
-| 1 | `core/` | `config.py` 키·모델명·경로 · `db.py` 옛 sqlite 실행기 다섯 |
-| 2 | `models/` | 표 넷을 클래스로 — `customer` · `preference` · `chunk` · `history` |
-| 2 | `repositories/` | **표를 실제로 읽고 쓰는 곳**(ORM). `chunk` · `member` · `history` |
-| 2 | `tables/` | `regions.py` 만 SQL(영구), 나머지 셋은 **옛 이름을 지키는 다리** |
+| 1 | `core/` | `config.py` — `DATABASE_URL`·키·모델명·INDICATORS (`db.py` 는 지웠다) |
+| 2 | `models/` | `customer` · `preference` · `chunk` · `history` + `region.py`(sqlacodegen 이 찍은 `Table` 여덟) |
+| 2 | `repositories/` | **표를 실제로 읽고 쓰는 곳**(전부 ORM). `chunk_`·`member_`·`history_`·`region_repository` |
+| 2 | `repositories/` 다리 | `members`·`chunks`·`history`·`regions` — **옛 이름을 지키는 다리**. `_run()` 이 세션을 연다 |
 | 2 | `ai/` | `llm`(Claude) · `embedder`(OpenAI) · `vector_store` · `chunker` · `masking` |
 | 3 | `rag/` | `retriever.py` — 검색어로 뜻이 가까운 청크를 찾는다 |
 | 4 | `engine/` | 점수 계산 — `weights` · `recommend` · `explain` · `housing` · `resync` |
@@ -216,7 +224,7 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
        ├ engine/housing.py            예산 조건이 있으면 후보를 먼저 추린다
        ├ engine/recommend.py          가중치 → TOP 5
        └ engine/explain.py            TOP 5 → 설명문        (ai/llm.py)
-          └ tables/ → repositories/ → db.py → data/life.db
+          └ repositories/(다리) → *_repository.py → db.py → Supabase Postgres
 ```
 
 ## 무엇을 고치려면 어디를 여나
@@ -229,12 +237,13 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
 | 전화번호·이름을 가리는 규칙 | `ai/masking.py` `mask` (DB 이름 물리는 곳은 `services/privacy_service.py`) |
 | 관리자가 회원을 고칠 때의 값 검사 | `services/admin_service.py` `_validate` |
 | Claude 를 부르는 곳 | `ai/llm.py` `ask` |
-| API 키를 읽는 곳 | `core/config.py` (`ANTHROPIC_API_KEY` · `OPENAI_API_KEY`) |
-| CSV 에서 DB 를 만드는 곳 | `../pipeline/schema.py` (⚠ life.db 를 지우고 다시 만든다) |
+| API 키·DB 주소를 읽는 곳 | `core/config.py` (`DATABASE_URL` · `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `SUPABASE_*`) |
+| 행정동 표를 읽는 곳 | `repositories/region_repository.py` (칸 이름이 실행 중에 정해지면 `.c["이름"]`) |
+| CSV 에서 DB 를 만드는 곳 | `../pipeline/schema.py` (⚠ **공유 DB** 의 표를 지우고 다시 만든다) |
 
 ## 규칙 넷 — `bash check.sh` 가 센다
 
-1. **SQL 은 `repositories/` 와 `tables/regions.py` 에만.** 창구·엔진에는 표 이름도 없다
+1. **날 SQL 을 안 쓴다.** `app/`·`pipeline/` 어디에도 `text("…")` 가 없다 — 전부 ORM 이다
 2. **아래층은 위층을 안 부른다.** 위 표의 번호 순서
 3. **함수 안에서 import 하지 않는다.** 순환을 고치는 게 아니라 덮는 짓이다
 4. **0바이트 `__init__.py` 를 안 둔다.** 그래서 실행은 항상 저장소 뿌리에서 `-m` 으로 한다
@@ -245,8 +254,11 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
 1. app/schemas/<이름>_schema.py     주고받을 형식
 2. app/api/<이름>_router.py         라우터. app.services 를 부른다
 3. app/main.py                      include_router 한 줄
-4. bash check.sh                    여섯 가지 전부 OK
+4. bash check.sh                    일곱 가지 전부 OK
 ```
+
+**3번을 빼먹기 쉽다.** 라우터 파일만 만들고 `include_router` 를 안 하면 **웹이 404 를 받는데,
+`check_contract` 는 통과한다** — 이름은 살아 있고 경로만 안 열린 것이다. `/docs` 로 확인한다.
 
 **`app.features` 를 부르지 않는다.** 그 폴더는 곧 통째로 사라진다.
 
@@ -407,9 +419,11 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
 - 추천 정확도(hit@k)를 재는 평가 도구가 없음 — 지금 실측 기록은 전부 **속도**뿐.
   `tests/golden/`은 "전과 같은가"만 보지 "정확한가"는 안 본다(자리만 잡아 두었던
   `eval/golden.py`는 2026-09에 지웠다)
-- `app/features/` 다리 여덟과 `app/tables/`의 `members`·`chunks`·`history` 다리는
-  `Life-Web`이 HTTP로 옮겨오면 통째로 지울 것 — 아직 안 옮겼다
-  (지금은 `Life-Web/services/engine.py`가 `sys.path`로 이 저장소를 직접 import 한다)
+- `app/features/` 다리 여덟과 `app/repositories/`의 `members`·`chunks`·`history`·`regions`
+  다리는 언젠가 지울 것 — `Life-Web`은 이미 HTTP로 넘어왔지만(`services/engine.py`가 `httpx`로
+  `:8000`을 친다) `app/api/` 라우터가 아직 다리를 거친다(`check.sh` ③이 잡는 그것)
+- **`tools/check_contract.py`는 절반만 유효하다** — 진짜 계약이 파이썬 이름에서 HTTP 경로로
+  바뀌었다. 이름 36개가 다 살아 있어도 `app/main.py`가 라우터를 안 등록하면 웹은 404를 받는다
 
 ---
 

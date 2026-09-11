@@ -1,7 +1,8 @@
 import sys
 import re
 
-from sqlalchemy import inspect, text
+from sqlalchemy import (BigInteger, Column, Date, Double, ForeignKeyConstraint,
+                        Index, MetaData, Table, Text)
 
 # 이 파일은 pipeline/ 안에 있는데 app/config.py 를 가져다 쓴다.
 # 파이썬은 "실행한 파일이 있는 폴더" 를 기준으로 모듈을 찾기 때문에,
@@ -64,16 +65,25 @@ MANUAL_FKS = {
 SNAPSHOT_SUFFIX = "_초기"
 SNAPSHOT_COLUMNS = {"user_preferences": tuple(INDICATORS)}
 
-# 추론한 타입 이름 -> Postgres 의 실제 타입.
-# SQLite 의 INTEGER 는 최대 8바이트지만 Postgres 의 INTEGER 는 4바이트(21억)다.
-# CCTV 관리번호가 18자리라 그대로 쓰면 integer out of range 로 죽는다.
-# BIGINT 가 SQLite INTEGER 와 같은 8바이트다
-SQL_TYPE = {
-    "INTEGER": "BIGINT",
-    "FLOAT": "DOUBLE PRECISION",
-    "TEXT": "TEXT",
-    "DATE": "DATE",
+# 추론한 타입 이름 -> SQLAlchemy 타입 클래스.
+# 글자가 아니라 클래스다 — DDL 문자열을 우리가 안 만들기 때문이다.
+#
+# ★ INTEGER 를 BigInteger 로 받는 이유 —
+#   SQLite 의 INTEGER 는 최대 8바이트지만 Postgres 의 INTEGER 는 4바이트(21억)다.
+#   CCTV 관리번호가 18자리라 Integer 로 두면 integer out of range 로 죽는다
+COLUMN_TYPE = {
+    "INTEGER": BigInteger,
+    "FLOAT": Double,          # Postgres 의 DOUBLE PRECISION
+    "TEXT": Text,
+    "DATE": Date,
 }
+
+# CSV 에서 만드는 표만 담는다. app/db.py 의 Base.metadata 와 섞지 않는다 —
+# 섞으면 create_all() 한 번이 CSV 표와 모델 표를 같이 만들어서
+# "이 표는 누가 정의하나" 가 다시 흐려진다
+csv_metadata = MetaData()
+
+order = csv_metadata.sorted_tables      # [Table, Table, …] — 이름이 아니라 객체다
 
 
 ###============================================
@@ -316,108 +326,57 @@ for name, table in tables.items(): # 표 이름과 내용을 그룹으로 꺼냄
 ###============================================
 
 
-def build_create(name, table) :
-    lines = []
-    pk = table["pk"] or []      # pk 가 None 일 수도 있으니 빈 목록으로
-                                # infer_pk가 못 찾아서 None을 돌려준 경우를 대비    
-    for col in table["columns"] :
-        piece = f'    "{col}" {SQL_TYPE[table["type"][col]]}'
-        
-        # 칸이 하나뿐인 PK 만 여기서 붙인다
-        if len(pk) == 1 and col == pk[0] :
-            piece += " PRIMARY KEY"
-        
-        lines.append(piece)
-    
-    # 칸이 둘 이상인 PK(복합키)는 맨 아래 따로 적는다
-    if len(pk) > 1:
-        joined = ", ".join(f'"{c}"' for c in pk)
-        lines.append(f"    PRIMARY KEY ({joined})")
+def build_table(name, spec):
+    """추론 결과를 Table 객체로 바꾼다. csv_metadata 에 등록되는 것이 부수 효과다.
 
-    for col, owner in table["fks"]:
-        lines.append(f'    FOREIGN KEY ("{col}") REFERENCES "{owner}"("{col}")')
-    
-    for cols, owner, owner_cols in table.get("manual_fks", []):
-        mine = ", ".join(cols)
-        theirs = ", ".join(owner_cols)
-        lines.append(f"    FOREIGN KEY ({mine}) REFERENCES {owner}({theirs})")  
-    
-    return f'CREATE TABLE "{name}" (\n' + ",\n".join(lines) + "\n)"
+    옛 build_create() 자리다. 따옴표를 손으로 붙일 일이 없어졌다 —
+    칸 이름에 ㎡ 든 / 든 들어 있어도 SQLAlchemy 가 알아서 감싼다
+    """
+    pk = spec["pk"] or []
 
+    args = [
+        Column(col, COLUMN_TYPE[spec["type"][col]], primary_key=(col in pk))
+        for col in spec["columns"]
+    ]
 
-# 테이블 생성 순서 지정을 위한 함수
-# 표를 만드는 순서를 정하는 함수.
-#
-# user_preferences 는 customers 를 참조한다. 참조당하는 표를 먼저 만들어야 하는데,
-# 어기면 DB 마다 다르게 실패한다 —
-#   SQLite       CREATE 는 통과하고 INSERT 때 'no such table: main.customers'
-#   PostgreSQL   CREATE 그 자리에서 'relation customers does not exist'
-# SQLite 쪽이 더 위험하다. 표는 멀쩡히 생겨서 한참 뒤에야 드러난다
+    # ★ `_초기` 칸을 여기서 같이 만든다.
+    #   옛 판은 적재가 끝난 뒤 ALTER TABLE 로 붙였다 — CREATE 문과 INSERT 가
+    #   같은 칸 목록을 쓰고 있어서 파생 칸을 섞으면 둘을 같이 고쳐야 했기 때문이다.
+    #   이제 Table 을 우리가 들고 있고 INSERT 도 칸 이름으로 넣으므로,
+    #   정의에 처음부터 넣어도 INSERT 가 안 건드린다(값이 없으면 NULL 이다)
+    for col in SNAPSHOT_COLUMNS.get(name, ()):
+        if col in spec["type"]:
+            args.append(Column(f"{col}{SNAPSHOT_SUFFIX}", COLUMN_TYPE[spec["type"][col]]))
 
-def sort_by_dependency(tables):
-    done = set()        # scan이 아니로 search로 리스트에 특정 정보의 존재유무를 빠르게 파악하기 위함
-    order = []          # 실제 어떤 정보값들을 차례대로 담기 위함
-    
-    # 테이블생성 sql문이 실행될 순서의 리스트가 다 담길때까지 무한 반복
-    while len(order) < len(tables) :
-        moved = False
-        
-        #각 csv파일 정보를 반복
-        for name, table in tables.items() :
-            if name in done:
-                continue
-            
-            # 자동으로 찾은 FK 가 가리키는 표들이 전부 준비됐나
-            auto_ready = all(owner in done for _, owner in table["fks"])
-            
-            # 손으로 적어둔 FK 가 가리키는 표들도 전부 준비됐나
-            manual_ready = all(owner in done for _, owner, _ in table.get("manual_fks", []))
-            
-            # 이 표가 참조하는 표들이 전부 이미 만들어졌는가
-            if auto_ready and manual_ready:
-                order.append(name)
-                done.add(name)
-                moved = True
-            
-        # 참조당하는 테이블이 모두 order에 담기면 moved값이 False로 바뀌며 
-        # 아래구문이 실행되며 나머지 참조하는 테이블 순서가 모두 이후에 담기게 됨
-        if not moved :
-            order += [n for n in tables if n not in done]
-            break
-        
-    return order    
+    # 자동으로 찾은 FK + 그 칸의 색인 (옛 5번 CREATE INDEX 자리)
+    for col, owner in spec["fks"]:
+        args.append(ForeignKeyConstraint([col], [f"{owner}.{col}"]))
+        args.append(Index(f"idx_{name}_{col}", col))
+
+    # 손으로 적어 둔 FK (customers.city·city_dong -> master_dataset_v3)
+    for cols, owner, owner_cols in spec.get("manual_fks", []):
+        args.append(ForeignKeyConstraint(cols, [f"{owner}.{c}" for c in owner_cols]))
+
+    return Table(name, csv_metadata, *args)
 
 
-def add_snapshot_columns(con, table, columns, types):
-    """`{칸}_초기` 칸을 만들고 지금 값을 그대로 복사한다. 이미 있으면 건너뛴다.
+def fill_snapshot_columns(con, table):
+    """`{칸}_초기` 에 지금 값을 그대로 복사한다. 칸 자체는 build_table() 이 만들어 뒀다.
 
-    적재 직후에 부르는 것이 전제다 — 이 시점의 CSV 값이 곧 "가입 시 값"이다.
+    적재 직후에 부르는 것이 전제다 — 이 시점의 CSV 값이 곧 "가입 시 값" 이다.
     나중에 관리자가 가중치를 고쳐도 `_초기` 는 화이트리스트 밖이라 안 따라 바뀐다
     (app/features/admin.py 의 PREFERENCE_FIELDS)
     """
-    made = 0
-    # PRAGMA table_info 는 SQLite 전용이다. inspect() 는 어느 DB 에 붙어 있든
-    # 그 DB 의 방식으로 칸 목록을 읽어 온다(Postgres 면 information_schema).
-    # row[1] 처럼 위치로 꺼내지 않고 이름으로 꺼내는 것도 덤이다
-    #   선례: app/repositories/member_repository.py 의 has_initial_columns()
-    existing = {c["name"] for c in inspect(con).get_columns(table)}
+    pairs = {
+        table.c[f"{col}{SNAPSHOT_SUFFIX}"]: table.c[col]
+        for col in SNAPSHOT_COLUMNS.get(table.name, ())
+        if f"{col}{SNAPSHOT_SUFFIX}" in table.c
+    }
+    if not pairs:
+        return 0
 
-    for col in columns:
-        snapshot = f"{col}{SNAPSHOT_SUFFIX}"
-        if snapshot in existing:
-            continue
-        if col not in existing:
-            print(f"⚠️ {table}.{col} 칸이 없어 {snapshot} 를 못 만든다")
-            continue
-
-        # ALTER 로 붙이는 이유 — CREATE 문은 CSV 칸 목록으로 만들고 INSERT 도
-        # 그 목록을 그대로 쓴다. 거기에 파생 칸을 섞으면 둘을 같이 고쳐야 한다
-        kind = SQL_TYPE[types.get(col, "FLOAT")]
-        con.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{snapshot}" {kind}'))
-        con.execute(text(f'UPDATE "{table}" SET "{snapshot}" = "{col}"'))
-        made += 1
-
-    return made
+    con.execute(table.update().values(pairs))
+    return len(pairs)
 
 
 def convert(value,kind) :
@@ -441,93 +400,64 @@ def convert(value,kind) :
     return value
 
 
-# ① 표를 지운다 (DROP TABLE … CASCADE, 만든 순서의 반대로)
-# ② engine.begin() 으로 트랜잭션 하나 열기
-# ③ 순서대로 CREATE TABLE
-# ④ 데이터 넣기 (INSERT)
-# ⑤ FK 칸에 색인 만들기
-# ⑥ 모델만 있는 표를 create_all() 로
+if __name__ == "__main__":
+    for name, spec in tables.items():
+        build_table(name, spec)              # csv_metadata 에 등록된다
 
-if __name__ == "__main__" :
-    order = sort_by_dependency(tables)
+    order = csv_metadata.sorted_tables       # 참조당하는 표가 앞에 온다
 
-    # 1. 기존 표 확인. Postgres 는 파일이 아니라 서버라 "지울 파일" 이 없다 —
-    #    만드는 순서의 반대로 표를 하나씩 떨어뜨린다. 참조하는 쪽을 먼저 없애야
-    #    참조당하는 쪽을 지울 수 있다
     target = engine.url.render_as_string(hide_password=True)
     answer = input(f"{target}\n위 DB 의 표 {len(order)}개를 지우고 다시 만듭니다! (y/n) ")
     if answer.lower() != "y":
         print("중단합니다!")
         sys.exit(0)
-    with engine.begin() as con:
-        for name in reversed(order):
-            con.execute(text(f'DROP TABLE IF EXISTS "{name}" CASCADE'))
 
-    print(f"⏳ 표 만드는 순서: {order}")
+    # 1. 지운다. drop_all 이 참조하는 쪽을 먼저 떨어뜨린다
+    csv_metadata.drop_all(engine)
+    print(f"⏳ 표 만드는 순서: {[t.name for t in order]}")
 
     # 2. engine.begin() 은 블록을 무사히 빠져나올 때 커밋하고, 도중에 예외가 나면
-    #    통째로 되돌린다. con.commit()·con.close() 를 손으로 부를 일이 없어지고,
-    #    중간에 죽었을 때 "표는 있는데 데이터는 반만 든" DB 가 남지 않는다
+    #    통째로 되돌린다. 중간에 죽었을 때 "표는 있는데 데이터는 반만 든" DB 가 남지 않는다
     with engine.begin() as con:
 
-        # 3. 표 만들기
-        for name in order:
-            con.execute(text(build_create(name, tables[name])))
-            print(f"✅ {name} 표 생성")
+        # 3. 표 만들기 — 색인과 FK 까지 Table 정의에 들어 있다
+        csv_metadata.create_all(con)
+        print(f"✅ 표 {len(order)}개 생성")
 
         # 4. 데이터 넣기
         #    타입 추론에 쓴 500행 표본이 아니라 CSV 전체를 다시 읽는다.
         #    표본을 그대로 넣으면 6만 행짜리 파일도 500행만 들어가고 에러도 안 난다
-        for name in order:
-            table = tables[name]
-            columns = table["columns"]
+        for table in order:
+            spec = tables[table.name]
+            _, rows = read_csv(spec["path"])          # limit 없이 전체
 
-            _, rows = read_csv(table["path"])        # limit 없이 전체
-
-            # 자리표시자가 드라이버마다 다르다 — sqlite3 는 ?, psycopg 는 %s.
-            # text() 의 :이름 으로 적으면 SQLAlchemy 가 각 드라이버 모양으로 번역해 준다.
-            #
-            # 칸 이름을 그대로 :구 처럼 쓰지 않는 이유 — 한글·공백·괄호가 섞인 칸이 많고
-            # (master_dataset_v3 는 86칸이다), 자리표시자 이름에 쓸 수 없는 글자가 있다.
-            # 그래서 자리 번호로 이름을 붙인다
-            marks = ", ".join(f":c{i}" for i in range(len(columns)))
-            col_list = ", ".join(f'"{c}"' for c in columns)
-            sql = text(f'INSERT INTO "{name}" ({col_list}) VALUES ({marks})')
-
-            # 튜플 목록이 아니라 딕셔너리 목록이 된다.
-            # 딕셔너리 목록을 넘기면 SQLAlchemy 가 알아서 executemany 로 돈다
+            # 딕셔너리 키가 곧 칸 이름이다. 자리표시자를 :c0 처럼 번호로 붙이던
+            # 일이 없어졌다 — table.insert() 가 칸 이름에서 만들어 준다.
+            # ㎡ · / · 숫자로 시작하는 이름도 그대로 통과한다(검증함)
             values = [
-                {f"c{i}": convert(row[col], table["type"][col]) for i, col in enumerate(columns)}
+                {col: convert(row[col], spec["type"][col]) for col in spec["columns"]}
                 for row in rows
             ]
 
-            # 빈 목록이면 넘기지 않는다 — sqlite3 의 executemany 는 조용히 넘어갔지만
-            # SQLAlchemy 는 "무엇을 넣으라는 건지 모르겠다"며 예외를 낸다
+            # 빈 목록이면 넘기지 않는다 — SQLAlchemy 가 "무엇을 넣으라는 건지 모르겠다"며 예외를 낸다
             if values:
-                con.execute(sql, values)
+                con.execute(table.insert(), values)
 
             # CSV 행수와 적재 행수가 같은지 확인한다. 조용한 누락을 막는 장치다
-            actual = count_rows(table["path"])
+            actual = count_rows(spec["path"])
             mark = "✅" if len(values) == actual else "⚠️"
-            print(f"{mark} {name:20s} {len(values):7,d}줄 적재 (CSV {actual:,}행)")
+            print(f"{mark} {table.name:20s} {len(values):7,d}줄 적재 (CSV {actual:,}행)")
 
-        # 4-b. CSV 에 없는 파생 칸(`녹지_초기` …)을 만들고 지금 값을 복사한다.
-        #      이걸 빼먹으면 관리자 화면의 "가입 시 희망 조건"이 통째로 NaN 이 된다
-        for name, columns in SNAPSHOT_COLUMNS.items():
-            if name not in tables:
-                continue
-            made = add_snapshot_columns(con, name, columns, tables[name]["type"])
-            print(f"✅ {name:20s} {SNAPSHOT_SUFFIX} 칸 {made}개 생성")
-
-        # 5. FK 칸에 색인. 조인할 때 훨씬 빨라진다
-        for name, table in tables.items():
-            for col, _ in table["fks"]:
-                con.execute(text(f'CREATE INDEX "idx_{name}_{col}" ON "{name}"("{col}")'))
+        # 5. CSV 에 없는 파생 칸(`녹지_초기` …)에 지금 값을 복사한다.
+        #    이걸 빼먹으면 관리자 화면의 "가입 시 희망 조건"이 통째로 NaN 이 된다
+        for table in order:
+            made = fill_snapshot_columns(con, table)
+            if made:
+                print(f"✅ {table.name:20s} {SNAPSHOT_SUFFIX} 칸 {made}개 채움")
 
     print(f"\n✅ {engine.url.render_as_string(hide_password=True)} 생성 완료")
 
-    # 6. CSV 가 없는 표 — 기록 5 + user_login. 모델이 정의처다.
-    #    checkfirst 가 기본이라 이미 있는 표(customers 등)는 건너뛴다.
-    #    chunks 도 여기서 빈 표로 생기지만 pipeline/chunk.py 가 지우고 다시 만든다
+    # 6. CSV 가 없는 표 — 기록 5 + user_login + chunks. 모델이 정의처다.
+    #    Base.metadata 는 csv_metadata 와 별개라 위에서 만든 표를 안 건드린다
     Base.metadata.create_all(engine)
-    print("✅ 모델만 있는 표 생성 (likes · search_history · chat_history · analysis_chat · admin_log · user_login)")
+    print("✅ 모델만 있는 표 생성 (chunks · likes · search_history · chat_history · analysis_chat · admin_log · user_login)")
