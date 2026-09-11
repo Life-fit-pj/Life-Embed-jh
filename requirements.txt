@@ -12,3 +12,6 @@ anthropic==1.4.0
 # ↓ 6단계에서 임베딩이 OpenAI 로 넘어가면서 sentence-transformers 를 뺐다.
 #   그 줄이 있던 자리다 — 로컬 모델은 이제 쓰지 않는다
 openai==3.8.0
+
+# search/chat 파이프라인을 그래프로 재구성
+langgraph==1.2.11
