@@ -6,7 +6,8 @@
 요청이 흘러가는 길 —
   브라우저 -> api -> schemas -> services -> engine·rag -> tables -> repositories -> DB
 
-★ Life-Web(:5000)과 별개로 뜬다. 둘은 같은 data/life.db 를 본다.
+★ Life-Web(:5000)과 별개로 뜬다. 둘은 같은 DB 를 본다 —
+  .env 의 DATABASE_URL 한 줄이 그것을 정한다(지금은 Supabase Postgres).
   화면은 아직 Life-Web 에 있고 여기에는 /docs 뿐이다.
   팀원이 Life-Web/routers/ 를 app/api/ 로 옮기고 나면 이 서버 하나만 남는다.
 """

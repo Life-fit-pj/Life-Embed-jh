@@ -6,13 +6,16 @@
 """
 
 import pytest
+import math
+import numpy as np
 from sqlalchemy import func
 
 from app.db import SessionLocal
 from app.models.chunk import Chunk
 from app.models.customer import Customer
-from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory
+from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
 from app.models.preference import Preference
+from app.core.config import EMBED_DIMENSION
 
 
 # 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
@@ -25,7 +28,7 @@ FIXED = [
 
 # 기록용 표 — 서버를 켜서 검색 한 번만 해도 늘어난다.
 # 줄 수를 단언하면 "앱을 쓰면 깨지는 테스트" 가 되고, 그런 테스트는 곧 무시당한다.
-GROWING = [Like, SearchHistory, ChatHistory, AnalysisChat, AdminLog]
+GROWING = [Like, SearchHistory, ChatHistory, AnalysisChat, AdminLog, UserLogin]
 
 ALL_MODELS = [model for model, _ in FIXED] + GROWING
 
@@ -74,18 +77,12 @@ def test_임베딩이_1536개다():
     길이만 보지 않고 길이가 1 인지도 본다 — weights.py 의 `vectors @ q` 가
     그걸 전제로 돌기 때문이다(6-11절)
     """
-    import json
-    import math
-
-    from app.core.config import EMBED_DIMENSION
-
     db = SessionLocal()
     try:
-        chunk = db.query(Chunk).first()
-        vector = json.loads(chunk.embedding)
+        vector = db.query(Chunk).first().embedding
 
         assert len(vector) == EMBED_DIMENSION
-        assert math.isclose(math.sqrt(sum(x * x for x in vector)), 1.0, abs_tol=1e-3)
+        assert math.isclose(float(np.linalg.norm(vector)), 1.0, abs_tol=1e-3)
     finally:
         db.close()
 

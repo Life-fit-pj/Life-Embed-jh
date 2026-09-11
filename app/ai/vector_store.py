@@ -1,19 +1,20 @@
 # Last updated: 2026-09-08
 """벡터를 담고, 꺼내고, 견주는 곳. chunks 의 embedding 칸을 다루는 유일한 파일이다.
 
-SQLite 와 pgvector 의 차이를 여기 가둔다 — 지금은 JSON 글자로 담지만
-나중에 Column(Vector(1536)) 으로 바꿔도 고칠 파일이 하나로 끝난다.
+벡터 형식의 차이를 여기 가둔다 — 지금은 pgvector 의 Column(Vector(1536)) 이라
+드라이버가 숫자 배열을 그대로 건네준다. 형식이 또 바뀌어도 고칠 파일은 여기 하나다.
 
 캐시를 여기 두는 이유 —
-9,900개를 JSON 에서 숫자로 되돌리는 데 시간이 걸린다. 요청마다 하면 매번 기다린다.
+9,900개를 DB 에서 받아 배열로 쌓는 데 시간이 걸린다. 요청마다 하면 매번 기다린다.
 처음 한 번만 올려 두고, 청크가 바뀌면 invalidate() 로 버린다(이론 10).
+
+★ 검색은 여전히 여기서 한다 — Vector 칸으로 바꾼 것은 "담는 방식"뿐이고,
+  DB 의 <=> 연산자로 옮기지 않았다. 9,900개는 메모리 내적이 왕복보다 빠르다.
 
 수업의 app/ai/vector_store.py 와 같은 자리다. 다른 점은 두 가지 —
   ① 우리는 source("member"/"kb") 로 갈래가 나뉜다
-  ② 세션을 받지 않는다. app/tables/chunks.py 다리가 열고 닫아 준다(3-A)
+  ② 세션을 받지 않는다. app/repositories/chunks.py 다리가 열고 닫아 준다(3-A)
 """
-
-import json
 
 import numpy as np
 
@@ -29,21 +30,11 @@ _LOADERS = {"member": member_chunks, "kb": kb_chunks}
 _ID_KEY = {"member": "customer_id", "kb": "uuid"}
 
 
-def to_text(vector):
-    """벡터를 DB 에 담을 글자로. pgvector 로 가면 이 함수만 바뀐다."""
-    return json.dumps(vector)
-
-
-def from_text(text):
-    """DB 에서 꺼낸 글자를 숫자 목록으로."""
-    return json.loads(text)
-
-
 def load(source):
     """그 갈래의 (행 목록, 벡터 배열). 처음 한 번만 DB 를 읽는다."""
     if source not in _cache:
         rows = _LOADERS[source]()
-        vectors = np.array([from_text(r["embedding"]) for r in rows], dtype="float32")
+        vectors = np.array([r["embedding"] for r in rows], dtype="float32")
         _cache[source] = (rows, vectors)
 
     return _cache[source]

@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 
 from sqlalchemy import func
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory
 
@@ -14,11 +14,14 @@ def add_like(db, anon_id, gu, dong):
     db.add(Like(...)) 를 쓰면 이미 있을 때 IntegrityError 로 죽는다.
     옛 SQL 의 INSERT OR IGNORE 를 그대로 재현하려면 on_conflict_do_nothing 이 필요하다.
 
-    이 한 줄만 SQLite 전용이다. PostgreSQL 로 갈 때는 import 를
-    sqlalchemy.dialects.postgresql 로 바꾸면 된다 — 함수 이름은 같다
+    on_conflict_do_nothing() 은 방언 전용이라 sqlalchemy.dialects.postgresql 의
+    insert 를 쓴다. 이게 Postgres 에서 동작하려면 진짜 제약이 있어야 하는데,
+    likes 의 기본키 (anon_id, 구, 행정동명) 이 그것이다 — 모델에 셋 다
+    primary_key=True 로 적혀 있어서 create_all() 이 진짜 PK 로 만들어 준다
+    (app/models/history.py)
     """
     db.execute(
-        sqlite_insert(Like)
+        pg_insert(Like)
         .values(anon_id=anon_id, 구=gu, 행정동명=dong)
         .on_conflict_do_nothing()
     )
@@ -94,7 +97,7 @@ def delete_analysis_chat(db, chat_id):
 
 def like_region_counts(db, limit=15):
     """좋아요가 많이 눌린 동네. (동네이름, 개수) 목록."""
-    name = Like.구 + " " + Like.행정동명       # SQLite 의 || 로 번역된다
+    name = Like.구 + " " + Like.행정동명       # 글자 칸이라 || 로 번역된다
     total = func.count()
 
     return [

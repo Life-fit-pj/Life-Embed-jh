@@ -1,6 +1,6 @@
 """회원 표 (정형 데이터)"""
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Date, Integer, String
 
 from app.db import Base
 
@@ -21,4 +21,4 @@ class Customer(Base):
     work_city = Column(String)
     work_dong = Column(String)
 
-    joined_at = Column(String)      # DB 에 글자로 들어 있다. Date 로 적으면 읽을 때 깨진다
+    joined_at = Column(Date)      # Postgres 가 date 로 만든다. 글자로 적으면 substr 에서 깨진다

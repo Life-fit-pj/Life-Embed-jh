@@ -4,9 +4,9 @@
    app/core/db.py 의 실행기를 곧장 쓴다. 표 자체는 4-A 에서 모델이 생겼다
    (app/models/history.py 의 UserLogin).
 
-   ensure_* 6개는 4-A 에서 지웠다. "쓸 때 표를 만든다" 는 SQLite 시절 습관이고,
+   ensure_* 6개는 지웠다. "쓸 때 표를 만든다" 는 SQLite 시절 습관이고,
    Postgres 에서는 서비스 코드가 DDL 을 던질 자리가 아니다. 표를 세우는 일은
-   4-B 의 이관 스크립트가 create_all() 로 한 번에 한다.
+   pipeline/schema.py 끝의 Base.metadata.create_all() 이 한 번에 한다.
 
 부르는 쪽 —
   app/features/admin.py     집계·관리자로그

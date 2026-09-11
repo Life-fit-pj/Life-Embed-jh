@@ -12,22 +12,13 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parents[2]  # Life-Embed-jh 루트
 load_dotenv(BASE_DIR / ".env")
 
-DATA_DIR = BASE_DIR / "data"
-DB_PATH = DATA_DIR / "life.db"
+DATA_DIR = BASE_DIR / "data"      # CSV 원본. pipeline/ 만 읽는다
 
-# 두 번째 인자가 아니라 or 를 쓰는 이유 —
-# os.getenv 의 기본값은 "키가 아예 없을 때"만 쓰인다.
-# .env 에 DATABASE_URL= 처럼 빈 칸으로 적혀 있으면 키는 있는 것이라
-# 빈 문자열 "" 이 그대로 넘어와 create_engine 이 죽는다.
-# or 는 빈 문자열도 거짓으로 보므로 둘 다 걸러진다.
-DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH.as_posix()}"
-
-
-# sqlite3 는 파일이 없으면 조용히 새로 만든다.
-# 그래서 경로가 틀려도 오류가 안 나고, 표가 하나도 없는 빈 DB 로 돌아간다.
-# 죽이지는 않고 눈에 보이게만 한다
-if not DB_PATH.exists():
-    print(f"알림: DB 가 아직 없다 -> {DB_PATH}")
+# DB 는 이것 하나로 정한다. 기본값이 없다 — 없으면 죽는다.
+# API 키와 같은 규칙이다: 없는 채로 돌면 9,900번째가 아니라 첫 줄에서 알게 된다
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL 이 없다. .env 파일을 확인해라.")
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not API_KEY:
