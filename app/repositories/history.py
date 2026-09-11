@@ -1,7 +1,6 @@
 """옛 이름을 지키는 다리. 실제 내용은 app/repositories/history_repository.py 에 있다.
 
-⚠ user_login 셋만 옛 SQL 그대로 여기 남아 있다 — ORM 다리를 안 거치고
-   app/core/db.py 의 실행기를 곧장 쓴다. 표 자체는 4-A 에서 모델이 생겼다
+이 파일에 날 SQL 은 없다. user_login 셋도 4단계에서 ORM 으로 옮겼다
    (app/models/history.py 의 UserLogin).
 
    ensure_* 6개는 지웠다. "쓸 때 표를 만든다" 는 SQLite 시절 습관이고,
@@ -16,7 +15,6 @@
                                     list_search_history · add_chat_history · list_chat_history
 """
 
-from app.core.db import dicts, one, run                 # user_login 전용
 from app.db import SessionLocal
 from app.repositories import history_repository as repo
 
@@ -70,33 +68,23 @@ def write_admin_log(target: str, target_id: str, patch: dict) -> None:
     return _run(repo.write_admin_log, target, target_id, patch)
 
 
-# ══ 여기부터 옛 SQL 그대로 (user_login) ══════════════
-# 이 셋만 ORM 다리를 안 거치고 app/core/db.py 의 실행기를 곧장 쓴다
-
 # => 로그인
+# 4단계에서 ORM 으로 옮겼다. 실제 내용은 history_repository.py 의 UserLogin 쪽에 있다
 
 def create_login(customer_id, login_id, password):
     """로그인 계정 발급."""
-    run(
-        "INSERT INTO user_login (customer_id, login_id, password) "
-        "VALUES (:customer_id, :login_id, :password)",
-        {"customer_id": customer_id, "login_id": login_id, "password": password},
-    )
+    return _run(repo.create_login, customer_id, login_id, password)
 
 
 def get_login_row(login_id):
     """login_id 하나의 계정 정보. 없으면 None. 로그인 시 "아이디가 아예 없는지"와
     "비번이 틀렸는지"를 구분해야 즉석 발급이 가능해서 find_login 대신 이걸 쓴다."""
-    row = one(
-        "SELECT customer_id, password FROM user_login WHERE login_id = :login_id",
-        {"login_id": login_id},
-    )
-    return {"customer_id": row[0], "password": row[1]} if row else None
+    return _run(repo.get_login_row, login_id)
 
 
 # 로그인이 이미 붙어 있는 회원 번호
 def login_customer_ids():
-    return [r["customer_id"] for r in dicts("SELECT customer_id FROM user_login")]
+    return _run(repo.login_customer_ids)
 
 
 # ── 집계 (관리자 대시보드·분석이 쓴다) ──────────────────

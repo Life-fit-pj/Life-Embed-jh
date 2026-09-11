@@ -23,10 +23,12 @@ import json
 import re
 import time
 
-from app.core.config import CHUNK_COLUMNS
-from app.core.db import dicts, one
 from app.ai.llm import ask
+from app.core.config import CHUNK_COLUMNS
+from app.db import SessionLocal
 from app.engine.resync import resync_member
+from app.models.chunk import Chunk
+from app.models.customer import Customer
 
 LABELS = {
     "persona": "총괄 요약 (이 사람이 어떤 사람인지 2~3문장)",
@@ -41,23 +43,34 @@ LABELS = {
 }
 
 
-def _mismatched_customers():
-    """persona 청크의 이름이 실제 회원 이름과 다른 사람만 골라낸다."""
-    customers = dicts(
-        "SELECT customer_id, name, gender, age, city, city_dong, work_city, work_dong "
-        "FROM customers ORDER BY customer_id"
+CUSTOMER_FIELDS = ("customer_id", "name", "gender", "age",
+                   "city", "city_dong", "work_city", "work_dong")
+
+
+def _mismatched_customers(db):
+    """persona 청크의 이름이 실제 회원 이름과 다른 사람만 골라낸다.
+
+    회원 100명에 조회가 101번 나간다(회원 목록 1 + 사람마다 1). 로컬 파일일 때는
+    공짜였지만 Postgres 는 네트워크 왕복이다 — 그래서 persona 청크를 한 번에
+    받아 딕셔너리로 만들어 두고 맞춰 본다
+    """
+    customers = [
+        dict(zip(CUSTOMER_FIELDS, row))
+        for row in db.query(*[getattr(Customer, f) for f in CUSTOMER_FIELDS])
+        .order_by(Customer.customer_id)
+        .all()
+    ]
+
+    personas = dict(
+        db.query(Chunk.source_id, Chunk.text)
+        .filter(Chunk.source == "member", Chunk.category == "persona")
+        .all()
     )
-    out = []
-    for c in customers:
-        row = one(
-            "SELECT text FROM chunks "
-            "WHERE source = 'member' AND source_id = :customer_id "
-            "  AND category = 'persona'",
-            {"customer_id": c["customer_id"]},
-        )
-        if row is None or not row[0].startswith(c["name"]):
-            out.append(c)
-    return out
+
+    return [
+        c for c in customers
+        if not personas.get(c["customer_id"], "").startswith(c["name"])
+    ]
 
 
 def _build_prompt(customer: dict) -> str:
@@ -98,7 +111,14 @@ def _parse(raw: str) -> dict | None:
 
 
 def fix_all():
-    targets = _mismatched_customers()
+    # 대상을 먼저 다 뽑고 세션을 닫는다. 뒤 반복문은 LLM 을 기다리며 몇 분씩 도는데,
+    # 그동안 세션을 붙들고 있으면 연결만 잡아먹는다(resync_member 가 자기 세션을 연다)
+    db = SessionLocal()
+    try:
+        targets = _mismatched_customers(db)
+    finally:
+        db.close()
+
     print(f"고칠 회원 {len(targets)}명")
 
     fixed, failed = 0, []

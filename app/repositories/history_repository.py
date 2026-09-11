@@ -4,8 +4,21 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory
+from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
 
+
+def create_login(db, customer_id, login_id, password):
+    db.add(UserLogin(customer_id=customer_id, login_id=login_id, password=password))
+    db.commit()
+
+
+def get_login_row(db, login_id):
+    row = db.query(UserLogin.customer_id, UserLogin.password).filter(UserLogin.login_id == login_id).first()
+    return {"customer_id": row[0], "password": row[1]} if row else None
+
+
+def login_customer_ids(db):
+    return [cid for (cid,) in db.query(UserLogin.customer_id).all()]
 
 
 def add_like(db, anon_id, gu, dong):

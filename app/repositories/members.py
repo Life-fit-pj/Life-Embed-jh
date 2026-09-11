@@ -11,12 +11,10 @@
 
 8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
 
-⚠ _run_update 만 예외로 원본이 여기 남아 있다 —
-  app/tables/regions.py 5행이 가져다 쓰는데, regions 는 master_dataset_v3(칸 86개,
-  전부 한글)를 다뤄서 ORM 으로 안 옮기기 때문이다. 8단계에서 같이 없앤다.
+_run_update 는 4단계에서 없앴다 — regions 가 ORM 으로 옮겨 가면서
+(app/repositories/region_repository.py 의 update_region) 부르는 곳이 사라졌다.
 """
 
-from app.core.db import run                        # _run_update 전용. 다른 데 쓰지 않는다
 from app.db import SessionLocal
 from app.repositories import member_repository as repo
 
@@ -32,30 +30,6 @@ def _run(fn, *args, **kwargs):
         return fn(db, *args, **kwargs)
     finally:
         db.close()
-
-
-# ── 공용 쓰기 헬퍼 (app/tables/regions.py 가 쓴다) ──────────────
-# 이 한 함수만 옛 SQL 그대로다. regions 를 옮길 때 같이 없앤다
-
-def _run_update(table, where_sql, where_params, patch, allowed):
-    """patch 중 allowed(화이트리스트)에 있는 칸만 골라 UPDATE 한다.
-
-    화이트리스트 밖 칸은 조용히 버린다 — SQL 주입 방지.
-    SET 절 값에는 :set_0, :set_1 … 로 이름을 붙인다. 칸 이름을 그대로 쓰면
-    where_params 의 이름과 부딪힐 수 있다(둘 다 "구" 를 쓸 수 있다)
-    """
-    fields = [name for name in patch if name in allowed]
-    if not fields:
-        return 0
-
-    sets = ", ".join(f'"{name}" = :set_{i}' for i, name in enumerate(fields))
-    values = {f"set_{i}": patch[name] for i, name in enumerate(fields)}
-
-    run(
-        f'UPDATE "{table}" SET {sets} WHERE {where_sql}',
-        {**values, **where_params},
-    )
-    return len(fields)
 
 
 # ── 프로젝트 전용 조회 함수 ─────────────────────────────

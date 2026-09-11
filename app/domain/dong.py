@@ -24,14 +24,3 @@ def dong_variants(dong):
     
     return list(out)
 
-
-def dong_params(gu, dong):
-    """IN 절 자리표시자와 인자 딕셔너리를 한 번에 만든다.
-
-    dong_variants 가 이름을 여러 개 돌려주므로 :d0, :d1 … 처럼 번호를 붙인다.
-    돌려주는 것은 (marks, params) 두 개다
-    """
-    names = dong_variants(dong)
-    marks = ", ".join(f":d{i}" for i in range(len(names)))
-    params = {"gu": gu.strip(), **{f"d{i}": n for i, n in enumerate(names)}}
-    return marks, params
