@@ -3,7 +3,7 @@
 
 from app.repositories.history import (
     add_chat_history, add_like, add_search_history,
-    list_chat_history, list_search_history, remove_like,
+    list_chat_history, list_likes, list_search_history, remove_like,
 )
 
 
@@ -15,8 +15,13 @@ def get_history(anon_id):
     }
 
 
+def get_likes(anon_id):
+    """좋아요 한 동네 목록. 최근 순."""
+    return list_likes(anon_id)
+
+
 __all__ = [
-    "add_like", "remove_like",
+    "add_like", "remove_like", "get_likes",
     "add_search_history", "add_chat_history",
     "get_history",
 ]

@@ -197,7 +197,7 @@ Life-Embed-jh/
 | 층 | 폴더 | 무엇이 있나 |
 | --- | --- | --- |
 | 0 | `domain/` | `dong.py` — 행정동 이름 표기 변형. **아무것도 안 부르는 순수 함수** |
-| 1 | `schemas/` | `recommend_schema.py` — API 가 주고받는 형식. pydantic 만 안다 |
+| 1 | `schemas/` | 라우터가 주고받는 형식 아홉 — `admin`·`analysis`·`auth`·`chat`·`customers`·`history`·`recommend`·`regions`·`survey`. pydantic 만 안다 |
 | 1 | `core/` | `config.py` — `DATABASE_URL`·키·모델명·INDICATORS (`db.py` 는 지웠다) |
 | 2 | `models/` | `customer` · `preference` · `chunk` · `history` + `region.py`(sqlacodegen 이 찍은 `Table` 여덟) |
 | 2 | `repositories/` | **표를 실제로 읽고 쓰는 곳**(전부 ORM). `chunk_`·`member_`·`history_`·`region_repository` |
@@ -207,7 +207,7 @@ Life-Embed-jh/
 | 4 | `engine/` | 점수 계산 — `weights` · `recommend` · `explain` · `housing` · `resync` |
 | 5 | `services/` | 업무 순서를 엮는 창구 여덟 |
 | 6 | `features/` | **다리 여덟.** Life-Web 이 옛 이름으로 부르는 자리 — 웹을 합치는 날 폴더째 지운다 |
-| 7 | `api/` | `recommend_router.py` — **여기만 FastAPI 를 안다** |
+| 7 | `api/` | 라우터 **아홉** — **여기만 FastAPI 를 안다.** `main.py` 가 전부 `include_router` 한다 |
 
 폴더 밖 파일 둘 —
 `db.py`(`Base` · `engine` · `SessionLocal`) · `main.py`(`py -m uvicorn app.main:app`)
@@ -216,8 +216,8 @@ Life-Embed-jh/
 
 ```
 POST /recommend  "애들 학원 보내기 좋은 곳"
- └ api/recommend_router.py          ← FastAPI 를 아는 유일한 층
-    └ schemas/recommend_schema.py     값 검사. 틀리면 여기서 422
+ └ api/recommend.py                 ← FastAPI 를 아는 유일한 층
+    └ schemas/recommend.py            값 검사. 틀리면 여기서 422
     └ services/search_service.py      업무 순서를 엮는다
        ├ engine/weights.py            검색어 → 가중치 7개   (ai/llm.py)
        │  └ rag/retriever.py          비슷한 회원·사례 찾기 (ai/embedder · vector_store)

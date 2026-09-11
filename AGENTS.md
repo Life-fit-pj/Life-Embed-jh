@@ -155,7 +155,7 @@ API, Key 등 민감정보가 포함된 데이터는 .env폴더에서 별도로 �
 
 ```
 app/domain/       dong.py                    순수 계산. 아무것도 안 부른다
-app/schemas/      recommend_schema.py        API 가 주고받는 형식. pydantic 만 안다
+app/schemas/      라우터별 아홉              API 가 주고받는 형식. pydantic 만 안다
 app/core/         config.py                  설정(DATABASE_URL·키·모델·INDICATORS). db.py 는 지웠다
 app/models/       customer, preference,      표를 클래스로 (ORM). history.py 에 표 여섯
                   chunk, history, region     region.py 는 sqlacodegen 이 찍은 Table 여덟(칸 이름에
@@ -174,7 +174,8 @@ app/services/     search, region, chat,      업무 순서를 엮는 창구 여�
                   admin, analysis, auth,
                   privacy, survey
 app/features/     같은 이름 여덟             ★ 다리. `from ..._service import *` 한 줄뿐
-app/api/          라우터 열                  여기만 FastAPI 를 안다. Life-Web 이 HTTP 로 친다
+app/api/          라우터 아홉                여기만 FastAPI 를 안다. Life-Web 이 HTTP 로 친다
+                                             main.py 가 아홉을 전부 include_router 한다(경로 31개)
 app/db.py                                    Base · engine · SessionLocal. DB 접근은 전부 여기를 지난다
 app/main.py                                  py -m uvicorn app.main:app --port 8000
 pipeline/         schema, sample_kb, chunk,  CSV -> Postgres · chunks 표. 배포엔 안 따라간다
@@ -301,7 +302,7 @@ nemotron.csv ───┴→ pipeline/chunk.py → chunks 표(9,900줄, embeddin
 | `README.md` (이 저장소) | 설치·실행·설계 원칙·아직 안 된 것·논의 필요 |
 | `docs/REFACTOR.md` | **옛 계획**(FastAPI 이전 논의, ADR-0001). 남의 컴퓨터 절대경로가 섞여 있다 |
 | 루트 `studyall.md` | 지도 — 지금 어디 있고 무엇은 안 하기로 했나 |
-| 루트 `study2.md` | 교안 — 지금 진행 중인 작업 하나(2026-09-08 기준 10단계: 지도와 검사) |
+| 루트 `study3.md` | 교안 — 지금 진행 중인 작업 하나(2026-09-12 기준: 웹을 DB 에 잇기 W1~W5) |
 | 루트 `study2-archive.md` | 끝난 교안 보관함. 마이그레이션 0~9단계는 `[보관 11]`~`[보관 21]` |
 
 **`STUDY.md`(엔진 성능 진단 [A]~[E]와 추천 품질 버그 5건)는 마이그레이션 때 지웠다.**

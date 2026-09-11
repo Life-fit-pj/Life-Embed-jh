@@ -3,8 +3,8 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.features.history import add_chat_history, add_like, add_search_history, get_history, remove_like
-from app.schemas.history import HistoryEntryIn, HistoryOut, LikeRequest
+from app.features.history import add_chat_history, add_like, add_search_history, get_history, get_likes, remove_like
+from app.schemas.history import HistoryEntryIn, HistoryOut, LikeItem, LikeRequest
 
 router = APIRouter(tags=["history"])
 
@@ -21,6 +21,12 @@ def delete_like(body: LikeRequest):
     """좋아요 취소."""
     remove_like(body.anon_id, body.gu, body.dong)
     return {"ok": True}
+
+
+@router.get("/likes/{anon_id}", response_model=list[LikeItem])
+def get_likes_route(anon_id: str):
+    """좋아요한 동네 목록 조회."""
+    return get_likes(anon_id)
 
 
 @router.post("/history")
@@ -41,3 +47,5 @@ def post_history(body: HistoryEntryIn):
 def get_history_route(anon_id: str):
     """검색·대화 기록 조회."""
     return get_history(anon_id)
+
+

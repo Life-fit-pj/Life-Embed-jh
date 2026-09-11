@@ -14,12 +14,21 @@
 
 from fastapi import FastAPI
 
-from app.api import auth, recommend_router
+#   Life-Web 이 부르는 /search · /recommend/explained 는 recommend.py 에만 있다
+from app.api import (admin, analysis, auth, chat, customers,
+                     history, recommend, regions, survey)
 
 app = FastAPI(title="LIFE,FIT 엔진", description="추천 엔진 API")
 
-app.include_router(recommend_router.router)
-app.include_router(auth.router)
+app.include_router(recommend.router)     # /search · /recommend · /recommend/explained
+app.include_router(auth.router)          # /auth/*
+app.include_router(customers.router)     # /customers/{id}
+app.include_router(admin.router)         # /admin/*            15개
+app.include_router(analysis.router)      # /admin/analysis/*    4개
+app.include_router(chat.router)          # /chat
+app.include_router(history.router)       # /likes · /history
+app.include_router(regions.router)       # /regions/{구}/{동}/*
+app.include_router(survey.router)        # /survey/score
 
 
 @app.get("/")
