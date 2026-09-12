@@ -194,10 +194,15 @@ def has_initial_columns(db):
 
 
 def indicator_averages(db):
-    """지표 7개의 평균. {지표이름: 평균} 으로 돌려준다."""
+    """지표 7개의 평균. {지표이름: 평균} 으로 돌려준다.
+
+    func.avg() 는 Postgres 에서 Decimal 을 낸다 — float 로 바꿔서 내보낸다.
+    안 바꾸면 pydantic 이 dict 안의 Decimal 을 JSON 문자열("3.61")로 직렬화해서,
+    화면에서 숫자로 쓰려던 곳(.toFixed() 등)이 조용히 깨진다.
+    """
     columns = [func.avg(getattr(Preference, name)) for name in INDICATORS]
     row = db.query(*columns).one()
-    return dict(zip(INDICATORS, row))
+    return {name: (float(v) if v is not None else None) for name, v in zip(INDICATORS, row)}
 
 
 def indicator_spread(db, name):
