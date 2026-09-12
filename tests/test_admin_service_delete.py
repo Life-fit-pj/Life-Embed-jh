@@ -9,7 +9,7 @@ from app.services import admin_service
 
 
 def test_없는_회원이면_아무것도_안_지운다():
-    with patch.object(admin_service, "get_member", return_value=None), \
+    with patch.object(admin_service, "customer_one", return_value=None), \
          patch.object(admin_service, "delete_customer") as mock_delete_customer:
 
         result = admin_service.delete_member("C999")
@@ -19,7 +19,7 @@ def test_없는_회원이면_아무것도_안_지운다():
 
 
 def test_있는_회원이면_전부_지우고_True():
-    with patch.object(admin_service, "get_member", return_value={"customer_id": "C101"}), \
+    with patch.object(admin_service, "customer_one", return_value={"customer_id": "C101"}), \
          patch.object(admin_service, "replace_member_chunks") as mock_chunks, \
          patch.object(admin_service.vector_store, "invalidate") as mock_invalidate, \
          patch.object(admin_service, "delete_logins_by_customer") as mock_logins, \

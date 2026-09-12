@@ -148,19 +148,19 @@ def clear_caches() -> dict:
 
 # 회원수정
 def update_member(customer_id, patch):
-    if get_member(customer_id) is None:
+    if customer_one(customer_id) is None:   # 존재 확인은 이 한 줄로 충분 — get_member() 는 7번 왕복한다
         return None
-    _validate(patch)                     # ★ 없는 회원 확인(404) 다음, 저장 전
+    _validate(patch)                     # 없는 회원 확인(404) 다음, 저장 전
 
     update_customer(customer_id, patch, CUSTOMER_FIELDS)
     update_preferences(customer_id, patch, PREFERENCE_FIELDS)
 
     persona_patch = {k: v for k, v in patch.items() if k in PERSONA_FIELDS}
     if persona_patch:
-        row = dict(customer_persona(customer_id))   # ① 지금 9칸 전부
-        row.update(persona_patch)                    # ② 바뀐 칸만 덮어쓰기
-        row["customer_id"] = customer_id              # ③ resync 가 요구하는 칸
-        resync_member(customer_id, row)    # ④ 벡터 재생성
+        row = dict(customer_persona(customer_id))   # 지금 9칸 전부
+        row.update(persona_patch)                   # 바뀐 칸만 덮어쓰기
+        row["customer_id"] = customer_id            # resync 가 요구하는 칸
+        resync_member(customer_id, row)             # 벡터 재생성
 
     write_admin_log("member", customer_id, patch)
     _clear_caches()
@@ -224,7 +224,7 @@ def delete_member(customer_id: str) -> bool:
     로그인한 회원의 경우 anon_id 가 customer_id 로 덮어써져 있으므로 같은 값으로 지운다
     (get_member() 의 활동 조회와 짝이 맞아야 한다).
     """
-    if get_member(customer_id) is None:
+    if customer_one(customer_id) is None:   # 존재 확인은 이 한 줄로 충분 — get_member() 는 7번 왕복한다
         return False
 
     replace_member_chunks(customer_id, [])   # 벡터도 같이 지운다
