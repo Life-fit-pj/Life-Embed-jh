@@ -1,0 +1,11 @@
+data/*
+!data/life.db
+Dockerfile
+.dockerignore
+pipeline/
+tests/
+eval/
+tools/
+docs/
+*.md
+.git/

@@ -10,7 +10,7 @@ build_address_pattern([], [])              -> None
 """
 """나가는 글에서 개인정보를 가린다. 여기가 깨지면 개인정보가 샌다."""
 
-from app.domain.masking import build_address_pattern, mask
+from app.ai.masking import build_address_pattern, mask
 
 
 def test_휴대폰_번호를_가린다():

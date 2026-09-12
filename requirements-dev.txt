@@ -1,0 +1,9 @@
+# 개발·테스트 전용. 런타임 이미지에는 설치하지 않는다.
+# 개발자는 이 파일 하나만 설치하면 된다 (첫 줄이 런타임 목록을 상속한다).
+#   py -m pip install -r requirements-dev.txt
+#
+# 어디에 넣을지 —  app/ 이 import 하면 requirements.txt,
+#                  tests/ 만 import 하면 여기.
+-r requirements.txt
+
+pytest==9.1.1

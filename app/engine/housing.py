@@ -6,7 +6,7 @@
 새 표를 만들 필요 없이 여기서 바로 걸러낸다.
 """
 
-from app.tables.regions import region_densities, region_price_detail
+from app.repositories.regions import region_densities, region_price_detail
 
 # {건물유형}_{거래유형}_{금액종류} 규칙 그대로 매핑한다.
 # 매매·전세는 금액이 하나("예산")뿐이지만, 월세는 다르다 — 보증금(목돈)과 월세(매달 나가는 돈)가

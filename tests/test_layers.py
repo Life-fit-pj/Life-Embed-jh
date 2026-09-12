@@ -1,8 +1,3 @@
-import ast
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-
 """계층이 한 방향으로만 흐르나. import 그래프를 떠서 본다."""
 
 import ast
@@ -10,20 +5,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
 # 번호가 작을수록 아래층. 아래층은 위층을 부르면 안 된다.
-# app.adapters 와 app.llm 이 둘 다 있는 건 2단계 전/후 모두에서 돌게 하려는 것이다
 LAYER = {
     "app.domain": 0,
+    "app.schemas": 1,      # 9단계 — 형식만 적은 것. 아무것도 안 부른다
     "app.core": 1,
-    "app.tables": 2,
-    "app.adapters": 2,
-    "app.llm": 2,
-    "app.engine": 3,
-    "app.features": 4,
+    "app.repositories": 2,
+    "app.ai": 2,
+    "app.rag": 3,          # 7단계 — ai 위, engine 아래
+    "app.engine": 4,
+    "app.services": 5,     # 8단계 — 업무 로직
+    "app.features": 6,     # 다리만 남았다. 팀원이 웹을 합칠 때 지운다
+    "app.api": 7,          # 9단계 — 맨 위. 여기만 FastAPI 를 안다
 }
 
-# app 이 pipeline 을 부르는 건 이 한 줄만 허락한다 (청킹 규칙을 두 벌 두지 않으려고)
-ALLOWED_PIPELINE = {("app.engine.resync", "pipeline.prep.chunking")}
+# 4단계에서 chunker 가 app/ai/ 로 올라와 예외가 사라졌다.
+# 다시 채워야 할 일이 생기면 그건 층을 거스른다는 뜻이다
+ALLOWED_PIPELINE = set()
 
 
 # 파일 경로를 app.core.db 같은 모듈 이름으로 바꾼다
@@ -81,3 +80,16 @@ def test_app_이_pipeline_을_부르는_곳은_허락된_한_줄뿐():
         "app 이 pipeline 을 새로 부른다:\n  "
         + "\n  ".join(f"{s} -> {t}" for s, t in sorted(found - ALLOWED_PIPELINE))
     )
+
+def test_api_는_다리를_안_부른다():
+    """app/features/ 는 Life-Web 을 위한 다리다. 팀원이 웹을 합칠 때 통째로 지운다.
+
+    새로 만드는 app/api/ 가 거기 기대면 그때 같이 깨진다.
+    api 는 app/services/ 를 곧장 부른다
+    """
+    leaning = [f"{s} -> {t}" for s, t in edges()
+               if s.startswith("app.api") and t.startswith("app.features")]
+
+    assert not leaning, "api 가 다리에 기댄다:\n  " + "\n  ".join(leaning)
+
+

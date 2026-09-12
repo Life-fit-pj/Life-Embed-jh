@@ -1,21 +1,21 @@
+# Last updated: 2026-09-08
 """회원 한 명 또는 kb 페르소나 한 명의 벡터만 다시 만든다.
 
 관리자가 방금 이 사람 정보를 고쳤다는 게 확실한 상태에서 불리는 함수라서,
 "뭐가 바뀌었나" 확인하는 절차 없이 그냥 그 사람 청크를 지우고 새로 만든다.
 """
 
-import numpy as np
-
-from app.llm import get_embedder, to_passage
-from app.tables.chunks import replace_kb_chunks, replace_member_chunks
-from pipeline.prep.chunking import make_chunks, KB_KEYS, MEMBER_KEYS
+from app.ai import vector_store
+from app.ai.embedder import embed_documents
+from app.repositories.chunks import replace_kb_chunks, replace_member_chunks
+from app.ai.chunker import make_chunks, KB_KEYS, MEMBER_KEYS
 
 
 # 임베딩해서 저장하는, 두 함수가 공통으로 하는 부분만 뽑은 것
 def _embed(chunks):
-    docs = [to_passage(c["text"]) for c in chunks]
-    vectors = get_embedder().embed_documents(docs)
-    return [np.asarray(v, dtype="float32").tobytes() for v in vectors]
+    vectors = embed_documents([c["text"] for c in chunks])
+    return [vector_store.to_text(v) for v in vectors]
+
 
 
 def resync_kb_person(uuid, row):
@@ -31,6 +31,8 @@ def resync_kb_person(uuid, row):
         (c["uuid"], c["district"], c["category"], c["text"], vec)
         for c, vec in zip(chunks, vectors)
     ])
+    # 캐시를 버린다. 안 버리면 서버를 껐다 켜기 전까지 옛 벡터로 검색한다(이론 10)
+    vector_store.invalidate("kb")
 
 
 def resync_member(customer_id, row):
@@ -45,3 +47,4 @@ def resync_member(customer_id, row):
         (c["customer_id"], c["category"], c["text"], vec)
         for c, vec in zip(chunks, vectors)
     ])
+    vector_store.invalidate("member")

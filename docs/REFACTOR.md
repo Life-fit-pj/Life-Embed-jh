@@ -1,8 +1,9 @@
 # REFACTOR — Life-Embed-jh / Life-Web 계층 재정비
 
 작업 기록. 결정 사항과 아직 안 끝난 논의를 구분해서 남긴다.
-참고자료: `/Users/jaeseong/rag-basic/docs/day1.html`(계층 설명), 실제 코드
-`/Users/jaeseong/RAG-learn`, `/Users/jaeseong/TeamProject2/dev-data-embed`(예외→HTTP 변환 패턴).
+참고자료: `day1.html` 튜토리얼 문서(계층 설명), `RAG-learn` 예제 프로젝트(실제 코드),
+`dev-data-embed` 프로젝트(예외→HTTP 변환 패턴) — 전부 이 워크스페이스 밖의 로컬 자료라
+경로는 기록하지 않는다.
 
 ## 1. 시작한 이유
 
@@ -128,6 +129,32 @@ schemas/        바깥 모양 (계층 아니고 재료)
   접속 가능한 도메인" 논의는 가정이었지 결정된 로드맵이 아님).
 
 **다음 세션에서 결정할 것.**
+
+## 7-2. 열린 질문 — 증분 임베딩 (미결정)
+
+**있는 것**: `app/engine/resync.py`의 `resync_kb_person`/`resync_member` — 관리자가
+한 명 수정한 직후 그 사람 청크만 지우고 다시 만든다. 이미 증분이다. 손댈 필요 없음.
+
+**없는 것**: 배치 파이프라인(`pipeline/embed_kb.py`, `pipeline/embed_member.py`)은
+재실행하면 매번 표를 통째로 지우고 처음부터 다시 만든다 — "지우고 처음부터
+다시할까요? (y/n)" 프롬프트, 20~40분 소요. CSV에 새 행 몇 개만 추가돼도 전체를 다시 돌림.
+
+**아직 결정 안 됨**: 배치 쪽에 "이미 임베딩된 id는 건너뛰고 새 것만" 로직을 넣을지.
+이번 FastAPI 이전과는 다른 축(파이프라인 성능, API 설계와 무관)이라 이번 작업
+범위에 넣을지 별도 작업으로 뺄지부터 정해야 함.
+
+## 7-3. 열린 질문 — LangGraph 도입 (미결정)
+
+**현재**: `README.md`/`STUDY.md`/`AGENTS.md` 어디에도 LangGraph 언급 없음 — 완전히
+새 논의. `app/features/search.py`의 `search()`는 `weights → recommend → explain`을
+그냥 순서대로 직접 호출하는 평범한 함수 체인(AGENTS.md Data Flow Summary 참고).
+day1.html 기준으로 `graph/`는 계층이 아니라 "부품을 어떤 순서로 부를지 정하는 흐름"
+부품 상자 — 그 자리에 해당하는 폴더가 지금 `Life-Embed-jh`엔 없음.
+
+**아직 결정 안 됨**: 지금 체인엔 분기·재시도·툴콜이 없고 순차 호출로 잘 돈다.
+LangGraph를 넣어서 얻는 게 뭔지(예: 검색 실패 재시도, 조건부 분기, 향후 도구 호출
+확장)부터 확인해야 함 — 구체적 필요가 있으면 도입 근거가 서고, 없으면 지금 구조
+유지가 YAGNI에 맞음. 이번 FastAPI 이전 작업과 독립적인 결정.
 
 ## 8. 재검토 트리거 (숫자는 잠정치, 모니터링 붙으면 갱신)
 

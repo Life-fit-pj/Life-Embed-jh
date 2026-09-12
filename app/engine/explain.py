@@ -1,3 +1,4 @@
+# Last updated: 2026-09-08
 """
 할 일 : TOP 5 추천 결과를 사용자에게 보여줄 설명문으로 만든다
 
@@ -8,14 +9,12 @@
 Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제한한다.
 """
 
-import numpy as np
-
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
                                 region_price_note, price_gap_text, format_won)
 from app.engine.recommend import load_regions, build_scores, build_relative, recommend
-from app.tables.chunks import kb_chunks
-from app.tables.regions import region_densities
-from app.llm import get_llm, get_embedder, to_query
+from app.repositories.regions import region_densities
+from app.ai.llm import ask
+from app.rag.retriever import retrieve
 
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
@@ -80,37 +79,22 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
 존댓말로, 전체 8문장 이내로 짧게 쓰세요."""
 
 
-# 지식베이스에서 사례 찾기
-# load_member_vectors() 와 동일한 패턴으로 분리
-def load_kb_vectors():
-    """지식베이스 청크 벡터를 전부 꺼낸다. numpy 배열로 만든다."""
-    rows = kb_chunks()
-    vectors = np.array(
-        [np.frombuffer(r["vector"], dtype="float32") for r in rows]
-    )
-    return rows, vectors
+def find_cases(persona_query, top_k=3):
+    """검색 문장과 비슷한 지식베이스 사례를 찾는다.
 
-
-def find_cases(persona_query, rows, vectors, top_k=3):
-    """검색 문장과 비슷한 지식베이스 청크를 찾는다.
-
-    rows, vectors 는 get_ready() 가 미리 만들어 캐시해둔 것을 받는다.
-    이 함수 안에서 다시 불러오지 않는다 — 그게 느려지는 원인이었다.
+    벡터를 들고 있는 것은 app/ai/vector_store.py 다.
+    여기서는 화면에 실을 모양으로 가공만 한다 — "서울-" 떼기와 200자 자르기
     """
-    q = np.array(get_embedder().embed_query(to_query(persona_query)), dtype="float32")
-    scores = vectors @ q
-
-    top = scores.argsort()[::-1][:top_k]
-
     return [
         {
-            "district": rows[i]["district"].replace("서울-", ""),
-            "category": rows[i]["category"],
-            "text": rows[i]["text"][:200],
-            "score": float(scores[i]),
+            "district": row["district"].replace("서울-", ""),
+            "category": row["category"],
+            "text": row["text"][:200],
+            "score": score,
         }
-        for i in top
+        for row, score in retrieve("kb", persona_query, top_k)
     ]
+
 
 # 추천 결과에 지표 수치 붙이기
 def with_scores(result, names, scores):
@@ -201,7 +185,7 @@ def explain(query, weights, detailed, cases, housing=None):
         ("system", SYSTEM_PROMPT),
         ("human", context),
     ]
-    return get_llm(max_tokens=800).invoke(messages).content.strip()
+    return ask(messages, max_tokens=800).strip()
     
 
 # 실행부
@@ -219,8 +203,7 @@ if __name__ == "__main__" :
     result = recommend(names, scores, relative, weights)
     
     detailed = with_scores(result, names, scores)
-    kb_rows, kb_vectors = load_kb_vectors()
-    cases = find_cases(persona_query, kb_rows, kb_vectors)
+    cases = find_cases(persona_query)
     
     print(f"⏳ 설명 생성 중...\n")
     print(explain(query, weights, detailed, cases))
