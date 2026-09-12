@@ -11,7 +11,9 @@ import string
 
 from app.services import admin_service
 
-from app.repositories.history import create_login, get_login_row, login_customer_ids
+from app.repositories.history import (
+    create_login, delete_login, get_login_row, login_customer_ids, update_login_customer,
+)
 from app.repositories.members import customer_ids
 
 
@@ -44,13 +46,25 @@ def signup(supabase_user_id, payload):
     payload(기본정보+희망조건+persona)로 customer 행 자체를 새로 만든다 —
     payload 모양은 app.services.admin_service.create_member() 와 같다. 비밀번호 칸은
     Supabase 가 이미 인증을 끝냈으므로 아무도 확인하지 않아 빈 값을 넣어 둔다.
+
+    login_id 자리를 create_member() 보다 먼저 선점한다 — 예전엔 "이미 있나 조회 →
+    없으면 생성"이었는데, 그 사이(회원 생성은 임베딩까지 걸려 몇 초 든다) 같은
+    사용자의 중복 요청(더블클릭 등)이 겹쳐 들어오면 둘 다 조회를 통과해
+    customer 가 여러 개 생기는 사고가 났다. login_id 가 기본키라, 선점 INSERT 를
+    먼저 하면 동시에 와도 하나만 성공한다(history_repository.create_login).
     """
     login_id = _login_id(supabase_user_id)
-    if get_login_row(login_id) is not None:
+    if not create_login("", login_id, ""):
         return None
-    member = admin_service.create_member(payload)
+
+    try:
+        member = admin_service.create_member(payload)
+    except Exception:
+        delete_login(login_id)   # 선점만 해놓고 실패했으니 자리를 반납해 재시도 가능하게 한다
+        raise
+
     customer_id = member["customer"]["customer_id"]
-    create_login(customer_id, login_id, "")
+    update_login_customer(login_id, customer_id)
     return customer_id
 
 

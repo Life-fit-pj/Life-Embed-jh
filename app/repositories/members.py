@@ -78,6 +78,10 @@ def insert_preferences(customer_id, patch, allowed):
     return _run(repo.insert_preferences, customer_id, patch, allowed)
 
 
+def delete_customer(customer_id):
+    return _run(repo.delete_customer, customer_id)
+
+
 def customer_names():
     return _run(repo.customer_names)
 

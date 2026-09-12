@@ -159,6 +159,15 @@ def insert_preferences(db, customer_id, patch, allowed):
     return _insert(db, Preference, customer_id, patch, allowed)
 
 
+def delete_customer(db, customer_id):
+    """회원 탈퇴. customers·user_preferences 행을 지운다. 있었으면 True."""
+    existed = db.query(Customer).filter(Customer.customer_id == customer_id).first() is not None
+    db.query(Preference).filter(Preference.customer_id == customer_id).delete(synchronize_session=False)
+    db.query(Customer).filter(Customer.customer_id == customer_id).delete(synchronize_session=False)
+    db.commit()
+    return existed
+
+
 def customer_names(db):
     """마스킹에 쓸 회원 이름 목록. 빈 값은 뺀다"""
     return [name for (name,) in db.query(Customer.name).all() if name]

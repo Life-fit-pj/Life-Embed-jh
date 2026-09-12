@@ -8,7 +8,51 @@ from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, Search
 
 
 def create_login(db, customer_id, login_id, password):
-    db.add(UserLogin(customer_id=customer_id, login_id=login_id, password=password))
+    """login_id 자리를 선점한다. 이미 있으면 아무것도 안 하고 False.
+
+    login_id 가 기본키라 on_conflict_do_nothing() 이 "동시에 둘이 와도 하나만
+    성공"을 DB 단에서 보장한다 — 회원가입이 겹쳐 들어올 때(중복 클릭 등)
+    customer 행이 여러 개 생기는 걸 여기서 막는다(signup() 참고).
+    """
+    result = db.execute(
+        pg_insert(UserLogin)
+        .values(customer_id=customer_id, login_id=login_id, password=password)
+        .on_conflict_do_nothing()
+    )
+    db.commit()
+    return result.rowcount > 0
+
+
+def update_login_customer(db, login_id, customer_id):
+    """선점해 둔 login_id 자리에 실제 customer_id 를 채운다(signup() 2단계)."""
+    db.query(UserLogin).filter(UserLogin.login_id == login_id).update({"customer_id": customer_id})
+    db.commit()
+
+
+def delete_login(db, login_id):
+    """선점만 하고 customer 생성에 실패했을 때 자리를 반납한다(signup() 실패 복구)."""
+    db.query(UserLogin).filter(UserLogin.login_id == login_id).delete(synchronize_session=False)
+    db.commit()
+
+
+def delete_logins_by_customer(db, customer_id):
+    """회원 탈퇴 시 이 customer_id 에 붙은 로그인 계정을 전부 지운다.
+
+    customer_id 는 유일하지 않다(계정 풀 소진 시 여러 login_id 가 붙을 수 있다) —
+    login_id 하나만 지우는 delete_login() 과 다르다.
+    """
+    db.query(UserLogin).filter(UserLogin.customer_id == customer_id).delete(synchronize_session=False)
+    db.commit()
+
+
+def delete_activity(db, anon_id):
+    """회원 탈퇴 시 이 사람이 남긴 좋아요·검색·채팅 기록을 지운다.
+
+    로그인한 회원은 anon_id 자리가 customer_id 로 덮어써져 있다(admin_service.get_member 참고).
+    """
+    db.query(Like).filter(Like.anon_id == anon_id).delete(synchronize_session=False)
+    db.query(SearchHistory).filter(SearchHistory.anon_id == anon_id).delete(synchronize_session=False)
+    db.query(ChatHistory).filter(ChatHistory.anon_id == anon_id).delete(synchronize_session=False)
     db.commit()
 
 

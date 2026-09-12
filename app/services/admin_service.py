@@ -4,22 +4,24 @@
 
 import json
 
+from app.ai import vector_store
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
 from app.engine.weights import find_similar_members
 from app.services import search_service, region_service, privacy_service
-from app.repositories.chunks import member_chunk_count, persona_lengths
+from app.repositories.chunks import member_chunk_count, persona_lengths, replace_member_chunks
 from app.repositories.history import (
     write_admin_log,
     admin_log_count, admin_log_recent, like_count,
     list_likes, list_search_history, list_chat_history,
+    delete_activity, delete_logins_by_customer,
 )
 from app.repositories.members import (
     customer_list, customer_one, customer_preferences, customer_preferences_initial,
     customer_persona, customer_ids, customer_count,
     update_customer, update_preferences,
-    insert_customer, insert_preferences,
+    insert_customer, insert_preferences, delete_customer,
     indicator_averages, age_group_counts, gender_counts,
     join_month_counts, home_city_counts, deal_type_counts,
 )
@@ -213,6 +215,27 @@ def create_member(payload: dict) -> dict:
     write_admin_log("member", customer_id, payload)
     _clear_caches()
     return get_member(customer_id)
+
+
+def delete_member(customer_id: str) -> bool:
+    """회원 탈퇴 — customers·user_preferences·member 청크·로그인 계정·활동 기록을 전부 지운다.
+
+    없는 회원이면 False. anon_id 로 쌓인 활동(likes·search_history·chat_history)은
+    로그인한 회원의 경우 anon_id 가 customer_id 로 덮어써져 있으므로 같은 값으로 지운다
+    (get_member() 의 활동 조회와 짝이 맞아야 한다).
+    """
+    if get_member(customer_id) is None:
+        return False
+
+    replace_member_chunks(customer_id, [])   # 벡터도 같이 지운다
+    vector_store.invalidate("member")
+    delete_logins_by_customer(customer_id)
+    delete_activity(customer_id)
+    delete_customer(customer_id)
+
+    write_admin_log("member", customer_id, {"action": "탈퇴"})
+    _clear_caches()
+    return True
 
 
 # 행정동 수정
