@@ -9,7 +9,6 @@ region_service.py 는 동네 하나를 설명하고 끝난다.
 """
 
 from app.repositories.regions import facility_counts, facility_categories, region_extras
-from app.ai.llm import ask
 from app.engine.housing import region_price_lines
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도우미입니다.
@@ -106,13 +105,21 @@ def build_context(regions, weights, question):
 def chat(question, regions=None, weights=None, history=None):
     """후속 질문에 답한다.
 
+    실제 계산은 app/graph/graph.py 의 chat_graph 가 한다 —
+    context → generate 순서로 도는 2개 노드다(10단계).
+
     history 는 지금은 안 쓰지만 자리를 열어 둔다 —
     나중에 로그인·대화 저장을 붙이면 DB 에서 불러와 넘기게 된다
     """
-    context = build_context(regions, weights, question)
+    from app.graph.graph import chat_graph
 
-    messages = [
-        ("system", SYSTEM_PROMPT),
-        ("human", f"{context}\n\n## 질문\n{question}"),
-    ]
-    return ask(messages, max_tokens=600).strip()
+    state = {
+        "question": question,
+        "regions": regions or [],
+        "weights": weights or {},
+        "context": "",
+        "answer": "",
+        "path": [],
+    }
+    result = chat_graph.invoke(state)
+    return result["answer"]
