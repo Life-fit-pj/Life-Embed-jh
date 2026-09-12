@@ -36,6 +36,8 @@ def load(source):
     if source not in _cache:
         rows = _LOADERS[source]()
         vectors = np.array([r["embedding"] for r in rows], dtype="float32")
+        for r in rows:
+            r["embedding"] = None   # 배열에 이미 옮겨 실었다 — 원본 float 리스트를 계속 들고 있으면 메모리가 두 배로 든다
         _cache[source] = (rows, vectors)
 
     return _cache[source]
