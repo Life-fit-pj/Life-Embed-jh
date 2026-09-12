@@ -16,12 +16,10 @@ from app.engine.recommend import (
     load_regions, build_scores, build_relative, recommend,
     PRICE_COLUMNS, load_price_values, build_price_score,
 )
-from app.engine.weights import ask_claude, blend, find_similar_members
 from app.engine.housing import matching_regions, attach_price
 
-from app.repositories.members import member_weights
 from app.repositories.regions import region_densities
-from app.core.config import INDICATORS
+
 
 # ── 준비물 보관함 ──────────────────────────────
 _ready = None
@@ -111,55 +109,46 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
 def search(query, top_k=5, housing_override=None, weights_override=None):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 
+    실제 계산은 app/graph/graph.py 의 search_graph 가 한다 —
+    weights → recommend → explain 순서로 도는 3개 노드다(10단계).
+
     housing_override 를 주면 검색어에서 뽑아낸 가격 조건 대신 이 값을 그대로 쓴다 —
     화면에서 사용자가 이미 명시적으로 고른 조건(건물유형·거래유형·예산·보증금)이,
     검색어 문장에서 애매하게 뽑아낸 조건보다 신뢰도가 높다는 판단이다.
-    
+
     weights_override 도 같은 취지다 — 1차 유형 카드가 이미 확정한 가중치가 있으면
     검색어에서 다시 추정하지 않고 그걸 쓴다. 이게 없으면 1차에서 보여 준 동네가
     2차 추천에서 통째로 사라진다(같은 문장을 다시 읽어 다른 가중치가 나오기 때문).
     """
-    r = get_ready()
+    # app/graph/nodes.py 가 이 파일의 recommend_by_weights 를 가져다 쓰므로,
+    # 파일 맨 위에서 바로 부르면 순환 참조로 임포트가 꼬인다. 부를 때만 가져온다
+    from app.graph.graph import graph
 
-    # 1) 검색어 → 가중치
-    draft, persona_query = ask_claude(query)
-    similar = find_similar_members(persona_query)
-    ids = [cid for cid, _ in similar]
-    weights = blend(draft, member_weights(ids))
-
-    # 화면에서 확정된 가중치가 있으면 검색어 추정 대신 그걸 쓴다.
-    # 통째로 대입하지 않고 덮어쓰는 이유 — recommend() 는 weights 의 키를 그대로
-    # scores 에서 찾으므로, INDICATORS 밖의 키가 들어오면 KeyError 가 나고
-    # 빠진 지표는 보통값(3)이 아니라 아예 0으로 무시돼 순위가 틀어진다
-    if weights_override:
-        weights = {**weights,
-                   **{k: float(v) for k, v in weights_override.items() if k in INDICATORS}}
-
-
-    # 1-1) 검색어 → 가격 조건. housing_override 가 있으면 그걸 우선한다.
-    # 없으면 건물유형·거래유형·예산 셋 다 있어야 검색어에서 뽑은 조건으로 필터를 켠다
-    housing = housing_override
-    if housing is None and draft.get("건물유형") and draft.get("거래유형") and draft.get("예산"):
-        targets = {"예산": draft["예산"]}
-        if draft["거래유형"] == "월세" and draft.get("보증금"):
-            targets["보증금"] = draft["보증금"]
-        housing = {"건물유형": draft["건물유형"], "거래유형": draft["거래유형"], "targets": targets}
-
-    # 2) 가중치 → TOP 5 (가격 조건이 있으면 그 조건에 맞는 동으로 먼저 추린다)
-    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
-
-    # 3) 설명문
-    cases = find_cases(persona_query)
-    text = explain(query, weights, detailed, cases, housing=housing)
-
-    return{
+    state = {
         "query": query,
-        "persona_query": persona_query,
-        "weights": weights,
-        "regions": detailed,
-        "explanation": text,
-        "housing": housing,   # 검색어에서 뽑아낸(또는 화면에서 넘어온) 조건. 가격 언급이 없었으면 None
+        "top_k": top_k,
+        "housing_override": housing_override,
+        "weights_override": weights_override,
+        "draft": {},
+        "persona_query": "",
+        "weights": {},
+        "housing": None,
+        "regions": [],
+        "cases": [],
+        "explanation": "",
+        "path": [],
     }
+    result = graph.invoke(state)
+
+    return {
+        "query": query,
+        "persona_query": result["persona_query"],
+        "weights": result["weights"],
+        "regions": result["regions"],
+        "explanation": result["explanation"],
+        "housing": result["housing"],   # 검색어에서 뽑아낸(또는 화면에서 넘어온) 조건. 가격 언급이 없었으면 None
+    }
+
 
 if __name__ == "__main__" :
     import json
