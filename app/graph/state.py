@@ -46,7 +46,16 @@ class ChatState(TypedDict):
     regions: list
     weights: dict
 
-    # context 노드가 채운다: Claude 에게 넘길 재료 글
+    # plan 노드가 정한다: "tool" 또는 "context"
+    route: str
+
+    # plan 노드가 고른 도구들. [{"name": "get_facility_counts", "arguments": {...}}]
+    tool_calls: list
+
+    # run_tools 노드가 조회해 온 결과
+    tool_result: list
+
+    # context 노드가 채운다: Claude 에게 넘길 재료 글 (route == "context" 일 때만)
     context: str
 
     # generate 노드가 채운다: 최종 답변
