@@ -122,7 +122,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
     """
     # app/graph/nodes.py 가 이 파일의 recommend_by_weights 를 가져다 쓰므로,
     # 파일 맨 위에서 바로 부르면 순환 참조로 임포트가 꼬인다. 부를 때만 가져온다
-    from app.graph.graph import graph
+    from app.graph.graph import search_graph
 
     state = {
         "query": query,
@@ -138,7 +138,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
         "explanation": "",
         "path": [],
     }
-    result = graph.invoke(state)
+    result = search_graph.invoke(state)
 
     return {
         "query": query,

@@ -37,3 +37,21 @@ class SearchState(TypedDict):
 
     # 어떤 노드를 거쳤는지. 디버깅용
     path: list
+
+
+# chat_graph 가 들고 다니는 상태다. chat_service.chat() 의 인자를 그대로 옮겨 담았다.
+class ChatState(TypedDict):
+    # 요청 입력 — chat() 의 인자를 그대로 받는다
+    question: str
+    regions: list
+    weights: dict
+
+    # context 노드가 채운다: Claude 에게 넘길 재료 글
+    context: str
+
+    # generate 노드가 채운다: 최종 답변
+    answer: str
+
+    # 어떤 노드를 거쳤는지. 디버깅용
+    path: list
+

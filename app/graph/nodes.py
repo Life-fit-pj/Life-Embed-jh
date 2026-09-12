@@ -5,10 +5,12 @@ search_service.search() 에서 하던 일을 그대로 옮겼다.
 LangGraph 가 돌려받은 키만 기존 state 에 덮어쓴다.
 """
 
+from app.ai.llm import ask
 from app.core.config import INDICATORS
 from app.engine.explain import explain, find_cases
 from app.engine.weights import ask_claude, blend, find_similar_members
 from app.repositories.members import member_weights
+from app.services.chat_service import SYSTEM_PROMPT, build_context
 from app.services.search_service import recommend_by_weights
 
 
@@ -51,3 +53,19 @@ def explain_node(state):
     cases = find_cases(state["persona_query"])
     text = explain(state["query"], state["weights"], state["regions"], cases, housing=state["housing"])
     return {"cases": cases, "explanation": text, "path": state["path"] + ["explain"]}
+
+# 질문 + 추천 결과 -> Claude 에게 넘길 재료 글
+def chat_context_node(state):
+    context = build_context(state["regions"], state["weights"], state["question"])
+    return {"context": context, "path": state["path"] + ["context"]}
+
+
+# 재료 글 -> 답변
+def chat_generate_node(state):
+    messages = [
+        ("system", SYSTEM_PROMPT),
+        ("human", f"{state['context']}\n\n## 질문\n{state['question']}"),
+    ]
+    answer = ask(messages, max_tokens=600).strip()
+    return {"answer": answer, "path": state["path"] + ["generate"]}
+
