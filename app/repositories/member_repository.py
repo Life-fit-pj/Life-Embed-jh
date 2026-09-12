@@ -222,18 +222,19 @@ def indicator_spread(db, name):
 def indicator_drift(db, name):
     """지표 하나가 가입 시 값에서 얼마나 움직였나. (인원, 평균변화).
 
-    0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다
+    0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다.
+    func.avg() 는 Decimal 을 낸다 — indicator_averages() 와 같은 이유로 float 로 바꾼다.
     """
     current = getattr(Preference, name)
     initial = getattr(Preference, f"{name}_초기")
 
-    row = (
+    n, avg = (
         db.query(func.count(), func.avg(current - initial))
         .filter(initial.isnot(None))
         .filter(func.abs(current - initial) >= 0.005)
         .one()
     )
-    return tuple(row)
+    return n, (float(avg) if avg is not None else None)
 
 
 def age_group_counts(db):
