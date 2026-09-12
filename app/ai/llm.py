@@ -40,3 +40,37 @@ def ask(messages, max_tokens=800):
     )
     return reply.content[0].text
 
+
+def ask_with_tools(messages, tool_specs, max_tokens=800):
+    """도구 목록을 같이 건네고, Claude 가 도구를 고르면 그 목록을 돌려준다.
+
+    tool_specs 는 Anthropic 형식이다: [{"name", "description", "input_schema"}]
+    (OpenAI 의 {"type": "function", "function": {...}} 과 다르다).
+    Claude 는 도구 인자를 이미 dict 로 준다 — OpenAI 처럼 JSON 문자열을 따로
+    파싱할 필요가 없다.
+
+    돌려주는 값: [{"name": ..., "arguments": {...}}] — 안 고르면 빈 리스트.
+    """
+    if isinstance(messages, str):
+        messages = [("human", messages)]
+
+    system = "\n\n".join(text for role, text in messages if role == "system")
+    turns = [
+        {"role": "user", "content": text}
+        for role, text in messages
+        if role != "system"
+    ]
+
+    reply = client.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=turns,
+        tools=tool_specs,
+    )
+    return [
+        {"name": block.name, "arguments": block.input}
+        for block in reply.content
+        if block.type == "tool_use"
+    ]
+

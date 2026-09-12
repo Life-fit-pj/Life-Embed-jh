@@ -13,8 +13,7 @@ from app.ai.chunker import make_chunks, KB_KEYS, MEMBER_KEYS
 
 # 임베딩해서 저장하는, 두 함수가 공통으로 하는 부분만 뽑은 것
 def _embed(chunks):
-    vectors = embed_documents([c["text"] for c in chunks])
-    return [vector_store.to_text(v) for v in vectors]
+    return embed_documents([c["text"] for c in chunks])
 
 
 

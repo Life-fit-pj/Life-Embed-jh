@@ -21,8 +21,27 @@ INDICATOR_COLUMNS = {
 }
 
 
+# 화면이 "공원 5개 · CCTV 120대" 처럼 보여줄 **원본 개수**.
+# 밀도(INDICATOR_COLUMNS)는 순위를 매기는 값이고, 이쪽은 근거로 보여주는 값이다.
+#
+# ★ 여기 적힌 칸은 Life-Web/services/typespot.py 의 BLURB_COLS 와 짝이다.
+#   한쪽만 고치면 카드 문구가 조용히 빈다 — 그래서 서로를 주석으로 가리켜 둔다.
+#
+# 같은 표(master_dataset_v3)의 같은 427행을 읽는 한 번의 쿼리에 칸만 더하는 것이라
+# 비용이 사실상 0 이다(실측: 12칸 342ms → 24칸 342ms)
+COUNT_COLUMNS = [
+    "공원_수", "CCTV_수", "경찰관서_수", "지하철역_수", "버스정류장_수",
+    "대형점포_수", "점포_수", "의료기관_수", "학교_수", "학원_수",
+    "문화시설_수", "도서관_수",
+]
+
+
 def load_regions():
-    """427개 동의 이름과, 매핑에 쓰이는 밀도 칸들을 꺼낸다."""
+    """427개 동의 이름과, 밀도 칸·개수 칸을 꺼낸다.
+
+    한 번의 쿼리로 둘을 같이 가져온다 — 순위에 쓸 밀도와, 화면 근거로 쓸 개수다.
+    돌려주는 것 셋: names · values(밀도, numpy) · counts(개수, 동네별 dict)
+    """
     # 매핑에 등장하는 칸을 전부 모은다 (중복 없이, 순서 유지)
     cols = []
     for cs in INDICATOR_COLUMNS.values():
@@ -30,16 +49,23 @@ def load_regions():
             if c not in cols:
                 cols.append(c)
 
-    rows = region_densities(cols)
+    rows = region_densities(cols + COUNT_COLUMNS)
     
     names = [f"{r['구']} {r['행정동명']}" for r in rows]
     
-    # 칸별 값 묶음. values["공원_밀도"] = 427개 숫자 배열
+    # 밀도는 계산용이라 numpy 배열로
     values = {}
     for c in cols:
         values[c] = np.array([r[c] or 0 for r in rows], dtype="float64")
     
-    return names, values
+    # 개수는 그대로 보여줄 값이라 동네별 딕셔너리로.
+    # 이름으로 찾을 일이 많아 리스트가 아니라 {동네이름: {칸: 값}} 이다
+    counts = {
+        name: {c: row[c] for c in COUNT_COLUMNS}
+        for name, row in zip(names, rows)
+    }
+
+    return names, values, counts
 
 
 def to_percentile(values, invert=False) :

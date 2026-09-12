@@ -9,7 +9,6 @@ region_service.py 는 동네 하나를 설명하고 끝난다.
 """
 
 from app.repositories.regions import facility_counts, facility_categories, region_extras
-from app.ai.llm import ask
 from app.engine.housing import region_price_lines
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도우미입니다.
@@ -45,6 +44,11 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도�
 5. 답은 3~4문장으로 짧게. 목록이 필요하면 최대 5개까지만.
 
 존댓말로 답하세요."""
+
+
+PLAN_SYSTEM = """추천된 동네에 대한 후속 질문입니다. 아래 도구로 답할 수 있는
+구체적인 질문(시설 개수·분류)이면 도구를 고르세요. 점수의 의미, 왜 추천됐는지,
+동네 비교처럼 도구로 답할 수 없는 질문이면 도구를 고르지 마세요."""
 
 
 def build_context(regions, weights, question):
@@ -106,13 +110,24 @@ def build_context(regions, weights, question):
 def chat(question, regions=None, weights=None, history=None):
     """후속 질문에 답한다.
 
+    실제 계산은 app/graph/graph.py 의 chat_graph 가 한다 —
+    plan 이 도구를 쓸지(tool) 기존 방식대로 답할지(context) 정하고 generate 로 합류한다.
+
     history 는 지금은 안 쓰지만 자리를 열어 둔다 —
     나중에 로그인·대화 저장을 붙이면 DB 에서 불러와 넘기게 된다
     """
-    context = build_context(regions, weights, question)
+    from app.graph.graph import chat_graph
 
-    messages = [
-        ("system", SYSTEM_PROMPT),
-        ("human", f"{context}\n\n## 질문\n{question}"),
-    ]
-    return ask(messages, max_tokens=600).strip()
+    state = {
+        "question": question,
+        "regions": regions or [],
+        "weights": weights or {},
+        "route": "",
+        "tool_calls": [],
+        "tool_result": [],
+        "context": "",
+        "answer": "",
+        "path": [],
+    }
+    result = chat_graph.invoke(state)
+    return result["answer"]

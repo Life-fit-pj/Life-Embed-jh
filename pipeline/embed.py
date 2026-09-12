@@ -9,7 +9,6 @@
 
 import time
 
-from app.ai import vector_store
 from app.ai.embedder import embed_documents
 from app.db import SessionLocal
 from app.models.chunk import Chunk
@@ -44,8 +43,8 @@ def main():
         vectors = embed_documents([chunk.text for chunk in batch])
 
         for chunk, vector in zip(batch, vectors):
-            chunk.embedding = vector_store.to_text(vector)
-
+            chunk.embedding = vector
+            
         db.commit()   # 배치마다 저장 — 여기서 죽어도 앞 배치는 남는다
 
         done = min(start + BATCH_SIZE, len(todo))

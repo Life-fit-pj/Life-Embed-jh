@@ -258,13 +258,12 @@ def gender_counts(db):
 
 def join_month_counts(db):
     """가입 월(YYYY-MM)별 인원. (월, 인원) 목록."""
-    month = func.substr(Customer.joined_at, 1, 7)
+    month = func.to_char(Customer.joined_at, "YYYY-MM")
 
     return [
         tuple(row)
         for row in db.query(month, func.count())
         .filter(Customer.joined_at.isnot(None))
-        .filter(Customer.joined_at != "")
         .group_by(month)
         .order_by(month)
         .all()

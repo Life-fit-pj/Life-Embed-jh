@@ -23,3 +23,4 @@ def dong_variants(dong):
     out.add(re.sub(r"(?<!제)(\d+)동$", r"제\1동", base)) 
     
     return list(out)
+

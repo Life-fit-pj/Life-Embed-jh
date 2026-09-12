@@ -3,6 +3,9 @@ python-dotenv==1.2.2
 sqlalchemy==2.0.52
 pydantic==2.13.4
 
+psycopg[binary]==3.3.5       # Postgres 드라이버. [binary] 가 없으면 Windows 에서 빌드 도구를 찾다 막힌다
+pgvector==0.5.0              # Vector(1536) 칸 타입
+
 fastapi==0.121.2
 uvicorn==0.38.0
 
@@ -12,3 +15,6 @@ anthropic==1.4.0
 # ↓ 6단계에서 임베딩이 OpenAI 로 넘어가면서 sentence-transformers 를 뺐다.
 #   그 줄이 있던 자리다 — 로컬 모델은 이제 쓰지 않는다
 openai==3.8.0
+
+# search/chat 파이프라인을 그래프로 재구성
+langgraph==1.2.11

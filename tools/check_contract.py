@@ -14,10 +14,10 @@ Life-Web/services/engine.py 20~36행이 계약이다.
 import importlib
 
 CONTRACT = {
-    "app.tables.history": ["add_like", "remove_like", "add_search_history",
-                           "list_search_history", "add_chat_history", "list_chat_history"],
-    "app.tables.regions": ["facilities", "facility_counts", "region_extras"],
-    "app.tables.members": ["customer_one"],
+    "app.repositories.history": ["add_like", "remove_like", "add_search_history",
+                                 "list_search_history", "add_chat_history", "list_chat_history"],
+    "app.repositories.regions": ["facilities", "facility_counts", "region_extras"],
+    "app.repositories.members": ["customer_one"],
     "app.features.search": ["search", "recommend_by_weights",
                             "recommend_by_weights_explained"],
     "app.features.region_explain": ["region_explain_cached"],
@@ -28,7 +28,12 @@ CONTRACT = {
                            "update_member", "update_region", "preview_member",
                            "similar_members", "InvalidPatch", "health", "clear_caches",
                            "privacy_preview", "dashboard", "recent_logs", "create_member"],
-    "app.features.auth": ["login_with_supabase", "backfill_logins", "signed_up", "signup"],
+    # ⚠ Supabase Auth 로 갈아타는 중이라 이 줄만 계약이 줄었다.
+    #    엔진의 login()·id_exists() 가 없어져서 Life-Web/services/engine.py 가
+    #    backfill_logins 하나만 가져간다. 나머지(login_with_supabase·signed_up·
+    #    signup)는 엔진 자기 라우터(app/api/auth.py)가 쓰므로 여기 계약이 아니다.
+    #    프론트가 Supabase 토큰을 받아 오면(study2.md 1~3단계) 이 줄을 다시 채운다.
+    "app.features.auth": ["backfill_logins"],
 }
 
 
