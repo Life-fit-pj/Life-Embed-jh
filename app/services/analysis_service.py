@@ -23,7 +23,6 @@ from app.core.config import INDICATORS
 from app.services.admin_service import dashboard, to_pairs
 from app.repositories.history import (
     add_analysis_chat, analysis_chat_one, chat_count, delete_analysis_chat,
-    ensure_analysis_chat,
     like_region_counts, list_analysis_chat, search_count, top_searches,
 )
 from app.repositories.members import (
@@ -50,9 +49,11 @@ def facts_drift() -> dict:
     `_초기` 칸은 관리자 화면 작업 때 만들었다. 지금은 100명 전원이 가입 시 값
     그대로라 변동이 0건인 게 정상이다 — 그 사실을 숫자로 같이 실어 보낸다
 
-    칸이 아예 없는 DB 면 세는 시늉을 하지 않고 그렇다고 말한다. SQLite 가
-    없는 칸 이름을 문자열로 해석해 버려서, 그냥 돌리면 "100명 전원이 평균
-    3.53 만큼 움직였다" 같은 그럴듯한 거짓 숫자가 나온다
+    칸이 아예 없는 DB 면 세는 시늉을 하지 않고 그렇다고 말한다. Postgres 는
+    없는 칸을 물으면 column does not exist 로 죽으므로, 화면 하나 때문에
+    분석 페이지 전체가 500 이 되는 것을 여기서 막는다.
+    (SQLite 시절에는 더 나빴다 — 없는 칸 이름을 문자열로 해석해서 "100명 전원이
+     평균 3.53 만큼 움직였다" 같은 그럴듯한 거짓 숫자가 나왔다)
     """
     if not has_initial_columns():
         return {
@@ -166,11 +167,6 @@ def ask(question: str) -> dict:
 
 # ── 대화 보관 ────────────────────────────────────
 # SQL 은 app/tables/history.py 에 있다. 여기는 "무엇을 남기고 어떻게 읽을까"만 정한다
-
-
-def ensure_table():
-    """예전 이름. 표를 만드는 일은 tables 로 갔다."""
-    ensure_analysis_chat()
 
 
 def save_chat(question, answer, facts) -> int:

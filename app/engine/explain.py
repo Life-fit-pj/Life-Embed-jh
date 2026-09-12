@@ -97,25 +97,29 @@ def find_cases(persona_query, top_k=3):
 
 
 # 추천 결과에 지표 수치 붙이기
-def with_scores(result, names, scores):
-    """TOP 5 에 각 동네의 지표 점수를 붙인다.
+def with_scores(result, names, scores, counts=None):
+    """TOP 5 에 각 동네의 지표 점수와 원본 개수를 붙인다.
 
-    08번은 (이름, 총점) 만 준다.
-    "교육 98점" 같은 근거를 대려면 지표별 점수가 있어야 한다
+    scores 는 백분위(0~100)라 "이 동네가 몇 등인가" 는 알려주지만
+    "공원이 몇 개인가" 는 못 알려준다. 화면이 근거로 보여줄 실제 개수가 counts 다.
+
+    counts 를 안 주면 그 칸은 빈 딕셔너리다 — 부르는 쪽을 한꺼번에 안 고쳐도 되게
     """
+    counts = counts or {}
     detailed = []
-    
+
     for name, total in result:
         i = names.index(name)
         detailed.append({
             "name": name,
             "total": round(total, 1),
             # INDICATORS 로 고정하지 않고 scores 에 실제로 있는 지표를 전부 싣는다 —
-            # 가격 조건이 없는 검색에서는 pipeline_api 가 "시세"를 8번째로 넣는데,
+            # 가격 조건이 없는 검색에서는 "시세"가 8번째로 들어오는데,
             # 7개로 잘라내면 가중치만 남고 근거 점수가 사라져 Claude 가 지어내게 된다
             "scores": {k: round(float(v[i])) for k, v in scores.items()},
+            "counts": counts.get(name, {}),
         })
-    
+
     return detailed
 
 

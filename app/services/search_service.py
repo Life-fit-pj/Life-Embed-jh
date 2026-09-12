@@ -37,18 +37,19 @@ def get_ready():
     if _ready is None:
         print("⏳ 파이프라인 준비 중...")
 
-        names, values = load_regions()
+        names, values, counts = load_regions()
         scores = build_scores(values)
         relative = build_relative(scores)
 
         price_values = load_price_values(region_densities(PRICE_COLUMNS))
-        price_score = build_price_score(price_values)   # 427개 동, 0~100 — housing 없을 때만 쓴다
-
+        price_score = build_price_score(price_values)
+        
         _ready = {
             "names": names,
             "scores": scores,
             "relative": relative,
             "price_score": price_score,
+            "counts": counts,      # 화면 근거용 원본 개수. 순위 계산에는 안 쓴다
         }
         print(f"✅ 준비 완료 · 행정동 {len(names)}개")
     return _ready
@@ -85,7 +86,7 @@ def recommend_by_weights(weights, top_k=5, housing=None):
         weights = {**weights, "시세": weights.get("시세", DEFAULT_PRICE_WEIGHT)}
 
     result = recommend(names, scores, relative, weights, top_k=top_k)
-    detailed = with_scores(result, names, scores)
+    detailed = with_scores(result, names, scores, r["counts"])
     return attach_price(detailed, housing)
 
 

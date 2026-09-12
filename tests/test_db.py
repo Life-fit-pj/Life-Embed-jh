@@ -7,18 +7,19 @@ import threading
 
 from sqlalchemy import func
 
-from app.core.config import DB_PATH
 from app.db import SessionLocal, engine
 from app.models.customer import Customer
 
 
-def test_engine_이_그_life_db_를_본다():
-    """DATABASE_URL 을 잘못 만들면 sqlite 가 빈 파일을 새로 만들어 버린다.
+def test_engine_이_설정한_DB_를_본다():
+    """DATABASE_URL 을 잘못 적으면 엉뚱한 DB 에 붙는다.
 
-    그러면 표가 하나도 없는 DB 로 조용히 돌아가므로, 경로를 직접 대조한다.
+    옛 판은 "파일 경로가 life.db 인가" 를 봤다. DB 가 파일이 아니게 되면서
+    그 질문이 성립하지 않는다 — 방언이 postgresql 인지로 바꾼다
     """
-    assert engine.url.database.replace("\\", "/") == DB_PATH.as_posix()
-
+    assert engine.dialect.name == "postgresql"
+    assert engine.url.render_as_string(hide_password=True).startswith("postgresql")
+    
 
 def test_세션은_부를_때마다_새것이다():
     """SessionLocal 은 세션이 아니라 세션을 찍어내는 틀이다. (이론 4)"""
@@ -40,9 +41,12 @@ def count_customers(results, index):
 
 
 def test_여러_스레드가_동시에_읽어도_안_죽는다():
-    """app/core/db.py 가 threading.local() 로 손수 풀던 문제다. (이론 4)
+    """engine 은 연결을 풀에 넣고 여러 스레드가 돌려쓴다. (이론 4)
 
-    check_same_thread=False 를 빠뜨리면 여기서 ProgrammingError 가 난다.
+    FastAPI 가 요청마다 다른 스레드에서 처리하므로 실제로 그렇게 된다.
+    옛날에는 app/core/db.py 가 threading.local() 로 이걸 손수 풀었고
+    연결 옵션도 하나 붙여야 했다 — 파일 DB 를 떠나면서 둘 다 없앴다.
+    이 시험은 그 뒤에도 여전히 안 죽는지를 본다
     """
     results = [None] * 4
     threads = [threading.Thread(target=count_customers, args=(results, i)) for i in range(4)]

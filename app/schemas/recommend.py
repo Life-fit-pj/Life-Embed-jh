@@ -35,6 +35,7 @@ class RegionOut(BaseModel):
     name: str
     total: float
     scores: dict[str, int]
+    counts: dict = {}
     price: dict | None = None
 
 

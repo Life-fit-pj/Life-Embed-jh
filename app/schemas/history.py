@@ -35,8 +35,10 @@ class HistoryOut(BaseModel):
     searches: list[SearchHistoryItem]
     chats: list[ChatHistoryItem]
 
-
 class LikeItem(BaseModel):
-    gu: str
-    dong: str
-    created_at: str
+    """좋아요 한 줄. repositories/history_repository.py 의 list_likes() 가 내는 모양 그대로다."""
+    구: str
+    행정동명: str
+    created_at: str | None = None
+
+

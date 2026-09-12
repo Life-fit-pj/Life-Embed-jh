@@ -59,3 +59,21 @@ class AdminLog(Base):
     target_id = Column(String)
     patch = Column(Text)           # 무엇을 무엇으로 고쳤나. JSON 문자열
     changed_at = Column(String)
+
+
+class UserLogin(Base):
+    """Supabase 사용자(또는 옛 아이디)와 우리 customer_id 를 잇는 표.
+
+    login_id 가 기본키다 — 계정 풀이 소진되면 같은 customer_id 에 로그인이
+    여러 개 붙을 수 있어야 해서 customer_id 는 유일하지 않다.
+    login_id 는 "supabase:<uid>" 형태다(app/services/auth_service.py 의 _login_id).
+
+    password 칸은 옛 아이디/비밀번호 로그인의 잔재다. Supabase 로 넘어가면서
+    아무도 확인하지 않지만, 이미 들어 있는 값이 있어 4-B 이관까지는 그대로 옮긴다
+    """
+    __tablename__ = "user_login"
+
+    login_id = Column(String, primary_key=True)
+    customer_id = Column(String, nullable=False)
+    password = Column(String, nullable=False)
+    created_at = Column(String, server_default=NOW)

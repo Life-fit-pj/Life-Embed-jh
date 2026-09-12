@@ -13,18 +13,22 @@ customers 표 — 실제 서울 행정동 주소를 쓰고 추천 엔진이 그�
 쪽 — 를 기준으로 페르소나 9칸을 그 사람 정보에 맞게 다시 쓴다.
 이미 이름이 맞는 회원은 건드리지 않는다(재실행해도 안전).
 
-실행 전 반드시 data/life.db 를 백업해 둘 것 — 벡터까지 다시 만들어
-덮어쓰므로 되돌리려면 백업 파일이 있어야 한다.
+⚠ 되돌릴 방법이 없다. 청크와 벡터를 지우고 새로 쓰는데, DB 가 파일이 아니라
+  Supabase 라서 "백업 파일을 복사해 둔다" 가 안 된다. 되돌리려면 chunks 를
+  pipeline.chunk -> pipeline.embed 로 통째로 다시 만들어야 한다(OpenAI 요금이 다시 나간다).
+  먼저 몇 명만 시험해 보고 싶으면 fix_all() 의 targets 를 잘라서 돌린다.
 """
 
 import json
 import re
 import time
 
-from app.core.config import CHUNK_COLUMNS
-from app.core.db import get_con, dicts
 from app.ai.llm import ask
+from app.core.config import CHUNK_COLUMNS
+from app.db import SessionLocal
 from app.engine.resync import resync_member
+from app.models.chunk import Chunk
+from app.models.customer import Customer
 
 LABELS = {
     "persona": "총괄 요약 (이 사람이 어떤 사람인지 2~3문장)",
@@ -39,22 +43,34 @@ LABELS = {
 }
 
 
-def _mismatched_customers(con):
-    """persona 청크의 이름이 실제 회원 이름과 다른 사람만 골라낸다."""
-    customers = dicts(
-        "SELECT customer_id, name, gender, age, city, city_dong, work_city, work_dong "
-        "FROM customers ORDER BY customer_id"
+CUSTOMER_FIELDS = ("customer_id", "name", "gender", "age",
+                   "city", "city_dong", "work_city", "work_dong")
+
+
+def _mismatched_customers(db):
+    """persona 청크의 이름이 실제 회원 이름과 다른 사람만 골라낸다.
+
+    회원 100명에 조회가 101번 나간다(회원 목록 1 + 사람마다 1). 로컬 파일일 때는
+    공짜였지만 Postgres 는 네트워크 왕복이다 — 그래서 persona 청크를 한 번에
+    받아 딕셔너리로 만들어 두고 맞춰 본다
+    """
+    customers = [
+        dict(zip(CUSTOMER_FIELDS, row))
+        for row in db.query(*[getattr(Customer, f) for f in CUSTOMER_FIELDS])
+        .order_by(Customer.customer_id)
+        .all()
+    ]
+
+    personas = dict(
+        db.query(Chunk.source_id, Chunk.text)
+        .filter(Chunk.source == "member", Chunk.category == "persona")
+        .all()
     )
-    out = []
-    for c in customers:
-        row = con.execute(
-            "SELECT text FROM chunks "
-            "WHERE source = 'member' AND source_id = ? AND category = 'persona'",
-            (c["customer_id"],),
-        ).fetchone()
-        if row is None or not row[0].startswith(c["name"]):
-            out.append(c)
-    return out
+
+    return [
+        c for c in customers
+        if not personas.get(c["customer_id"], "").startswith(c["name"])
+    ]
 
 
 def _build_prompt(customer: dict) -> str:
@@ -95,8 +111,14 @@ def _parse(raw: str) -> dict | None:
 
 
 def fix_all():
-    con = get_con()
-    targets = _mismatched_customers(con)
+    # 대상을 먼저 다 뽑고 세션을 닫는다. 뒤 반복문은 LLM 을 기다리며 몇 분씩 도는데,
+    # 그동안 세션을 붙들고 있으면 연결만 잡아먹는다(resync_member 가 자기 세션을 연다)
+    db = SessionLocal()
+    try:
+        targets = _mismatched_customers(db)
+    finally:
+        db.close()
+
     print(f"고칠 회원 {len(targets)}명")
 
     fixed, failed = 0, []
