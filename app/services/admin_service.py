@@ -3,6 +3,7 @@
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 from app.ai import vector_store
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
@@ -369,38 +370,55 @@ def dashboard() -> dict:
     if not base["ok"]:
         return {**base, "counts": {}, "charts": {}, "recent": []}
 
-    ages = to_pairs(age_group_counts())
-    for a in ages:
-        a["label"] = f"{a['label']}대"
+    # 아래 11개는 서로 안 기대는 별개 집계다. 하나씩 순서대로 부르면 Supabase 왕복
+    # 지연이 그대로 더해져(원격 DB라 건당 수백ms) 대시보드 하나에 몇 초가 걸린다 —
+    # 스레드로 동시에 보내 가장 느린 것 하나만큼만 기다리게 한다
+    with ThreadPoolExecutor(max_workers=11) as pool:
+        ages_f = pool.submit(age_group_counts)
+        genders_f = pool.submit(gender_counts)
+        weights_f = pool.submit(indicator_averages)
+        gu_f = pool.submit(gu_count)
+        chunks_f = pool.submit(member_chunk_count)
+        edits_f = pool.submit(admin_log_count)
+        joins_f = pool.submit(join_month_counts)
+        member_gu_f = pool.submit(home_city_counts)
+        region_gu_f = pool.submit(region_gu_counts)
+        deal_type_f = pool.submit(deal_type_counts)
+        persona_f = pool.submit(persona_lengths)
+        recent_f = pool.submit(recent_logs, 8)
 
-    genders = to_pairs(gender_counts())
-    for g in genders:
-        g["label"] = {"M": "남성", "F": "여성"}.get(g["label"], g["label"])
+        ages = to_pairs(ages_f.result())
+        for a in ages:
+            a["label"] = f"{a['label']}대"
 
-    # 7지표 평균 — 회원들이 무엇을 중요하게 꼽았는지. 칸 이름은 config 것을 그대로 쓴다
-    weights = [
-        {"label": name, "value": round(value, 2) if value is not None else 0}
-        for name, value in indicator_averages().items()
-    ]
+        genders = to_pairs(genders_f.result())
+        for g in genders:
+            g["label"] = {"M": "남성", "F": "여성"}.get(g["label"], g["label"])
 
-    return {
-        **base,
-        "counts": {
-            "members":  base["members"],
-            "regions":  base["regions"],
-            "gu":       gu_count(),
-            "chunks":   member_chunk_count(),
-            "edits":    admin_log_count(),
-        },
-        "charts": {
-            "joins":     to_pairs(join_month_counts()),
-            "ages":      ages,
-            "genders":   genders,
-            "weights":   weights,
-            "memberGu":  to_pairs(home_city_counts()),
-            "regionGu":  to_pairs(region_gu_counts()),
-            "dealType":  to_pairs(deal_type_counts()),
-            "persona":   to_pairs(persona_lengths()),
-        },
-        "recent": recent_logs(8),
-    }
+        # 7지표 평균 — 회원들이 무엇을 중요하게 꼽았는지. 칸 이름은 config 것을 그대로 쓴다
+        weights = [
+            {"label": name, "value": round(value, 2) if value is not None else 0}
+            for name, value in weights_f.result().items()
+        ]
+
+        return {
+            **base,
+            "counts": {
+                "members":  base["members"],
+                "regions":  base["regions"],
+                "gu":       gu_f.result(),
+                "chunks":   chunks_f.result(),
+                "edits":    edits_f.result(),
+            },
+            "charts": {
+                "joins":     to_pairs(joins_f.result()),
+                "ages":      ages,
+                "genders":   genders,
+                "weights":   weights,
+                "memberGu":  to_pairs(member_gu_f.result()),
+                "regionGu":  to_pairs(region_gu_f.result()),
+                "dealType":  to_pairs(deal_type_f.result()),
+                "persona":   to_pairs(persona_f.result()),
+            },
+            "recent": recent_f.result(),
+        }
