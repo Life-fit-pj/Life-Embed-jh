@@ -12,6 +12,15 @@
   팀원이 Life-Web/routers/ 를 app/api/ 로 옮기고 나면 이 서버 하나만 남는다.
 """
 
+import sys
+# Windows 콘솔의 기본 코드페이지(cp949)는 이모지를 못 담는다.
+# search_service.get_ready() 등이 찍는 ⏳/✅/❌ print 가 그대로 두면 UnicodeEncodeError 로
+# 죽는다 — 처음 요청에서 죽으면 캐시(_ready)가 안 채워져 재시도해도 계속 죽는다.
+# 여기서 먼저 UTF-8 로 바꿔 둔다 (Life-Web/main.py 와 같은 처방)
+if sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from fastapi import FastAPI
 
 from app.api import admin, analysis, auth, chat, customers, history, recommend, regions, survey

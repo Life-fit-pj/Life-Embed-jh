@@ -46,6 +46,7 @@ class SearchOut(BaseModel):
     regions: list[RegionOut]
     explanation: str
     housing: Housing | None = None
+    notice: str | None = None
 
 
 class RecommendExplainedOut(BaseModel):

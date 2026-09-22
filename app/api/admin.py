@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.features.admin import (
     InvalidPatch,
-    clear_caches, create_member, dashboard, get_member, get_region, health,
+    clear_caches, create_member, dashboard, delete_member, get_member, get_region, health,
     list_members, list_regions, preview_member, privacy_preview, recent_logs,
     similar_members, update_member, update_region,
 )
@@ -57,6 +57,14 @@ def patch_member(customer_id: str, patch: dict):
     if member is None:
         raise HTTPException(status_code=404, detail="member not found")
     return member
+
+
+@router.delete("/members/{customer_id}")
+def delete_member_route(customer_id: str):
+    """회원 탈퇴. 없으면 404."""
+    if not delete_member(customer_id):
+        raise HTTPException(status_code=404, detail="member not found")
+    return {"ok": True}
 
 
 @router.get("/members/{customer_id}/preview", response_model=list[RegionOut])

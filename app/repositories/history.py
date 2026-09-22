@@ -72,8 +72,28 @@ def write_admin_log(target: str, target_id: str, patch: dict) -> None:
 # 4단계에서 ORM 으로 옮겼다. 실제 내용은 history_repository.py 의 UserLogin 쪽에 있다
 
 def create_login(customer_id, login_id, password):
-    """로그인 계정 발급."""
+    """login_id 자리 선점. 이미 있으면 False(signup() 의 중복 방지)."""
     return _run(repo.create_login, customer_id, login_id, password)
+
+
+def update_login_customer(login_id, customer_id):
+    """선점해 둔 자리에 실제 customer_id 를 채운다."""
+    return _run(repo.update_login_customer, login_id, customer_id)
+
+
+def delete_login(login_id):
+    """선점만 하고 회원 생성에 실패했을 때 자리를 반납한다."""
+    return _run(repo.delete_login, login_id)
+
+
+def delete_logins_by_customer(customer_id):
+    """회원 탈퇴 — 이 customer_id 에 붙은 로그인 계정을 전부 지운다."""
+    return _run(repo.delete_logins_by_customer, customer_id)
+
+
+def delete_activity(anon_id):
+    """회원 탈퇴 — 좋아요·검색·채팅 기록을 지운다."""
+    return _run(repo.delete_activity, anon_id)
 
 
 def get_login_row(login_id):

@@ -26,6 +26,12 @@ class SearchState(TypedDict):
     # weights 노드가 채운다: 검색어(또는 화면)에서 뽑힌 가격 조건. 없으면 None
     housing: dict | None
 
+    # weights 노드가 채운다: 검색어에서 뽑힌 자치구. 없으면 None
+    region: str | None
+
+    # weights 노드가 채운다: 검색어가 요구했지만 데이터가 없어 못 담은 조건. 없으면 None
+    notice: str | None
+
     # recommend 노드가 채운다: TOP 5 (지표 점수 포함)
     regions: list
 

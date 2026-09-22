@@ -159,7 +159,12 @@ def ask(question: str) -> dict:
 
     facts = collect_facts()
     prompt = f"## 집계 자료\n{_facts_text(facts)}\n\n## 질문\n{question}"
-    answer = llm_ask([("system", SYSTEM), ("human", prompt)], max_tokens=900).strip()
+    try:
+        answer = llm_ask([("system", SYSTEM), ("human", prompt)], max_tokens=900).strip()
+    except Exception as e:
+        # Claude 호출 실패(요금 한도·네트워크 등)를 500으로 그대로 죽이지 않고
+        # 기존 계약(dict 의 "error")으로 돌려준다 — admin.py 가 422로 바꿔서 화면에 실제 이유가 뜬다
+        return {"error": f"Claude 호출 실패: {e}"}
 
     chat_id = save_chat(question, answer, facts)
     return {"chat_id": chat_id, "question": question, "answer": answer, "facts": facts}

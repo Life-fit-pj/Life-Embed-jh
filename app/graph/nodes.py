@@ -39,13 +39,17 @@ def weights_node(state):
         "persona_query": persona_query,
         "weights": weights,
         "housing": housing,
+        "region": draft.get("지역"),
+        "notice": draft.get("미지원_조건"),
         "path": state["path"] + ["weights"],
     }
 
 
 # 가중치 -> TOP 5
 def recommend_node(state):
-    regions = recommend_by_weights(state["weights"], top_k=state["top_k"], housing=state["housing"])
+    regions = recommend_by_weights(
+        state["weights"], top_k=state["top_k"], housing=state["housing"], region=state["region"],
+    )
     return {"regions": regions, "path": state["path"] + ["recommend"]}
 
 

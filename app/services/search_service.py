@@ -56,12 +56,16 @@ def get_ready():
 DEFAULT_PRICE_WEIGHT = 3   # 다른 지표들의 "보통"과 같은 값. 굳이 저렴함을 강하게 밀지 않는다
 
 
-def recommend_by_weights(weights, top_k=5, housing=None):
+def recommend_by_weights(weights, top_k=5, housing=None, region=None):
     """가중치 → TOP 5. housing 을 주면 그 조건에 맞는 동으로 먼저 추린다.
 
     housing 예시(전세): {"건물유형": "아파트", "거래유형": "전세", "targets": {"예산": 65000}}
     housing 예시(월세): {"건물유형": "아파트", "거래유형": "월세",
                        "targets": {"예산": 70, "보증금": 5000}}   (단위: 만원)
+
+    region 을 주면("강남구" 등) 그 구의 동으로만 다시 추린다. housing 필터와 별개로,
+    항상 맨 마지막에 건다 — housing 이 없을 때 얹는 "시세" 8번째 신호(아래 else)까지
+    427개 길이로 다 만들어진 뒤라야 배열 길이가 서로 맞는다.
     """
     r = get_ready()
     names, scores, relative = r["names"], r["scores"], r["relative"]
@@ -82,6 +86,15 @@ def recommend_by_weights(weights, top_k=5, housing=None):
         # mix 값과 무관하게 결과가 항상 price_score 그대로 나오도록 -50을 맞춰 넣는다.
         relative = {**relative, "시세": price - 50}
         weights = {**weights, "시세": weights.get("시세", DEFAULT_PRICE_WEIGHT)}
+
+    if region:
+        # 이름은 "구 동" 형태다(load_regions() 참고) — 접두어로 그 구만 남긴다.
+        # 매치가 하나도 없으면(Claude 가 없는 구를 지어낸 경우) 필터를 걸지 않고 넘어간다.
+        keep = np.array([n.startswith(region + " ") for n in names])
+        if keep.any():
+            names = [n for n, k in zip(names, keep) if k]
+            scores = {ind: arr[keep] for ind, arr in scores.items()}
+            relative = {ind: arr[keep] for ind, arr in relative.items()}
 
     result = recommend(names, scores, relative, weights, top_k=top_k)
     detailed = with_scores(result, names, scores, r["counts"])
@@ -134,6 +147,8 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
         "persona_query": "",
         "weights": {},
         "housing": None,
+        "region": None,
+        "notice": None,
         "regions": [],
         "cases": [],
         "explanation": "",
@@ -148,6 +163,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
         "regions": result["regions"],
         "explanation": result["explanation"],
         "housing": result["housing"],   # 검색어에서 뽑아낸(또는 화면에서 넘어온) 조건. 가격 언급이 없었으면 None
+        "notice": result["notice"],     # 검색어가 요구했지만 데이터가 없어 못 담은 조건. 없으면 None
     }
 
 

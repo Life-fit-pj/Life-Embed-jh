@@ -159,6 +159,15 @@ def insert_preferences(db, customer_id, patch, allowed):
     return _insert(db, Preference, customer_id, patch, allowed)
 
 
+def delete_customer(db, customer_id):
+    """회원 탈퇴. customers·user_preferences 행을 지운다. 있었으면 True."""
+    existed = db.query(Customer).filter(Customer.customer_id == customer_id).first() is not None
+    db.query(Preference).filter(Preference.customer_id == customer_id).delete(synchronize_session=False)
+    db.query(Customer).filter(Customer.customer_id == customer_id).delete(synchronize_session=False)
+    db.commit()
+    return existed
+
+
 def customer_names(db):
     """마스킹에 쓸 회원 이름 목록. 빈 값은 뺀다"""
     return [name for (name,) in db.query(Customer.name).all() if name]
@@ -194,10 +203,15 @@ def has_initial_columns(db):
 
 
 def indicator_averages(db):
-    """지표 7개의 평균. {지표이름: 평균} 으로 돌려준다."""
+    """지표 7개의 평균. {지표이름: 평균} 으로 돌려준다.
+
+    func.avg() 는 Postgres 에서 Decimal 을 낸다 — float 로 바꿔서 내보낸다.
+    안 바꾸면 pydantic 이 dict 안의 Decimal 을 JSON 문자열("3.61")로 직렬화해서,
+    화면에서 숫자로 쓰려던 곳(.toFixed() 등)이 조용히 깨진다.
+    """
     columns = [func.avg(getattr(Preference, name)) for name in INDICATORS]
     row = db.query(*columns).one()
-    return dict(zip(INDICATORS, row))
+    return {name: (float(v) if v is not None else None) for name, v in zip(INDICATORS, row)}
 
 
 def indicator_spread(db, name):
@@ -217,18 +231,19 @@ def indicator_spread(db, name):
 def indicator_drift(db, name):
     """지표 하나가 가입 시 값에서 얼마나 움직였나. (인원, 평균변화).
 
-    0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다
+    0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다.
+    func.avg() 는 Decimal 을 낸다 — indicator_averages() 와 같은 이유로 float 로 바꾼다.
     """
     current = getattr(Preference, name)
     initial = getattr(Preference, f"{name}_초기")
 
-    row = (
+    n, avg = (
         db.query(func.count(), func.avg(current - initial))
         .filter(initial.isnot(None))
         .filter(func.abs(current - initial) >= 0.005)
         .one()
     )
-    return tuple(row)
+    return n, (float(avg) if avg is not None else None)
 
 
 def age_group_counts(db):
