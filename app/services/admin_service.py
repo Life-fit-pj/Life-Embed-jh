@@ -5,7 +5,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-from app.ai import vector_store
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
 from app.engine.recommend import INDICATOR_COLUMNS
 from app.engine.resync import resync_member
@@ -229,7 +228,6 @@ def delete_member(customer_id: str) -> bool:
         return False
 
     replace_member_chunks(customer_id, [])   # 벡터도 같이 지운다
-    vector_store.invalidate("member")
     delete_logins_by_customer(customer_id)
     delete_activity(customer_id)
     delete_customer(customer_id)

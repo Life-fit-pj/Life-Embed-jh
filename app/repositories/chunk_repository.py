@@ -12,37 +12,73 @@ from app.models.chunk import Chunk
 # 부르는 쪽이 쓰는 딕셔너리 키다. 표를 합친 뒤에도 이 이름은 안 바꾼다 —
 # source_id 하나를 member 에서는 customer_id, kb 에서는 uuid 로 돌려준다.
 # 3-A 에서 _초기 를 뗀 키로 돌려주던 것과 같은 손놀림이다
-MEMBER_FIELDS = ("customer_id", "category", "text", "embedding")
-KB_FIELDS = ("chunk_id", "uuid", "district", "category", "text", "embedding")
+MEMBER_FIELDS = ("customer_id", "category", "text")
+KB_FIELDS = ("chunk_id", "uuid", "district", "category", "text")
+
+# embedding 은 어느 목록에도 없다 — 비교는 DB 가 하므로 벡터를 실어 올 일이 없다.
+# 9,900줄 × 1,536개를 내려받던 것이 Supabase 2분 제한과 egress 초과의 원인이었다(2026-09-22 실측)
+_COLUMNS = {
+    "member": (Chunk.source_id, Chunk.category,Chunk.text),
+    "kb": (Chunk.chunk_id, Chunk.source_id, Chunk.district, Chunk.category, Chunk.text),
+}
+_FIELDS = {"member": MEMBER_FIELDS, "kb": KB_FIELDS}
+
+# 사람을 가리키는 키. member 는 customer_id, kb 는 uuid
+ID_KEY = {"member": "customer_id", "kb": "uuid"}
 
 
-def _rows(db, source, fields, columns):
-    """한 source 의 줄만 딕셔너리 목록으로 꺼낸다.
-
-    db.query(Chunk) 가 아니라 db.query(칸, 칸, …) 을 쓴다.
-    임베딩이 붙어 있는 표라 안 쓰는 칸까지 실어 오면 무겁다.
-    """
+def _rows(db, source):
+    """한 source 의 줄 전부를 딕셔너리 목록으로. 벡터는 안 싣는다 — 골든 사진(지문)용이다."""
     return [
-        dict(zip(fields, row))
-        for row in db.query(*columns).filter(Chunk.source == source).all()
+        dict(zip(_FIELDS[source], row))
+        for row in db.query(*_COLUMNS[source]).filter(Chunk.source == source).all()
     ]
 
 
 def member_chunks(db):
-    """회원 청크와 벡터를 전부 꺼낸다. 키는 옛 이름 그대로 customer_id 다."""
-    columns = (Chunk.source_id, Chunk.category, Chunk.text, Chunk.embedding)
-    return _rows(db, "member", MEMBER_FIELDS, columns)
+    """회원 청크 텍스트 전부 꺼낸다. 키는 옛 이름 그대로 customer_id 다."""
+    return _rows(db, "member")
 
 
 def kb_chunks(db):
-    """지식베이스 청크와 벡터를 전부 꺼낸다. 키는 옛 이름 그대로 uuid 다."""
-    columns = (
-        Chunk.chunk_id, Chunk.source_id, Chunk.district,
-        Chunk.category, Chunk.text, Chunk.embedding,
+    """지식베이스 청크 텍스트 전부. 키는 옛 이름 그대로 uuid 다."""
+    return _rows(db, "kb")
+
+
+# ── 벡터 검색 — 비교를 DB 가 한다 ──────────────────────
+
+def nearest_chunks(db,source, query_vector, top_k=5):
+    """질문 벡터와 가까운 청크 top_k. [(행, 점수)] — 점수는 클수록 가깝다.
+
+    cosine_distance 가 pgvector 의 <=> 다(0 = 같음). 저장할 때 길이를 1 로 맞춰 뒀으므로
+    1 - 거리 = 코사인 유사도 = 옛 numpy 내적과 같은 값이다.
+    ⚠ 필터(source)는 order_by·limit 보다 먼저 건다 — 5개를 뽑은 뒤 거르면 빈손이 된다
+    """
+    distance = Chunk.embedding.cosine_distance(query_vector).label("distance")
+    found = (
+        db.query(*_COLUMNS[source], distance)
+        .filter(Chunk.source == source)
+        .order_by(distance)
+        .limit(top_k)
+        .all()
     )
-    return _rows(db, "kb", KB_FIELDS, columns)
+    return [(dict(zip(_FIELDS[source], row[:-1])), 1.0 - row[-1]) for row in found]
 
 
+def nearest_people(db, source, query_vector, top_k=5):
+    """사람 단위로 top_k. [(id, 점수, 행)] — 한 사람은 가장 가까운 청크 하나로만 센다.
+
+    후보를 top_k 의 10배 받아 사람별 첫 줄만 남긴다. 한 사람의 청크는 많아야
+    9개(config.CHUNK_COLUMNS 의 개수)라, 50개 안에는 반드시 5명 이상이 들어 있다
+    """
+    
+    key = ID_KEY[source]
+    people = {}
+    for row, score in nearest_chunks(db, source, query_vector, top_k * 10):
+        people.setdefault(row[key], (score,row))
+    return [(pid, score, row) for pid, (score, row) in list(people.items())[:top_k]]
+
+    
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
 def member_chunk_count(db):

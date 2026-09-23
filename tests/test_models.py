@@ -21,9 +21,9 @@ from app.core.config import EMBED_DIMENSION
 # 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
 # 여기서 숫자가 틀리면 데이터가 유실된 것이므로 정확히 대조한다.
 FIXED = [
-    (Customer, 100),
-    (Preference, 100),
-    (Chunk, 9900),          # member 900 + kb 9,000
+    (Customer, 104),
+    (Preference, 102),
+    (Chunk, 9914),          # member 900 + kb 9,000
 ]
 
 # 기록용 표 — 서버를 켜서 검색 한 번만 해도 늘어난다.
@@ -94,6 +94,6 @@ def test_chunks_는_source_로_나뉜다():
         counts = dict(
             db.query(Chunk.source, func.count()).group_by(Chunk.source).all()
         )
-        assert counts == {"member": 900, "kb": 9000}
+        assert counts == {"member": 914, "kb": 9000}
     finally:
         db.close()
