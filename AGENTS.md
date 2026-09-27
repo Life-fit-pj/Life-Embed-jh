@@ -241,8 +241,8 @@ nemotron.csv ───┴→ pipeline/chunk.py → chunks 표(9,900줄, embeddin
   내적만 한다.
 - **벡터는 `chunks.embedding` 에 pgvector 의 `Vector(1536)` 으로 담는다**(옛 JSON 글자 아님).
   드라이버가 숫자 배열을 그대로 건네주므로 되돌리는 절차가 없다 — 옛 `to_text`/`from_text` 는 지웠다.
-  **★ 검색도 DB 가 한다(2026-09-27)** — `chunk_repository.nearest_chunks`/`nearest_people` 이
-  pgvector `<#>`(음의 내적)로 top_k 줄만 가져온다. 예전엔 9,900개를 메모리에 올려 내적했는데
+  **검색도 DB 가 한다(2026-09-23)** — `chunk_repository.nearest_chunks`/`nearest_people` 이
+  pgvector `<=>`(코사인 거리)로 top_k 줄만 가져온다(점수 = 1 - 거리). 예전엔 9,900개를 메모리에 올려 내적했는데
   서버를 켤 때마다 임베딩 전부가 실려 와 Supabase egress 5GB 를 넘겼다. 캐시·`invalidate()` 는 지웠다.
   `Vector` 칸을 만들려면 Supabase 에 `create extension if not exists vector` 가 먼저다.
 - **`chunks` 는 한 표다.** `source` 가 `"member"`/`"kb"`, `source_id` 가 `customer_id`/`uuid` 다.
