@@ -21,7 +21,6 @@ def test_없는_회원이면_아무것도_안_지운다():
 def test_있는_회원이면_전부_지우고_True():
     with patch.object(admin_service, "customer_one", return_value={"customer_id": "C101"}), \
          patch.object(admin_service, "replace_member_chunks") as mock_chunks, \
-         patch.object(admin_service.vector_store, "invalidate") as mock_invalidate, \
          patch.object(admin_service, "delete_logins_by_customer") as mock_logins, \
          patch.object(admin_service, "delete_activity") as mock_activity, \
          patch.object(admin_service, "delete_customer") as mock_customer:
@@ -30,7 +29,6 @@ def test_있는_회원이면_전부_지우고_True():
 
     assert result is True
     mock_chunks.assert_called_once_with("C101", [])
-    mock_invalidate.assert_called_once_with("member")
     mock_logins.assert_called_once_with("C101")
     mock_activity.assert_called_once_with("C101")
     mock_customer.assert_called_once_with("C101")

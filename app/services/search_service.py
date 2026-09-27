@@ -28,8 +28,7 @@ _ready = None
 def get_ready():
     """행정동 점수 등 무거운 준비물. 처음 한 번만 만든다.
 
-    벡터는 여기 없다 — app/ai/vector_store.py 가 자기 캐시를 들고,
-    청크가 바뀌면 스스로 버린다(7-8절)
+    벡터는 여기 없다 — app/ai/vector_store.py 가 DB 에 직접 묻는다
     """
     global _ready
     if _ready is None:

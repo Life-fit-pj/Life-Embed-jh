@@ -221,7 +221,7 @@ nemotron.csv ───┴→ pipeline/chunk.py → chunks 표(9,900줄, embeddin
        └ 가격 조건이 있으면 engine/housing.py 가 후보를 먼저 추린다
 
 추천 결과 클릭/후속 질문 → services/region_service.py(동네 하나) / services/chat_service.py(후속 질문)
-벡터 검색 → rag/retriever.py → ai/embedder.py(질문 벡터) + ai/vector_store.py(캐시·코사인)
+벡터 검색 → rag/retriever.py → ai/embedder.py(질문 벡터) + ai/vector_store.py(pgvector 내적)
 ```
 
 ### Domain Rule
@@ -241,11 +241,10 @@ nemotron.csv ───┴→ pipeline/chunk.py → chunks 표(9,900줄, embeddin
   내적만 한다.
 - **벡터는 `chunks.embedding` 에 pgvector 의 `Vector(1536)` 으로 담는다**(옛 JSON 글자 아님).
   드라이버가 숫자 배열을 그대로 건네주므로 되돌리는 절차가 없다 — 옛 `to_text`/`from_text` 는 지웠다.
-  **★ 담는 방식만 바꿨고 검색은 그대로 `app/ai/vector_store.py` 가 메모리에서 한다.** 9,900개는
-  내적이 DB 왕복보다 빠르다. DB 의 `<=>` 로 옮기는 것은 별개 작업이다.
+  **★ 검색도 DB 가 한다(2026-09-27)** — `chunk_repository.nearest_chunks`/`nearest_people` 이
+  pgvector `<#>`(음의 내적)로 top_k 줄만 가져온다. 예전엔 9,900개를 메모리에 올려 내적했는데
+  서버를 켤 때마다 임베딩 전부가 실려 와 Supabase egress 5GB 를 넘겼다. 캐시·`invalidate()` 는 지웠다.
   `Vector` 칸을 만들려면 Supabase 에 `create extension if not exists vector` 가 먼저다.
-- **청크를 고쳤으면 `vector_store.invalidate(source)` 를 반드시 부른다.** 9,900개를 메모리에
-  들고 있어서, 안 버리면 서버를 껐다 켜기 전까지 옛 벡터로 검색한다(`resync.py` 가 부른다).
 - **`chunks` 는 한 표다.** `source` 가 `"member"`/`"kb"`, `source_id` 가 `customer_id`/`uuid` 다.
   repository 가 부르는 쪽 편의를 위해 옛 키 이름으로 돌려주므로, 표 이름이 아니라 **`source` 로
   걸러야** 한다 — 안 걸면 kb 9,000줄이 회원 조회에 섞인다.

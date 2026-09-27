@@ -43,6 +43,55 @@ def kb_chunks(db):
     return _rows(db, "kb", KB_FIELDS, columns)
 
 
+# ── 벡터 검색 (app/ai/vector_store.py 가 쓴다) ──────────
+# 견주기는 DB 가 한다. 전부 받아 와서 견주면 서버를 켤 때마다 임베딩 9,900개
+# (수백 MB)가 실려 와 Supabase egress 를 먹는다. 여기서는 top_k 줄만 온다.
+# <#> 는 "내적에 - 를 붙인 값"이라 작을수록 가깝다. 점수는 - 를 떼면 옛 내적과 같다
+
+_SEARCH = {
+    "member": (
+        ("customer_id", "category", "text"),
+        (Chunk.source_id, Chunk.category, Chunk.text),
+    ),
+    "kb": (
+        ("chunk_id", "uuid", "district", "category", "text"),
+        (Chunk.chunk_id, Chunk.source_id, Chunk.district, Chunk.category, Chunk.text),
+    ),
+}
+
+
+def nearest_chunks(db, source, vector, top_k):
+    """질문 벡터와 가까운 청크 top_k. [(행, 점수)]"""
+    fields, columns = _SEARCH[source]
+    distance = Chunk.embedding.max_inner_product(vector)
+    rows = (
+        db.query(*columns, distance)
+        .filter(Chunk.source == source)
+        .order_by(distance)
+        .limit(top_k)
+        .all()
+    )
+    return [(dict(zip(fields, row[:-1])), -float(row[-1])) for row in rows]
+
+
+def nearest_people(db, source, vector, top_k):
+    """사람(source_id)마다 가장 가까운 청크 하나만 남겨 top_k. [(행, 점수)]
+
+    DISTINCT ON 이 사람별 첫 줄(= 가장 가까운 줄)만 남긴다
+    """
+    fields, columns = _SEARCH[source]
+    distance = Chunk.embedding.max_inner_product(vector).label("distance")
+    best = (
+        db.query(*columns, distance)
+        .filter(Chunk.source == source)
+        .order_by(Chunk.source_id, distance)
+        .distinct(Chunk.source_id)
+        .subquery()
+    )
+    rows = db.query(best).order_by(best.c.distance).limit(top_k).all()
+    return [(dict(zip(fields, row[:-1])), -float(row[-1])) for row in rows]
+
+
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
 def member_chunk_count(db):

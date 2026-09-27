@@ -5,7 +5,6 @@
 "뭐가 바뀌었나" 확인하는 절차 없이 그냥 그 사람 청크를 지우고 새로 만든다.
 """
 
-from app.ai import vector_store
 from app.ai.embedder import embed_documents
 from app.repositories.chunks import replace_kb_chunks, replace_member_chunks
 from app.ai.chunker import make_chunks, KB_KEYS, MEMBER_KEYS
@@ -30,8 +29,6 @@ def resync_kb_person(uuid, row):
         (c["uuid"], c["district"], c["category"], c["text"], vec)
         for c, vec in zip(chunks, vectors)
     ])
-    # 캐시를 버린다. 안 버리면 서버를 껐다 켜기 전까지 옛 벡터로 검색한다(이론 10)
-    vector_store.invalidate("kb")
 
 
 def resync_member(customer_id, row):
@@ -46,4 +43,3 @@ def resync_member(customer_id, row):
         (c["customer_id"], c["category"], c["text"], vec)
         for c, vec in zip(chunks, vectors)
     ])
-    vector_store.invalidate("member")
