@@ -1,7 +1,7 @@
 """옛 이름을 지키는 다리. 실제 내용은 app/repositories/chunk_repository.py 에 있다.
 
 부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
-  app/ai/vector_store.py        nearest_chunks · nearest_people
+  app/ai/vector_store.py        nearest_chunks · nearest_people (검색마다)
   app/engine/resync.py          replace_kb_chunks · replace_member_chunks
   app/services/admin_service.py member_chunk_count · persona_lengths
   tests/make_golden.py          네 함수 모두 (골든 사진)
@@ -34,12 +34,13 @@ def kb_chunks():
     return _run(repo.kb_chunks)
 
 
-def nearest_chunks(source, vector, top_k):
-    return _run(repo.nearest_chunks, source, vector, top_k)
+# ── 벡터 검색 (app/ai/vector_store.py 가 쓴다) ────────
 
+def nearest_chunks(source, query_vector, top_k=5):
+    return _run(repo.nearest_chunks,source, query_vector, top_k)
 
-def nearest_people(source, vector, top_k):
-    return _run(repo.nearest_people, source, vector, top_k)
+def nearest_people(source, query_vector, top_k=5):
+    return _run(repo.nearest_people,source, query_vector, top_k)
 
 
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
