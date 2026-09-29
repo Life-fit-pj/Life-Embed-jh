@@ -225,3 +225,5 @@ __marimo__/
 .claude/.headroom_*
 *.db.bak
 .DS_Store
+
+data/golden/last_run.csv
