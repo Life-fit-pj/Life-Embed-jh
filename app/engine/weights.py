@@ -8,7 +8,7 @@
 
 import json
 
-from app.core.config import INDICATORS
+from app.core.config import INDICATORS, SIMILARITY_FLOOR
 from app.rag.retriever import retrieve_people
 from app.repositories.members import member_weights
 from app.ai.llm import ask
@@ -83,6 +83,7 @@ def find_similar_members(query, top_k=5):
     return [
         (customer_id, (score, row["category"], row["text"]))
         for customer_id, score, row in retrieve_people("member", query, top_k)
+        if score >= SIMILARITY_FLOOR   # 안 비슷한 사람의 선호를 30% 섞지 않는다. 다 걸러지면 blend() 가 초안만 쓴다
     ]
 
 
@@ -103,7 +104,7 @@ def ask_claude(query):
         ("system", SYSTEM_PROMPT),
         ("human", query),
     ]        
-    text = ask(messages, max_tokens=300).strip()
+    text = ask(messages, max_tokens=300, temperature=0).strip()     # 같은 검색어엔 같은 가중치. 골든셋이 흔들리지 않게(2026-09-28)
     
         # 혹시 ```json 같은 게 붙어 나오면 떼어낸다
     text = text.replace("```json", "").replace("```","").strip()

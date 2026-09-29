@@ -16,7 +16,7 @@ from app.core.config import API_KEY, MODEL
 client = Anthropic(api_key=API_KEY)
 
 
-def ask(messages, max_tokens=800):
+def ask(messages, max_tokens=800, temperature=None):
     """Claude 의 답을 글자 그대로 돌려준다.
 
     messages 는 ("system"|"human", 글) 튜플 목록이거나 글 한 개다 —
@@ -32,11 +32,17 @@ def ask(messages, max_tokens=800):
         if role != "system"
     ]
 
+    # temperature 는 SDK 1.x 의 create() 시그니처에서 빠졌다(2026-09-28 확인) — 지금 모델(Haiku 4.5)은
+    # 아직 받으므로 extra_body 로 요청 JSON 에 그대로 실어 보낸다. None 이면 아예 안 보낸다(API 기본값).
+    # ⚠ Opus 4.7 / Sonnet 5 이후 모델은 이 값이 있으면 400 이다 — config.MODEL 을 올리는 날 이 줄과
+    #   weights.py 의 temperature=0 을 같이 지운다.
+    extra = {"temperature": temperature} if temperature is not None else None
     reply = client.messages.create(
         model=MODEL,
         max_tokens=max_tokens,
         system=system,
         messages=turns,
+        extra_body=extra,
     )
     return reply.content[0].text
 

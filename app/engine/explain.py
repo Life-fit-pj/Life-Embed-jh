@@ -15,6 +15,7 @@ from app.engine.recommend import load_regions, build_scores, build_relative, rec
 from app.repositories.regions import region_densities
 from app.ai.llm import ask
 from app.rag.retriever import retrieve
+from app.core.config import SIMILARITY_FLOOR
 
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
@@ -93,6 +94,7 @@ def find_cases(persona_query, top_k=3):
             "score": score,
         }
         for row, score in retrieve("kb", persona_query, top_k)
+        if score >= SIMILARITY_FLOOR   # 억지로 3건을 채우지 않는다. 없으면 없다고 설명문에 알린다(아래 build_context)
     ]
 
 
@@ -145,6 +147,8 @@ def build_context(query, weights, detailed, cases, housing=None):
     lines.append("## 참고 사례 (가상 인물 데이터, 서울 2,500명 표본에서 검색)")
     for c in cases:
         lines.append(f"[{c['district']} · {c['category']}] {c['text']}")
+    if not cases:
+        lines.append("(비슷한 사례 없음 - 사례를 지어내지 말고 위 지표 점수만으로 설명한다)")
 
     if housing:
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
