@@ -63,7 +63,7 @@ def explain_node(state):
 def chat_plan_node(state):
     names = [r.get("name", "").replace("서울특별시 ", "") for r in state["regions"] or []]
     user_prompt = f"추천된 동네: {', '.join(names)}\n\n질문: {state['question']}"
-    calls = ask_with_tools([("system", PLAN_SYSTEM), ("human", user_prompt)], TOOL_SPECS)
+    calls = ask_with_tools([("system", PLAN_SYSTEM), *state["history"], ("human", user_prompt)], TOOL_SPECS)
 
     if not calls:
         return {"route": "context", "tool_calls": [], "path": state["path"] + ["plan"]}
@@ -93,7 +93,7 @@ def chat_generate_node(state):
     else:
         user_prompt = f"{state['context']}\n\n## 질문\n{state['question']}"
 
-    messages = [("system", SYSTEM_PROMPT), ("human", user_prompt)]
+    messages = [("system", SYSTEM_PROMPT), *state["history"], ("human", user_prompt)]
     answer = ask(messages, max_tokens=600).strip()
     return {"answer": answer, "path": state["path"] + ["generate"]}
 

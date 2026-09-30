@@ -52,6 +52,9 @@ class ChatState(TypedDict):
     regions: list
     weights: dict
 
+    # 앞선 대화. llm.ask 가 받는 ("human"|"ai", 글) 튜플 목록
+    history: list
+
     # plan 노드가 정한다: "tool" 또는 "context"
     route: str
 
