@@ -55,7 +55,12 @@ def get_ready():
 DEFAULT_PRICE_WEIGHT = 3   # 다른 지표들의 "보통"과 같은 값. 굳이 저렴함을 강하게 밀지 않는다
 
 
-def recommend_by_weights(weights, top_k=5, housing=None, region=None):
+# 말로만 한 가격대("고급 아파트", "저렴한 곳")일 때 시세 신호의 가중치.
+# 다른 지표의 최댓값(5)과 같게 둔다 — 사용자가 직접 말한 조건이기 때문이다
+PRICE_TIER_WEIGHT = 5
+
+
+def recommend_by_weights(weights, top_k=5, housing=None, region=None, price_tier=None):
     """가중치 → TOP 5. housing 을 주면 그 조건에 맞는 동으로 먼저 추린다.
 
     housing 예시(전세): {"건물유형": "아파트", "거래유형": "전세", "targets": {"예산": 65000}}
@@ -65,9 +70,15 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None):
     region 을 주면("강남구" 등) 그 구의 동으로만 다시 추린다. housing 필터와 별개로,
     항상 맨 마지막에 건다 — housing 이 없을 때 얹는 "시세" 8번째 신호(아래 else)까지
     427개 길이로 다 만들어진 뒤라야 배열 길이가 서로 맞는다.
+
+    price_tier("고가"|"저가")는 금액 없이 말로만 한 가격대다. housing 이 없을 때만 쓴다.
+    "시세" 점수는 클수록 저렴하므로, 고가면 순위 계산에만 뒤집은 값(100 - 점수)을 쓴다.
+    화면·설명문으로 가는 점수(with_scores)는 원래 방향 그대로 둔다 — 뒤집힌 값이 나가면
+    설명문이 "저렴하다"로 정반대로 읽는다.
     """
     r = get_ready()
     names, scores, relative = r["names"], r["scores"], r["relative"]
+    rank_scores, rank_relative = scores, relative
 
     if housing:
         candidates = set(matching_regions(**housing))
@@ -75,6 +86,7 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None):
         names = [n for n, k in zip(names, keep) if k]
         scores = {ind: arr[keep] for ind, arr in scores.items()}
         relative = {ind: arr[keep] for ind, arr in relative.items()}
+        rank_scores, rank_relative = scores, relative
     else:
         # 목표가가 없을 때만 "시세는 낮을수록 좋다"를 8번째 신호로 얹는다.
         # housing이 있으면 matching_regions()가 이미 목표가 근접도로 걸러내므로
@@ -85,6 +97,12 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None):
         # mix 값과 무관하게 결과가 항상 price_score 그대로 나오도록 -50을 맞춰 넣는다.
         relative = {**relative, "시세": price - 50}
         weights = {**weights, "시세": weights.get("시세", DEFAULT_PRICE_WEIGHT)}
+        rank_scores, rank_relative = scores, relative
+        if price_tier:
+            rank_price = 100 - price if price_tier == "고가" else price
+            rank_scores = {**scores, "시세": rank_price}
+            rank_relative = {**relative, "시세": rank_price - 50}
+            weights = {**weights, "시세": PRICE_TIER_WEIGHT}
 
     if region:
         # 이름은 "구 동" 형태다(load_regions() 참고) — 접두어로 그 구만 남긴다.
@@ -93,9 +111,10 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None):
         if keep.any():
             names = [n for n, k in zip(names, keep) if k]
             scores = {ind: arr[keep] for ind, arr in scores.items()}
-            relative = {ind: arr[keep] for ind, arr in relative.items()}
+            rank_scores = {ind: arr[keep] for ind, arr in rank_scores.items()}
+            rank_relative = {ind: arr[keep] for ind, arr in rank_relative.items()}
 
-    result = recommend(names, scores, relative, weights, top_k=top_k)
+    result = recommend(names, rank_scores, rank_relative, weights, top_k=top_k)
     detailed = with_scores(result, names, scores, r["counts"])
     return attach_price(detailed, housing)
 
@@ -147,6 +166,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
         "weights": {},
         "housing": None,
         "region": None,
+        "price_tier": None,
         "notice": None,
         "regions": [],
         "cases": [],

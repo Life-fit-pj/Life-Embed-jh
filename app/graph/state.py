@@ -29,6 +29,9 @@ class SearchState(TypedDict):
     # weights 노드가 채운다: 검색어에서 뽑힌 자치구. 없으면 None
     region: str | None
 
+    # weights 노드가 채운다: 말로만 한 가격대 "고가"|"저가". 없으면 None
+    price_tier: str | None
+
     # weights 노드가 채운다: 검색어가 요구했지만 데이터가 없어 못 담은 조건. 없으면 None
     notice: str | None
 

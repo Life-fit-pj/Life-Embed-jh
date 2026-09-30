@@ -40,6 +40,7 @@ def weights_node(state):
         "weights": weights,
         "housing": housing,
         "region": draft.get("지역"),
+        "price_tier": draft.get("가격대"),
         "notice": draft.get("미지원_조건"),
         "path": state["path"] + ["weights"],
     }
@@ -49,6 +50,7 @@ def weights_node(state):
 def recommend_node(state):
     regions = recommend_by_weights(
         state["weights"], top_k=state["top_k"], housing=state["housing"], region=state["region"],
+        price_tier=state["price_tier"],
     )
     return {"regions": regions, "path": state["path"] + ["recommend"]}
 
