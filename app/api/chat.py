@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter
 
-from app.features.chat import chat
+from app.services.chat_service import chat
 from app.schemas.chat import ChatOut, ChatRequest
 
 router = APIRouter(tags=["chat"])

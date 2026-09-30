@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.features.analysis import ask, delete_chat, get_chat, list_chats
+from app.services.analysis_service import ask, delete_chat, get_chat, list_chats
 from app.schemas.analysis import AnalysisChatListItem, AnalysisChatOut, AskOut, AskRequest, DeleteOut
 
 router = APIRouter(prefix="/admin/analysis", tags=["admin-analysis"])
