@@ -1,5 +1,5 @@
 # Last Updated: 2026-09-08
-"""좋아요·기록 API 요청·응답 모양. app/features/history.py 와 1:1."""
+"""좋아요·기록 API 요청·응답 모양. app/services/history_service.py 와 1:1."""
 
 from typing import Literal
 

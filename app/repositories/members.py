@@ -2,11 +2,11 @@
 
 부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
   app/engine/weights.py     member_weights
-  app/features/search.py    member_weights
-  app/features/admin.py     조회·수정 대부분
-  app/features/analysis.py  집계
-  app/features/auth.py      customer_ids
-  app/features/privacy.py   customer_names
+  app/services/search_service.py    member_weights
+  app/services/admin_service.py     조회·수정 대부분
+  app/services/analysis_service.py  집계
+  app/services/auth_service.py      customer_ids
+  app/services/privacy_service.py   customer_names
   Life-Web/services/engine.py 22행  customer_one
 
 8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
@@ -38,7 +38,7 @@ def member_weights(customer_ids):
     return _run(repo.member_weights, customer_ids)
 
 
-# ── 회원 관리자 조회 (app/features/admin.py 가 쓴다) ──────────────
+# ── 회원 관리자 조회 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def customer_list():
     return _run(repo.customer_list)
@@ -60,7 +60,7 @@ def customer_persona(customer_id):
     return _run(repo.customer_persona, customer_id)
 
 
-# ── 회원 관리자 수정 (app/features/admin.py 가 쓴다) ──────────────
+# ── 회원 관리자 수정 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def update_customer(customer_id, patch, allowed):
     return _run(repo.update_customer, customer_id, patch, allowed)

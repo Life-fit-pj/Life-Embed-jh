@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.features.history import add_chat_history, add_like, add_search_history, get_history, get_likes, remove_like
+from app.services.history_service import add_chat_history, add_like, add_search_history, get_history, get_likes, remove_like
 from app.schemas.history import HistoryEntryIn, HistoryOut, LikeItem, LikeRequest
 
 router = APIRouter(tags=["history"])

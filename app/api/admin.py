@@ -3,13 +3,13 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.features.admin import (
+from app.services.admin_service import (
     InvalidPatch,
     clear_caches, create_member, dashboard, delete_member, get_member, get_region, health,
     list_members, list_regions, preview_member, privacy_preview, recent_logs,
     similar_members, update_member, update_region,
 )
-from app.features.auth import backfill_logins
+from app.services.auth_service import backfill_logins
 from app.schemas.admin import (
     BackfillLoginOut, ClearCachesOut, DashboardOut, HealthOut, MemberListItem,
     MemberOut, PrivacyPreviewOut, RecentLogOut, RegionDetailOut, RegionListItem,

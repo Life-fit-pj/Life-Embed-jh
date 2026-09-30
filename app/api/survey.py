@@ -8,7 +8,7 @@
 
 from fastapi import APIRouter
 
-from app.features.survey import score_survey
+from app.services.survey_service import score_survey
 from app.schemas.survey import SurveyScoreOut, SurveyScoreRequest
 
 router = APIRouter(prefix="/survey", tags=["survey"])

@@ -3,8 +3,7 @@
 
 from fastapi import APIRouter
 
-from app.features.region_explain import region_explain_cached
-from app.features.regions import get_facilities
+from app.services.region_service import get_facilities, region_explain_cached
 from app.schemas.regions import FacilitiesOut, RegionExplainOut, RegionExplainRequest
 
 router = APIRouter(prefix="/regions", tags=["regions"])

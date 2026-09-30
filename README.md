@@ -118,8 +118,7 @@ py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    #
 이름이 옮겨 다녔습니다 — 추천 알고리즘은 2026-08~09에 `pipeline/`에서 `app/engine/`으로,
 창구는 2026-09에 `app/features/`에서 `app/services/`로 갔습니다.
 `pipeline.weights` · `pipeline.recommend` · `pipeline.search_kb` · `pipeline.chunk_kb`는
-더 이상 없습니다. `app/features/`에 남은 여덟 파일은 `Life-Web`이 옛 이름으로 부르는
-**다리**일 뿐이라 `__main__`이 없습니다 — `py -m app.features.search`는 안 돕니다.
+더 이상 없습니다. 옛 다리 `app/features/`는 2026-09-28에 지웠습니다.
 
 `py pipeline/schema.py`처럼 파일 경로로 실행하면 `ModuleNotFoundError`가 납니다.
 `-m` 없이 실행하면 프로젝트 루트가 검색 경로에 안 잡히기 때문입니다.
@@ -131,7 +130,7 @@ py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    #
 ```bash
 py -m pytest tests -q       # 테스트 8파일 42개
 bash check.sh               # 규칙이 지켜지나 일곱 가지
-py -m tools.check_contract  # Life-Web 이 부르는 이름 36개가 살아 있나
+py -m tools.check_routes    # Life-Web 이 부르는 HTTP 경로 36개가 열렸나
 ```
 
 `check.sh`는 일곱 가지를 셉니다.
@@ -148,8 +147,7 @@ py -m tools.check_contract  # Life-Web 이 부르는 이름 36개가 살아 있�
 
 마지막 확인은 2026-09-12 — 테스트 `40 passed / 2 failed`, ①②④⑤⑥⑦ OK, 계약 36개 전부 생존.
 
-**실패 둘은 DB 작업과 무관합니다.** ③은 `app/api/` 라우터 열이 `app/services/`가 아니라
-다리(`app/features/`)를 부르는 것이고(`origin/dev-deploy`에 고쳐져 있음),
+③의 실패(`app/api/`가 다리 `app/features/`를 부르던 것)는 2026-09-28 다리를 지우며 고쳤습니다.
 `test_supabase_auth`는 한글 가짜 토큰을 HTTP 헤더에 넣어 요청 전에 `UnicodeEncodeError`로
 죽습니다(헤더는 latin-1만 담습니다) — 토큰을 ASCII로 바꾸면 통과합니다.
 
@@ -162,9 +160,8 @@ py -m tools.check_contract  # Life-Web 이 부르는 이름 36개가 살아 있�
 다시 찍으려면 파일을 지우고 `py -m tests.make_golden`을 돌립니다.
 그중 `embed.json` 한 장은 OpenAI 를 실제로 부릅니다(문장 하나).
 
-`tools/check_contract.py`는 **반드시 `-m`으로** 부릅니다. 파일 경로로 실행하면
-(`py tools/check_contract.py`) 저장소 뿌리가 검색 경로에 안 잡혀 36개가 전부
-"import 자체가 실패"로 나옵니다 — 코드는 멀쩡한데 계약이 깨진 것처럼 보입니다.
+`tools/check_routes.py`는 **반드시 `-m`으로** 부릅니다. 파일 경로로 실행하면
+(`py tools/check_routes.py`) 저장소 뿌리가 검색 경로에 안 잡혀 `app` import 가 실패합니다.
 
 ②가 왜 규칙인가 — 함수 안 import 는 순환 참조를 **고치는 게 아니라 눈에 안 보이게
 덮습니다.** 파일 맨 위만 봐서는 이 파일이 무엇에 기대는지 알 수 없고, 증상이
@@ -183,7 +180,7 @@ Life-Embed-jh/
 ├── app/          추천 엔진 본체 — 층 열둘. 지도는 바로 아래에 있다
 ├── pipeline/     한 번만 돌리는 준비 작업 (schema · sample_kb · chunk · embed · io)
 ├── tests/        DB·서버 없이 도는 것 + 골든 사진 4장
-├── tools/        check_contract.py — Life-Web 이 부르는 계약 36개를 센다
+├── tools/        check_routes.py — Life-Web 이 부르는 HTTP 경로 36개가 열렸나
 ├── docs/         REFACTOR.md — 옛 계획 기록
 ├── check.sh      규칙 일곱 가지를 센다
 └── data/         원본 CSV (DB 는 Supabase 에 있다. life.db 는 지웠다)
@@ -205,8 +202,7 @@ Life-Embed-jh/
 | 2 | `ai/` | `llm`(Claude) · `embedder`(OpenAI) · `vector_store` · `chunker` · `masking` |
 | 3 | `rag/` | `retriever.py` — 검색어로 뜻이 가까운 청크를 찾는다 |
 | 4 | `engine/` | 점수 계산 — `weights` · `recommend` · `explain` · `housing` · `resync` |
-| 5 | `services/` | 업무 순서를 엮는 창구 여덟 |
-| 6 | `features/` | **다리 여덟.** Life-Web 이 옛 이름으로 부르는 자리 — 웹을 합치는 날 폴더째 지운다 |
+| 5 | `services/` | 업무 순서를 엮는 창구 아홉 |
 | 7 | `api/` | 라우터 **아홉** — **여기만 FastAPI 를 안다.** `main.py` 가 전부 `include_router` 한다 |
 
 폴더 밖 파일 둘 —
@@ -257,10 +253,8 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
 4. bash check.sh                    일곱 가지 전부 OK
 ```
 
-**3번을 빼먹기 쉽다.** 라우터 파일만 만들고 `include_router` 를 안 하면 **웹이 404 를 받는데,
-`check_contract` 는 통과한다** — 이름은 살아 있고 경로만 안 열린 것이다. `/docs` 로 확인한다.
-
-**`app.features` 를 부르지 않는다.** 그 폴더는 곧 통째로 사라진다.
+**3번을 빼먹기 쉽다.** 라우터 파일만 만들고 `include_router` 를 안 하면 **웹이 404 를 받는다.**
+`py -m tools.check_routes` 나 `/docs` 로 확인한다.
 
 파일 이름은 뒤에 역할을 붙인다 —
 `…_schema.py` · `…_router.py` · `…_service.py` · `…_repository.py`.
@@ -419,11 +413,8 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
 - 추천 정확도(hit@k)를 재는 평가 도구가 없음 — 지금 실측 기록은 전부 **속도**뿐.
   `tests/golden/`은 "전과 같은가"만 보지 "정확한가"는 안 본다(자리만 잡아 두었던
   `eval/golden.py`는 2026-09에 지웠다)
-- `app/features/` 다리 여덟과 `app/repositories/`의 `members`·`chunks`·`history`·`regions`
-  다리는 언젠가 지울 것 — `Life-Web`은 이미 HTTP로 넘어왔지만(`services/engine.py`가 `httpx`로
-  `:8000`을 친다) `app/api/` 라우터가 아직 다리를 거친다(`check.sh` ③이 잡는 그것)
-- **`tools/check_contract.py`는 절반만 유효하다** — 진짜 계약이 파이썬 이름에서 HTTP 경로로
-  바뀌었다. 이름 36개가 다 살아 있어도 `app/main.py`가 라우터를 안 등록하면 웹은 404를 받는다
+- `app/repositories/`의 `members`·`chunks`·`history`·`regions` 다리는 언젠가 지울 것
+  (`_run()` 이 세션을 여는 자리라 부르는 쪽 약 20곳이 같이 바뀐다)
 
 ---
 

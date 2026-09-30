@@ -1,9 +1,9 @@
 # Last Updated: 2026-09-07
-"""추천 라우트. app/features/search.py 창구를 그대로 부른다."""
+"""추천 라우트. app/services/search_service.py 를 그대로 부른다."""
 
 from fastapi import APIRouter
 
-from app.features.search import recommend_by_weights, recommend_by_weights_explained, search
+from app.services.search_service import recommend_by_weights, recommend_by_weights_explained, search
 from app.schemas.recommend import (
     RecommendExplainedRequest, RecommendExplainedOut,
     RecommendRequest, RegionOut,

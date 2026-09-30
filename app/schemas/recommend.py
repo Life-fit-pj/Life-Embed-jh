@@ -1,5 +1,5 @@
 # Last Updated: 2026-09-07
-"""추천 API 요청/응답 모양. app/features/search.py 함수 셋(search·recommend_by_weights·
+"""추천 API 요청/응답 모양. app/services/search_service.py 함수 셋(search·recommend_by_weights·
 recommend_by_weights_explained)과 1:1."""
 
 from pydantic import BaseModel

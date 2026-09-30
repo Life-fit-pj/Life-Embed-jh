@@ -24,13 +24,12 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 `httpx` 로 `EMBED_API_BASE`(기본 `http://127.0.0.1:8000`)를 친다 — `sys.path` import 가 아니다.
 **따라서 서버를 둘 띄워야 화면이 돈다**(엔진 `:8000` · 웹 `:5000`).
 
-`app/features/` 여덟은 **옛 이름을 지키는 다리**이고 실제 내용은 `app/services/` 에,
-`app/repositories/` 의 `members`·`chunks`·`history`·`regions` 넷도 다리이고 실제 내용은
-같은 폴더의 `*_repository.py` 에 있다. **새 코드는 다리를 부르지 않는다** — `app/services/` 를
-곧장 부른다(`check.sh` ⑥이 센다).
+`app/api/` 라우터는 `app/services/` 를 곧장 부른다(옛 다리 `app/features/` 는 2026-09-28 지웠다).
+`app/repositories/` 의 `members`·`chunks`·`history`·`regions` 넷은 아직 다리이고 실제 내용은
+같은 폴더의 `*_repository.py` 에 있다. **새 코드는 다리를 부르지 않는다**.
 
 패키지는 `requirements.txt`. `pyproject.toml`·린트 설정은 아직 없다.
-검증은 `tests/`(pytest 8파일 42개) + `bash check.sh`(일곱 가지) + `py -m tools.check_contract`(계약 36개).
+검증은 `tests/`(pytest 8파일 42개) + `bash check.sh`(일곱 가지) + `py -m tools.check_routes`(Life-Web 이 부르는 HTTP 경로 36개).
 
 ## Setup / commands
 
@@ -62,7 +61,7 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 > py -m app.services.region_service  # 동네 하나 설명 (시설명 근거)
 > py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    # 벡터 검색만 (디버깅)
 >
-> `app/features/`·`app/repositories/regions.py` 는 다리라서 `__main__` 이 없다 — `py -m app.features.search` 는 안 돈다.
+> `app/repositories/regions.py` 같은 다리는 `__main__` 이 없다.
 > 없어진 이름: `pipeline.weights` · `pipeline.recommend` · `pipeline.search_kb` · `pipeline.chunk_kb` ·
 > `pipeline.embed_kb` · `pipeline.embed_member` · `app/llm.py` · `pipeline/prep/chunking.py`.
 
@@ -84,7 +83,7 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 
     py -m pytest tests -q        # 저장소 뿌리에서. 8파일 42개 (40 통과 / 2 실패 — 아래 참고)
     bash check.sh                # 규칙 일곱 가지
-    py -m tools.check_contract   # Life-Web 이 부르는 이름 36개 (HTTP 로 바뀌어 절반만 유효 — Architecture 참고)
+    py -m tools.check_routes     # Life-Web 이 부르는 HTTP 경로 36개가 엔진에 다 열렸나
 
     tests/test_dong.py         행정동 이름 표기 변형 (양방향)
     tests/test_masking.py      개인정보 마스킹. 긴 이름부터 지우는 순서까지 지킨다
@@ -98,8 +97,8 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 **골든 사진은 "달라졌나"만 본다 — "정확한가"는 안 본다.** 다시 찍으려면 파일을 지우고
 `py -m tests.make_golden`. `embed.json` 한 장은 OpenAI 를 실제로 부른다(문장 하나).
 
-`tools/check_contract.py` 는 **반드시 `-m` 으로** 부른다. 파일 경로로 실행하면 뿌리가 검색
-경로에 안 잡혀 36개가 전부 "import 실패"로 나온다 — 코드는 멀쩡하고 부르는 법만 틀린 것이다.
+`tools/check_routes.py` 는 **반드시 `-m` 으로** 부른다. 파일 경로로 실행하면 뿌리가 검색
+경로에 안 잡혀 `app` import 가 실패한다 — 코드는 멀쩡하고 부르는 법만 틀린 것이다.
 
 ### 규칙이 지켜지나 — `bash check.sh` 일곱 가지
 
@@ -107,7 +106,7 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 | --- | --- | --- |
 | ① | **`app/`·`pipeline/` 에 날 SQL 이 있나** (`text("…")`) | 0곳 |
 | ② | 함수 안 import 가 있나 | 0곳 |
-| ③ | 계층 방향 (`tests/test_layers.py`) | `3 passed 1 failed` (아래 참고) |
+| ③ | 계층 방향 (`tests/test_layers.py`) | `3 passed` |
 | ④ | 0바이트 `__init__.py` 가 있나 | 0개 |
 | ⑤ | LangChain 이 되살아났나 | 0곳 |
 | ⑥ | `app` 밖(tests·tools·pipeline)이 다리에 기대나 | 0곳 |
@@ -121,9 +120,6 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 **주석까지 잡혀** 검사가 늘 X 로 끝난다. `app/models/` 만 예외인데, 거기 `text("CURRENT_TIMESTAMP")` 는
 질의가 아니라 `server_default` 다. ⑦도 같은 이유로 글자 "SQLite" 가 아니라 `import sqlite3` 같은
 **코드**만 본다 — 주석의 "SQLite 시절에는 …" 은 왜 이렇게 짰나를 남긴 기록이다.
-
-**③은 지금 하나 실패한다** — `app/api/` 라우터 열이 `app/services/` 가 아니라 다리(`app/features/`)를
-부른다. `supa-j` 가 API 를 만들 때부터 그랬고 DB 작업과 무관하다. `origin/dev-deploy` 에 고쳐져 있다.
 
 Windows PowerShell 에는 `bash`·`grep` 이 없다. Git Bash 터미널에서 돌리거나
 (VSCode 터미널 `∨` → Git Bash), VSCode `Ctrl+Shift+F`(files to include 에 `*.py`)를 쓴다.
@@ -170,10 +166,9 @@ app/ai/           llm(Claude), embedder      외부 모델과 순수 규칙. 모
 app/rag/          retriever.py               검색어 -> 뜻이 가까운 청크·사람
 app/engine/       weights, recommend,        점수 계산. resync 는 한 명만 재임베딩(관리자 수정 직후)
                   explain, housing, resync
-app/services/     search, region, chat,      업무 순서를 엮는 창구 여덟. SQL 도 표 이름도 없다
+app/services/     search, region, chat,      업무 순서를 엮는 창구 아홉. SQL 도 표 이름도 없다
                   admin, analysis, auth,
-                  privacy, survey
-app/features/     같은 이름 여덟             ★ 다리. `from ..._service import *` 한 줄뿐
+                  privacy, survey, history
 app/api/          라우터 아홉                여기만 FastAPI 를 안다. Life-Web 이 HTTP 로 친다
                                              main.py 가 아홉을 전부 include_router 한다(경로 31개)
 app/db.py                                    Base · engine · SessionLocal. DB 접근은 전부 여기를 지난다
@@ -181,19 +176,17 @@ app/main.py                                  py -m uvicorn app.main:app --port 8
 pipeline/         schema, sample_kb, chunk,  CSV -> Postgres · chunks 표. 배포엔 안 따라간다
                   embed, io, fix_member_persona
 tests/            8파일 + golden/ 사진 4장   DB 는 쓰고 서버·화면은 안 띄운다
-tools/            check_contract.py          Life-Web 이 부르는 계약 36개를 센다
+tools/            check_routes.py            Life-Web 이 부르는 HTTP 경로 36개가 열렸나
 ```
 
-**`tools/check_contract.py` 는 이제 절반만 유효하다.** Life-Web 이 `sys.path` import 를 버리고
-HTTP 로 넘어가면서 **진짜 계약은 파이썬 이름이 아니라 엔드포인트 경로**가 됐다.
-이 검사기는 아직 `app.repositories.*`·`app.features.*` 의 이름 36개를 세는데, 그게 다 살아 있어도
-`app/main.py` 가 라우터를 안 등록하면 웹은 404 를 받는다. **둘 다 봐야 한다.**
+**계약은 파이썬 이름이 아니라 엔드포인트 경로다.** Life-Web 이 `sys.path` import 를 버리고
+HTTP 로 넘어갔다. 옛 이름 검사기 `check_contract.py` 는 `app/features/` 와 함께 지웠다.
 
 **층 번호 — 아래층은 위층을 부르지 않는다.**
 
 ```
 0 domain → 1 schemas · core → 2 models · repositories · tables · ai
-         → 3 rag → 4 engine → 5 services → 6 features(다리) → 7 api → Life-Web
+         → 3 rag → 4 engine → 5 services → 7 api → Life-Web
 ```
 
 이 번호표는 `tests/test_layers.py`의 `LAYER` 표와 짝이다. 한쪽만 고치면 어긋난다.
