@@ -72,7 +72,11 @@ def chat_plan_node(state):
 
 # plan 이 고른 도구를 실제로 실행한다
 def chat_run_tools_node(state):
-    results = [run_tool(call["name"], call["arguments"]) for call in state["tool_calls"]]
+    # 비교 질문이면 같은 도구가 동네마다 불린다 — 어느 동네 결과인지 인자를 같이 붙인다
+    results = [
+        {"도구": call["name"], "인자": call["arguments"], "결과": run_tool(call["name"], call["arguments"])}
+        for call in state["tool_calls"]
+    ]
     return {"tool_result": results, "path": state["path"] + ["run_tools"]}
 
 
