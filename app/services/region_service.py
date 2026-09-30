@@ -13,7 +13,7 @@ from collections import Counter
 
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
                                 region_price_note, price_gap_text, format_won)
-from app.repositories.regions import facilities, facility_counts, region_densities
+from app.repositories.regions import facilities, facility_counts, region_densities, region_extras
 from app.ai.llm import ask
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
@@ -149,6 +149,15 @@ def region_explain(gu, dong, query="", weights=None, scores=None, housing=None):
         ("human", context),
     ]
     return ask(messages, max_tokens=400).strip()
+
+
+def get_facilities(gu, dong, limit=5):
+    """행정동 하나의 시설 정보. 지도 핀을 눌렀을 때 쓴다."""
+    return {
+        "counts": facility_counts(gu, dong),
+        "items": facilities(gu, dong, limit=limit),
+        "extras": region_extras(gu, dong),
+    }
 
 
 # 같은 동네·같은 검색어면 설명이 같으므로 만들어 둔 것을 다시 쓴다.
