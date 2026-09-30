@@ -154,3 +154,13 @@ def analysis_chat_one(chat_id):
 
 def delete_analysis_chat(chat_id):
     return _run(repo.delete_analysis_chat, chat_id)
+
+
+# => AI 사용량 (관리자 대시보드)
+
+def ai_usage_by_user(since):
+    return _run(repo.ai_usage_by_user, since)
+
+
+def ai_usage_by_day(since):
+    return _run(repo.ai_usage_by_day, since)

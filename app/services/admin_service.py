@@ -2,6 +2,7 @@
 옛 경로에는 다리가 남아 있다 — Life-Web 이 그 이름을 쓰기 때문이다.
 """
 
+import datetime
 import json
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,6 +17,7 @@ from app.repositories.history import (
     admin_log_count, admin_log_recent, like_count,
     list_likes, list_search_history, list_chat_history,
     delete_activity, delete_logins_by_customer,
+    ai_usage_by_user, ai_usage_by_day,
 )
 from app.repositories.members import (
     customer_list, customer_one, customer_preferences, customer_preferences_initial,
@@ -420,3 +422,43 @@ def dashboard() -> dict:
             },
             "recent": recent_f.result(),
         }
+
+
+def ai_usage(days: int = 14, top: int = 30) -> dict:
+    """AI(검색어 추천·후속 질문) 사용량 — 합계, 날짜별 추이, 많이 쓴 사람 순위.
+
+    anon_id 가 회원 번호면 회원이고(로그인하면 anon_id 가 customer_id 로 바뀐다),
+    아니면 기기별 임시 id 라 손님이다. 손님 id 는 그대로 내보내지 않고 앞 8글자만 쓴다.
+    """
+    since = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+    today = datetime.date.today().isoformat()
+    names = {m["customer_id"]: m.get("name") for m in customer_list()}
+
+    users = []
+    for anon_id, searches, chats, last in ai_usage_by_user(since):
+        member = anon_id in names
+        users.append({
+            "who": (names[anon_id] or anon_id) if member else f"손님 {anon_id[:8]}",
+            "id": anon_id if member else None,
+            "member": member,
+            "searches": searches,
+            "chats": chats,
+            "total": searches + chats,
+            "last": (last or "")[:16],
+        })
+
+    daily = [{"date": d, "searches": s, "chats": c} for d, s, c in ai_usage_by_day(since)]
+    today_row = next((d for d in daily if d["date"] == today), {"searches": 0, "chats": 0})
+    return {
+        "days": days,
+        "totals": {
+            "searches": sum(d["searches"] for d in daily),
+            "chats": sum(d["chats"] for d in daily),
+            "users": len(users),
+            "members": sum(u["member"] for u in users),
+            "guests": sum(not u["member"] for u in users),
+            "today": today_row["searches"] + today_row["chats"],
+        },
+        "daily": daily,
+        "users": users[:top],
+    }
