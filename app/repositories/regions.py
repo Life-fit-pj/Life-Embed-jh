@@ -62,6 +62,18 @@ def column_percentile(column, value, invert=False):
     return _run(repo.column_percentile, column, value, invert)
 
 
+def park_areas():
+    return _run(repo.park_areas)
+
+
+def dong_coords():
+    return _run(repo.dong_coords)
+
+
+def school_counts():
+    return _run(repo.school_counts)
+
+
 def region_price_detail(gu, dong, bldg, deal):
     return _run(repo.region_price_detail, gu, dong, bldg, deal)
 

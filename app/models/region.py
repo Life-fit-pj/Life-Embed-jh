@@ -215,3 +215,19 @@ t_행정동별_세대원수_전처리 = Table(
     Column('평균가구원수', Double(53)),
     PrimaryKeyConstraint('구', '행정동명', name='행정동별_세대원수_전처리_pkey')
 )
+
+
+t_학교_행정동매칭 = Table(
+    '학교_행정동매칭', metadata,
+    Column('학교', Text),
+    Column('학교급', Text),
+    Column('설립구분', Text),
+    Column('위도', Double(53)),
+    Column('경도', Double(53)),
+    Column('행정동코드', Text),        # master 의 행정동ID_8자리 와 같은 8자리 글자. 대시보드 import 때 text 로 잡았다(2026-09-30)
+    Column('구', Text),
+    Column('행정동', Text),
+    Column('매칭거리_m', Double(53)),
+    Column('매칭품질', Text)
+)
+

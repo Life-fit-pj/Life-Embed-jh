@@ -56,4 +56,5 @@ def test_여러_스레드가_동시에_읽어도_안_죽는다():
     for t in threads:
         t.join()
 
-    assert results == [100, 100, 100, 100]
+    assert len(set(results)) == 1 and results[0] > 0   # 네 스레드가 같은 수를 읽나만 본다. 회원 수는 가입으로 늘어난다(100→104)
+

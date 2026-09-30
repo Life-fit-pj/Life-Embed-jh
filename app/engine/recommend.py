@@ -7,18 +7,22 @@
 
 import numpy as np
 
-from app.repositories.regions import region_densities
+from app.domain.dong import dong_variants
+from app.repositories.regions import dong_coords, park_areas, region_densities, school_counts
 from app.engine.housing import DEAL_COLUMNS
 
 INDICATOR_COLUMNS = {
-    "녹지" : ["공원_밀도"],
+    "녹지" : ["공원면적비율"],
     "안전" : ["CCTV_밀도","경찰관서_밀도"],
     "교통": ["버스정류장_밀도", "지하철역_밀도"],
     "상권": ["점포_밀도", "대형점포_밀도"],
     "의료": ["의료기관_밀도"],
-    "교육": ["학교_밀도", "학원_밀도"],
+    "교육": ["학교_밀도_2023", "학원_밀도"],
     "문화": ["문화시설_밀도", "도서관_밀도"],
 }
+
+# master 표에 없고 load_regions() 가 계산해 넣는 칸. 관리자 화면이 이걸 보고 표에서 읽을 칸과 가른다 — 빠지면 KeyError
+DERIVED_COLUMNS = {"공원면적비율", "학교_밀도_2023"}
 
 
 # 화면이 "공원 5개 · CCTV 120대" 처럼 보여줄 **원본 개수**.
@@ -36,33 +40,89 @@ COUNT_COLUMNS = [
 ]
 
 
+BIG_PARK_M2 = float("inf")  # 분배 끔(=A). 골든셋 녹지 A 3/4 · B+ 1/4 · C 1/4(2026-09-30, data/golden/README.md).
+                            # mix 조정(로드맵 2-7) 뒤 1_000_000 으로 다시 켜서 잰다 — 그래서 분배 코드는 남긴다
+SPREAD_KM = 1.5             # + 동 자기 반지름 √(면적/π). 실제 경계로 채점: 진짜 이웃 96% 포착(3.0 은 정밀도 27% 로 너무 넓음)
+
+
+def build_green_ratio(names, area_m2, parks, coords, cap=1.0):
+    """동별 공원 면적 비율 = (그 동 공원 면적 합) ÷ (동 면적). 427개 배열, cap 에서 자른다.
+
+    개수 밀도는 60% 가 어린이공원(평균 1,600㎡)이라 "놀이터 밀도"였다(2026-09-29 실측).
+    BIG_PARK_M2 이상 공원(불암산 5.3km² → 중계본동 244%)은 동 면적까지만 자기 동에 넣고,
+    넘치는 만큼은 SPREAD_KM 반경 안 이웃에 면적 비례로 나눈다. 이웃이 없으면 초과분은 버린다.
+    parks 의 행정동 표기(시흥4동)와 names 의 표기(시흥제4동)가 달라 dong_variants 로 맞춘다.
+    """
+    index = {}
+    for i, name in enumerate(names):
+        gu, dong = name.split(" ", 1)
+        for v in dong_variants(dong):
+            index[(gu, v)] = i
+
+    # 동 중심 좌표를 names 순서의 배열로 (없는 동은 nan → 반경 계산에서 자동 제외)
+    lat = np.full(len(names), np.nan)
+    lon = np.full(len(names), np.nan)
+    for (gu, dong), (la, lo) in coords.items():
+        i = index.get((gu, dong.strip()))
+        if i is not None:
+            lat[i], lon[i] = la, lo
+
+    total = np.zeros(len(names))
+    for gu, dong, area, plat, plon in parks:
+        i = index.get((gu, (dong or "").strip()))
+        if i is None:
+            continue
+        if area < BIG_PARK_M2 or plat is None or plon is None:
+            total[i] += area
+            continue
+        # 동 안에 다 들어가는 공원(올림픽공원 1.45km²)까지 나누면 그 동이 희석된다 — 넘치는 만큼만 이웃에
+        keep = min(area, area_m2[i])
+        total[i] += keep
+        excess = area - keep
+        d = np.sqrt(((lat - plat) * 111.0) ** 2 + ((lon - plon) * 88.0) ** 2)   # km (위도 1도≈111, 경도 1도≈88)
+        reach = SPREAD_KM + np.sqrt(area_m2 / 1e6 / np.pi)
+        near = np.where((d <= reach) & (np.arange(len(names)) != i))[0]       # 자기 동은 이미 찼다
+        if excess > 0 and len(near) > 0:
+            total[near] += excess * area_m2[near] / area_m2[near].sum()
+
+    ratio = total / np.maximum(area_m2, 1.0)     # 면적 0 인 동이 있어도 0 으로 나누지 않는다
+    return np.minimum(ratio, cap)
+
+
 def load_regions():
     """427개 동의 이름과, 밀도 칸·개수 칸을 꺼낸다.
 
     한 번의 쿼리로 둘을 같이 가져온다 — 순위에 쓸 밀도와, 화면 근거로 쓸 개수다.
     돌려주는 것 셋: names · values(밀도, numpy) · counts(개수, 동네별 dict)
     """
-    # 매핑에 등장하는 칸을 전부 모은다 (중복 없이, 순서 유지)
-    cols = []
-    for cs in INDICATOR_COLUMNS.values():
-        for c in cs:
-            if c not in cols:
-                cols.append(c)
-
-    rows = region_densities(cols + COUNT_COLUMNS)
-    
+    # 매핑에 등장하는 칸 중 표에 있는 것만 (중복 없이, 순서 유지). 계산된 칸은 표에 없다
+    cols = dict.fromkeys(c for cs in INDICATOR_COLUMNS.values() for c in cs)
+    db_cols = [c for c in cols if c not in DERIVED_COLUMNS]
+    rows = region_densities(db_cols + COUNT_COLUMNS + ["면적_m2", "면적_km2", "행정동ID_8자리"])   # 면적은 분모, 코드는 학교 표와 잇는 열쇠
     names = [f"{r['구']} {r['행정동명']}" for r in rows]
-    
+
+    def column(key):
+        """rows 의 한 칸을 numpy 배열로. 빈 값은 0"""
+        return np.array([r[key] or 0 for r in rows], dtype="float64")
+
     # 밀도는 계산용이라 numpy 배열로
-    values = {}
-    for c in cols:
-        values[c] = np.array([r[c] or 0 for r in rows], dtype="float64")
-    
-    # 개수는 그대로 보여줄 값이라 동네별 딕셔너리로.
-    # 이름으로 찾을 일이 많아 리스트가 아니라 {동네이름: {칸: 값}} 이다
+    values = {c: column(c) for c in db_cols}
+
+    # 계산된 칸 — 원본 표는 안 고치고 여기서 계산한다(시세와 같은 방식)
+    values["공원면적비율"] = build_green_ratio(names, column("면적_m2"), park_areas(), dong_coords())
+
+    # 학교는 2023년 학교 표로 센다. master 의 학교_수·학교_밀도 는 10년치가 섞여 약 10배다
+    by_code = dict(school_counts())
+    codes = [r["행정동ID_8자리"] for r in rows]
+    shared = {c: codes.count(c) for c in set(codes)}    # 한 코드를 몇 줄이 쓰나. 신설동·용두동이 11060810 을 같이 쓴다(2009년 용신동 통합, 경계 데이터가 없어 못 가른다)
+    school_n = np.array([by_code.get(c, 0) / shared[c] for c in codes], dtype="float64")
+    values["학교_밀도_2023"] = school_n / np.maximum(column("면적_km2"), 0.01)
+
+    # 개수는 화면에 그대로 보여줄 값이라 {동네이름: {칸: 값}}.
+    # 학교_수 는 2023년 값으로 덮는다 — 웹 typespot.py 카드가 이 키를 읽는다
     counts = {
-        name: {c: row[c] for c in COUNT_COLUMNS}
-        for name, row in zip(names, rows)
+        name: {**{c: row[c] for c in COUNT_COLUMNS}, "학교_수": int(n)}
+        for name, row, n in zip(names, rows, school_n)
     }
 
     return names, values, counts
@@ -183,7 +243,7 @@ def recommend(names, scores, relative, weights, top_k=5, mix=0.5, sharpen=6):
 
 
 if __name__ == "__main__" :
-    names, values = load_regions()
+    names, values, _ = load_regions()
     scores = build_scores(values)
     relative = build_relative(scores)
     

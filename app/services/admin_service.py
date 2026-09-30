@@ -6,7 +6,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
-from app.engine.recommend import INDICATOR_COLUMNS
+from app.engine.recommend import DERIVED_COLUMNS, INDICATOR_COLUMNS, to_percentile
 from app.engine.resync import resync_member
 from app.engine.weights import find_similar_members
 from app.services import search_service, region_service, privacy_service
@@ -32,9 +32,8 @@ from app.repositories.regions import (
 )
 
 
-# {"녹지": ["공원_밀도"], "안전": ["CCTV_밀도", "경찰관서_밀도"], ...} 를 펼쳐서
-# ("공원_밀도", "CCTV_밀도", "경찰관서_밀도", ...) 12개로 만든다
-REGION_FIELDS = tuple(c for cols in INDICATOR_COLUMNS.values() for c in cols)
+# 표에서 읽고·보여주고·고치는 칸. 계산된 칸(DERIVED_COLUMNS)은 표에 없으니 뺀다
+REGION_FIELDS = tuple(c for cols in INDICATOR_COLUMNS.values() for c in cols if c not in DERIVED_COLUMNS)
 
 # 화이트리스트
 CUSTOMER_FIELDS = ("name", "gender", "age", "phone", "email",
@@ -79,6 +78,22 @@ def list_members():
     return customer_list()
 
 
+def _derived_percentiles(gu, dong):
+    """계산된 칸(공원면적비율 등)의 백분위.
+
+    순위 계산이 든 get_ready() 의 밀도 원값을 같은 to_percentile 로 잰다. 계산된 칸을 따로 백분위 내면 구현이 세 곳이 된다.
+    """
+    r = search_service.get_ready()
+    name = f"{gu} {dong}"
+    if name not in r["names"]:
+        return {}
+    i = r["names"].index(name)
+    return {
+        col: round(float(to_percentile(r["values"][col])[i]))    # 지표 평균(scores)이 아니라 그 칸 하나의 백분위
+        for col in DERIVED_COLUMNS
+    }
+
+
 def get_region(gu: str, dong: str) -> dict | None:
     """행정동 하나의 지표 12개 + 427개 동 중 백분위 + 좋아요 수. 없으면 None
 
@@ -96,7 +111,11 @@ def get_region(gu: str, dong: str) -> dict | None:
         "행정동명": row["행정동명"],
         "likes": likes,
         "values": {name: row[name] for name in REGION_FIELDS},
-        "percentiles": {name: column_percentile(name, row[name]) for name in REGION_FIELDS},
+        "percentiles": {
+            **{name: column_percentile(name, row[name]) for name in REGION_FIELDS},
+            # 계산된 칸은 순위가 쓰는 바로 그 점수를 보여준다 — 두 구현이 어긋날 길을 없앤다
+            **_derived_percentiles(row["구"], row["행정동명"]),
+        },
     }
 
 

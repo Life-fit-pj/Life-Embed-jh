@@ -43,6 +43,7 @@ def get_ready():
         
         _ready = {
             "names": names,
+            "values": values,      # 밀도 원값(427개 배열). 관리자가 계산된 칸의 백분위를 낼 때 쓴다
             "scores": scores,
             "relative": relative,
             "price_score": price_score,
