@@ -2,7 +2,7 @@
 
 부르는 쪽 —
   app/engine/          explain · housing · recommend      region_densities · region_price_detail
-  app/features/regions.py                                 facilities · facility_counts · region_extras
+  app/services/region_service.py                                 facilities · facility_counts · region_extras
   app/services/        admin · chat · privacy · region · search
   Life-Web                                                HTTP 로 app/api/ 를 거쳐 들어온다
 
