@@ -1,5 +1,5 @@
 # Last Updated: 2026-09-08
-"""관리자 API 요청·응답 모양. app/features/admin.py 와 1:1.
+"""관리자 API 요청·응답 모양. app/services/admin_service.py 와 1:1.
 
 칸 이름이 회원/지표마다 다른 자리(희망조건 7칸, 페르소나 9칸, 지표 12칸, 대시보드 차트)는
 Housing.targets(schemas/recommend.py)와 같은 방식으로 dict 로 둔다.

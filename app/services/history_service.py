@@ -1,5 +1,5 @@
 # Last Updated: 2026-09-08
-"""좋아요·기록 창구. app/api가 부르는 문."""
+"""좋아요·기록 창구. app/api/history.py 가 부른다."""
 
 from app.repositories.history import (
     add_chat_history, add_like, add_search_history,

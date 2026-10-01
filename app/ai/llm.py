@@ -5,6 +5,7 @@ LangChain(ChatAnthropic) 을 걷어내면서 부르는 모양도 함수 하나�
     지금   ask(messages, max_tokens=300)
 
 messages 는 옛 모양을 그대로 받는다: [("system", 지시문), ("human", 질문)].
+앞선 대화의 Claude 답은 ("ai", 글) 로 넘긴다 — SDK 의 "assistant" 로 바뀐다.
 부르는 쪽 7곳이 프롬프트를 만드는 코드는 한 줄도 안 고치려는 것이다.
 튜플을 SDK 모양으로 바꾸는 번역은 이 파일 안에서만 일어난다(이론 8).
 """
@@ -26,7 +27,7 @@ def _to_sdk(messages):
 
     system = "\n\n".join(text for role, text in messages if role == "system")
     turns = [
-        {"role": "user", "content": text}
+        {"role": "assistant" if role == "ai" else "user", "content": text}
         for role, text in messages
         if role != "system"
     ]

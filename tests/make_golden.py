@@ -23,6 +23,9 @@ CASES = {
 # 임베딩 사진용 고정 문장. 절대 바꾸지 않는다 — 바꾸면 4단계 비교가 무의미해진다.
 SENTENCE = "조용한 동네에서 아이 키우기 좋은 곳"
 
+# 사진을 찍을 때 있던 회원 100명. 그 뒤 가입자는 청크가 계속 늘어나므로 비교에서 뺀다.
+GOLDEN_MEMBERS = {f"C{i:03d}" for i in range(1, 101)}
+
 
 def snap_recommend():
     """가중치 -> TOP 5. LLM 을 안 부르므로 몇 번을 돌려도 같은 답이 나온다."""
@@ -53,11 +56,11 @@ def snap_embed():
 
 def snap_tables():
     """조회 함수가 무엇을 어떤 모양으로 돌려주나. 3단계에서 이것을 본다."""
-    from app.repositories.chunks import member_chunk_count
+    from app.repositories.chunks import member_chunks
     from app.repositories.members import member_weights
 
     return {
-        "member_chunk_count": member_chunk_count(),
+        "member_chunk_count": sum(row["customer_id"] in GOLDEN_MEMBERS for row in member_chunks()),
         "member_weights": member_weights(["C001", "C002"]),
     }
 
@@ -81,7 +84,9 @@ def snap_chunks():
         return {"개수": len(texts), "해시": hashlib.sha256(joined).hexdigest()[:16]}
 
     return {
-        "member": fingerprint(member_chunks(), "customer_id"),
+        "member": fingerprint(
+            [row for row in member_chunks() if row["customer_id"] in GOLDEN_MEMBERS], "customer_id"
+        ),
         "kb": fingerprint(kb_chunks(), "uuid"),
     }
 

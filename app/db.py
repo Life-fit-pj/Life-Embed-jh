@@ -20,7 +20,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.core.config import DATABASE_URL
 
-engine = create_engine(DATABASE_URL)
+# Supabase 가 한동안 쉰 연결을 먼저 끊는다. 풀에서 꺼낼 때 한 번 찔러 보고(pre_ping),
+# 5분 넘은 연결은 새로 만든다(recycle) — 안 하면 첫 요청이 "SSL connection has been closed" 500 이 된다
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
 
 # sessionmaker 는 "세션을 찍어내는 틀" 이다. 이것 자체는 세션이 아니다.
 # 쓸 때 SessionLocal() 처럼 괄호를 붙여 한 개를 만들어 낸다.

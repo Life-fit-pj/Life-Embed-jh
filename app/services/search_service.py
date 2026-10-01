@@ -59,6 +59,11 @@ def get_ready():
 DEFAULT_PRICE_WEIGHT = 3   # 다른 지표들의 "보통"과 같은 값. 굳이 저렴함을 강하게 밀지 않는다
 
 
+# 말로만 한 가격대("고급 아파트", "저렴한 곳")일 때 시세 신호의 가중치.
+# 다른 지표의 최댓값(5)과 같게 둔다 — 사용자가 직접 말한 조건이기 때문이다
+PRICE_TIER_WEIGHT = 5
+
+
 def _keep(names, scores, relative, mask):
     """불리언 마스크로 names·scores·relative 를 같이 자른다 — 셋의 길이가 어긋나면 recommend() 가 죽는다"""
     names = [n for n, k in zip(names, mask) if k]
@@ -67,7 +72,7 @@ def _keep(names, scores, relative, mask):
     return names, scores, relative
 
 
-def recommend_by_weights(weights, top_k=5, housing=None, region=None, focus=None):
+def recommend_by_weights(weights, top_k=5, housing=None, region=None, price_tier=None, focus=None):
     """가중치 → TOP 5. housing 을 주면 그 조건에 맞는 동으로 먼저 추린다.
 
     housing 예시(전세): {"건물유형": "아파트", "거래유형": "전세", "targets": {"예산": 65000}}
@@ -77,6 +82,11 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None, focus=None
     region 을 주면("강남구" 등) 그 구의 동으로만 다시 추린다. housing 필터와 별개로,
     항상 맨 마지막에 건다 — housing 이 없을 때 얹는 "시세" 8번째 신호(아래 else)까지
     427개 길이로 다 만들어진 뒤라야 배열 길이가 서로 맞는다.
+
+    price_tier("고가"|"저가")는 금액 없이 말로만 한 가격대다. housing 이 없을 때만 쓴다.
+    "시세" 점수는 클수록 저렴하므로, 고가면 순위 계산에만 뒤집은 값(100 - 점수)을 쓴다.
+    화면·설명문으로 가는 점수(with_scores)는 원래 방향 그대로 둔다 — 뒤집힌 값이 나가면
+    설명문이 "저렴하다"로 정반대로 읽는다.
 
     focus 를 주면({"교육": "학원"}) 그 지표 점수를 콕 집은 칸의 백분위로 바꾼다. 맨 먼저 건다 —
     housing·region 이 배열을 자르기 전이라야 길이가 맞는다.
@@ -89,9 +99,12 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None, focus=None
         scores = apply_focus(scores, r["column_scores"], focus)
         relative = build_relative(scores)
 
+    # scores·relative 는 화면·설명문으로 나가는 값, rank_* 는 순위 계산에만 쓰는 값이다.
+    # 둘이 갈리는 곳은 가격대(고가)로 시세를 뒤집을 때뿐이다 — 세부 강조는 양쪽에 똑같이 들어간다
     if housing:
         candidates = set(matching_regions(**housing))
         names, scores, relative = _keep(names, scores, relative, np.array([n in candidates for n in names]))
+        rank_scores, rank_relative = scores, relative
     else:
         # 목표가가 없을 때만 "시세는 낮을수록 좋다"를 8번째 신호로 얹는다.
         # housing이 있으면 matching_regions()가 이미 목표가 근접도로 걸러내므로
@@ -102,15 +115,23 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None, focus=None
         # mix 값과 무관하게 결과가 항상 price_score 그대로 나오도록 -50을 맞춰 넣는다.
         relative = {**relative, "시세": price - 50}
         weights = {**weights, "시세": weights.get("시세", DEFAULT_PRICE_WEIGHT)}
+        rank_scores, rank_relative = scores, relative
+        if price_tier:
+            rank_price = 100 - price if price_tier == "고가" else price
+            rank_scores = {**scores, "시세": rank_price}
+            rank_relative = {**relative, "시세": rank_price - 50}
+            weights = {**weights, "시세": PRICE_TIER_WEIGHT}
 
     if region:
         # 이름은 "구 동" 형태다(load_regions() 참고) — 접두어로 그 구만 남긴다.
         # 매치가 하나도 없으면(Claude 가 없는 구를 지어낸 경우) 필터를 걸지 않고 넘어간다.
         keep = np.array([n.startswith(region + " ") for n in names])
         if keep.any():
+            # rank_* 를 먼저 자른다 — _keep 이 names 를 바꾸기 전의 길이여야 마스크와 맞는다
+            _, rank_scores, rank_relative = _keep(names, rank_scores, rank_relative, keep)
             names, scores, relative = _keep(names, scores, relative, keep)
 
-    result = recommend(names, scores, relative, weights, top_k=top_k)
+    result = recommend(names, rank_scores, rank_relative, weights, top_k=top_k)
     detailed = with_scores(result, names, scores, r["counts"])
     return attach_price(detailed, housing)
 
@@ -171,6 +192,7 @@ def search(query, top_k=5, housing_override=None, weights_override=None, focus_o
         "weights": {},
         "housing": None,
         "region": None,
+        "price_tier": None,
         "focus": None,
         "notice": None,
         "regions": [],

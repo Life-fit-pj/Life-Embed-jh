@@ -301,3 +301,36 @@ def analysis_chat_one(db, chat_id):
         "facts": row.facts,
         "created_at": row.created_at,
     }
+
+
+# ── AI 사용량 (관리자 대시보드) ──────────────────────
+# 검색어 추천·후속 질문은 둘 다 Claude 를 부르고, 부를 때마다 search_history·chat_history 에
+# 한 줄씩 쌓인다. 그러니 이 두 표를 세면 "누가 AI 를 몇 번 썼나" 가 된다.
+# created_at 은 문자열이라("2026-09-30 14:24:06...") 앞 10글자가 날짜다.
+
+def ai_usage_by_user(db, since):
+    """since(날짜 문자열) 이후 사람별 (anon_id, 검색 수, 질문 수, 마지막 사용). 많이 쓴 순."""
+    usage = {}
+    for model, slot in ((SearchHistory, 0), (ChatHistory, 1)):
+        rows = (
+            db.query(model.anon_id, func.count(), func.max(model.created_at))
+            .filter(model.created_at >= since)
+            .group_by(model.anon_id)
+            .all()
+        )
+        for anon_id, n, last in rows:
+            item = usage.setdefault(anon_id, [0, 0, ""])
+            item[slot] = n
+            item[2] = max(item[2], last or "")
+    rows = [(anon_id, s, c, last) for anon_id, (s, c, last) in usage.items()]
+    return sorted(rows, key=lambda r: r[1] + r[2], reverse=True)
+
+
+def ai_usage_by_day(db, since):
+    """since 이후 날짜별 (날짜, 검색 수, 질문 수). 날짜 오름차순."""
+    days = {}
+    for model, slot in ((SearchHistory, 0), (ChatHistory, 1)):
+        day = func.substr(model.created_at, 1, 10)
+        for d, n in db.query(day, func.count()).filter(model.created_at >= since).group_by(day).all():
+            days.setdefault(d, [0, 0])[slot] = n
+    return [(d, s, c) for d, (s, c) in sorted(days.items())]

@@ -56,4 +56,5 @@ def test_여러_스레드가_동시에_읽어도_안_죽는다():
     for t in threads:
         t.join()
 
+    # 가입자가 늘어나므로 숫자를 박지 않는다. 넷이 같은 값을 읽었는지만 본다
     assert len(set(results)) == 1 and results[0] >= 100

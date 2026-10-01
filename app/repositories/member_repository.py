@@ -5,7 +5,7 @@
 옛 app/tables/members.py 와 반환 모양을 똑같이 맞춘다.
 
 집계 함수가 (이름, 개수) 튜플 목록을 돌려주는 것도 옛 파일 그대로다.
-{label, value} 로 바꾸는 건 화면 쪽(features) 일이다.
+{label, value} 로 바꾸는 건 화면 쪽(services) 일이다.
 """
 
 from sqlalchemy import Integer, cast, func, inspect
@@ -78,7 +78,7 @@ def member_weights(db, customer_ids):
     return _dicts(db, columns, fields, Preference.customer_id.in_(customer_ids))
 
 
-# ── 회원 관리자 조회 (app/features/admin.py 가 쓴다) ──────────────
+# ── 회원 관리자 조회 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def customer_list(db):
     """회원 목록. 화면 왼쪽 목록에 쓴다. 목록엔 다 필요 없으니 몇 칸만"""
@@ -141,7 +141,7 @@ def customer_persona(db, customer_id):
     return {category: text for category, text in rows}
 
 
-# ── 회원 관리자 수정 (app/features/admin.py 가 쓴다) ──────────────
+# ── 회원 관리자 수정 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def update_customer(db, customer_id, patch, allowed):
     return _apply(db, Customer, Customer.customer_id == customer_id, patch, allowed)

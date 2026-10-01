@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.features.customers import customer_one
+from app.repositories.members import customer_one
 from app.schemas.customers import CustomerOut
 
 router = APIRouter(prefix="/customers", tags=["customers"])

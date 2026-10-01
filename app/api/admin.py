@@ -3,13 +3,13 @@
 
 from fastapi import APIRouter, HTTPException
 
-from app.features.admin import (
+from app.services.admin_service import (
     InvalidPatch,
-    clear_caches, create_member, dashboard, delete_member, get_member, get_region, health,
+    ai_usage, clear_caches, create_member, dashboard, delete_member, get_member, get_region, health,
     list_members, list_regions, preview_member, privacy_preview, recent_logs,
     similar_members, update_member, update_region,
 )
-from app.features.auth import backfill_logins
+from app.services.auth_service import backfill_logins
 from app.schemas.admin import (
     BackfillLoginOut, ClearCachesOut, DashboardOut, HealthOut, MemberListItem,
     MemberOut, PrivacyPreviewOut, RecentLogOut, RegionDetailOut, RegionListItem,
@@ -155,3 +155,9 @@ def get_recent_logs(limit: int = 8):
 def post_backfill_logins():
     """user_login 이 없는 기존 회원에게 임시 아이디/비번을 만들어 준다."""
     return backfill_logins()
+
+
+@router.get("/ai-usage")
+def get_ai_usage(days: int = 14):
+    """AI 사용량 — 누가 검색어 추천·후속 질문을 몇 번 썼나."""
+    return ai_usage(days=min(max(days, 1), 90))

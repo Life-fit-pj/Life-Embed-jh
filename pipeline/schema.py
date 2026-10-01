@@ -365,7 +365,7 @@ def fill_snapshot_columns(con, table):
 
     적재 직후에 부르는 것이 전제다 — 이 시점의 CSV 값이 곧 "가입 시 값" 이다.
     나중에 관리자가 가중치를 고쳐도 `_초기` 는 화이트리스트 밖이라 안 따라 바뀐다
-    (app/features/admin.py 의 PREFERENCE_FIELDS)
+    (app/services/admin_service.py 의 PREFERENCE_FIELDS)
     """
     pairs = {
         table.c[f"{col}{SNAPSHOT_SUFFIX}"]: table.c[col]

@@ -8,9 +8,9 @@
    pipeline/schema.py 끝의 Base.metadata.create_all() 이 한 번에 한다.
 
 부르는 쪽 —
-  app/features/admin.py     집계·관리자로그
-  app/features/analysis.py  분석대화·집계
-  app/features/auth.py      user_login 계열
+  app/services/admin_service.py     집계·관리자로그
+  app/services/analysis_service.py  분석대화·집계
+  app/services/auth_service.py      user_login 계열
   Life-Web/services/engine.py 20행  add_like · remove_like · add_search_history ·
                                     list_search_history · add_chat_history · list_chat_history
 """
@@ -138,7 +138,7 @@ def admin_log_recent(limit=8):
     return _run(repo.admin_log_recent, limit)
 
 
-# ── 분석 대화 (app/features/analysis.py 가 쓴다) ────────
+# ── 분석 대화 (app/services/analysis_service.py 가 쓴다) ────────
 
 def add_analysis_chat(question, answer, facts_json, created_at):
     return _run(repo.add_analysis_chat, question, answer, facts_json, created_at)
@@ -154,3 +154,13 @@ def analysis_chat_one(chat_id):
 
 def delete_analysis_chat(chat_id):
     return _run(repo.delete_analysis_chat, chat_id)
+
+
+# => AI 사용량 (관리자 대시보드)
+
+def ai_usage_by_user(since):
+    return _run(repo.ai_usage_by_user, since)
+
+
+def ai_usage_by_day(since):
+    return _run(repo.ai_usage_by_day, since)

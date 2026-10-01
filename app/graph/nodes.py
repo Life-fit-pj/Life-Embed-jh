@@ -40,6 +40,7 @@ def weights_node(state):
         "weights": weights,
         "housing": housing,
         "region": draft.get("지역"),
+        "price_tier": draft.get("가격대"),
         "focus": state["focus_override"] or draft.get("세부"),   # 칩이 고른 것이 검색어에서 뽑은 것보다 확실하다
         "notice": draft.get("미지원_조건"),
         "path": state["path"] + ["weights"],
@@ -50,7 +51,7 @@ def weights_node(state):
 def recommend_node(state):
     regions = recommend_by_weights(
         state["weights"], top_k=state["top_k"], housing=state["housing"], region=state["region"],
-        focus=state["focus"],
+        price_tier=state["price_tier"], focus=state["focus"],
     )
     return {"regions": regions, "path": state["path"] + ["recommend"]}
 
@@ -65,7 +66,7 @@ def explain_node(state):
 def chat_plan_node(state):
     names = [r.get("name", "").replace("서울특별시 ", "") for r in state["regions"] or []]
     user_prompt = f"추천된 동네: {', '.join(names)}\n\n질문: {state['question']}"
-    calls = ask_with_tools([("system", PLAN_SYSTEM), ("human", user_prompt)], TOOL_SPECS)
+    calls = ask_with_tools([("system", PLAN_SYSTEM), *state["history"], ("human", user_prompt)], TOOL_SPECS)
 
     if not calls:
         return {"route": "context", "tool_calls": [], "path": state["path"] + ["plan"]}
@@ -74,7 +75,11 @@ def chat_plan_node(state):
 
 # plan 이 고른 도구를 실제로 실행한다
 def chat_run_tools_node(state):
-    results = [run_tool(call["name"], call["arguments"]) for call in state["tool_calls"]]
+    # 비교 질문이면 같은 도구가 동네마다 불린다 — 어느 동네 결과인지 인자를 같이 붙인다
+    results = [
+        {"도구": call["name"], "인자": call["arguments"], "결과": run_tool(call["name"], call["arguments"])}
+        for call in state["tool_calls"]
+    ]
     return {"tool_result": results, "path": state["path"] + ["run_tools"]}
 
 
@@ -91,7 +96,7 @@ def chat_generate_node(state):
     else:
         user_prompt = f"{state['context']}\n\n## 질문\n{state['question']}"
 
-    messages = [("system", SYSTEM_PROMPT), ("human", user_prompt)]
+    messages = [("system", SYSTEM_PROMPT), *state["history"], ("human", user_prompt)]
     answer = ask(messages, max_tokens=600).strip()
     return {"answer": answer, "path": state["path"] + ["generate"]}
 
