@@ -12,5 +12,6 @@ router = APIRouter(tags=["chat"])
 @router.post("/chat", response_model=ChatOut)
 def post_chat(body: ChatRequest):
     """추천 결과에 대한 후속 질문에 답한다."""
-    answer = chat(body.question, regions=body.regions, weights=body.weights, history=body.history)
+    answer = chat(body.question, regions=body.regions, weights=body.weights, history=body.history,
+                  anon_id=body.anon_id)
     return {"answer": answer}

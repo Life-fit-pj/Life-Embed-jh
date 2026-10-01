@@ -12,7 +12,7 @@ from app.engine.weights import ask_claude, blend, find_similar_members
 from app.repositories.members import member_weights
 from app.services.chat_service import PLAN_SYSTEM, SYSTEM_PROMPT, build_context
 from app.services.search_service import recommend_by_weights
-from app.tools.tools import TOOL_SPECS, run_tool
+from app.tools.tools import run_tool, tool_specs
 
 
 # 검색어 -> 가중치 + 가격 조건
@@ -66,8 +66,9 @@ def explain_node(state):
 def chat_plan_node(state):
     names = [r.get("name", "").replace("서울특별시 ", "") for r in state["regions"] or []]
     user_prompt = f"추천된 동네: {', '.join(names)}\n\n질문: {state['question']}"
-    calls = ask_with_tools([("system", PLAN_SYSTEM), *state["history"], ("human", user_prompt)], TOOL_SPECS)
-
+    calls = ask_with_tools([("system", PLAN_SYSTEM), *state["history"], ("human", user_prompt)],
+                           tool_specs(state.get("anon_id")))
+    
     if not calls:
         return {"route": "context", "tool_calls": [], "path": state["path"] + ["plan"]}
     return {"route": "tool", "tool_calls": calls, "path": state["path"] + ["plan"]}
@@ -78,7 +79,7 @@ def chat_run_tools_node(state):
     # 비교 질문이면 같은 도구가 동네마다 불린다 — 어느 동네 결과인지 인자를 같이 붙인다
     results = [
         {"도구": call["name"], "인자": call["arguments"],
-         "결과": run_tool(call["name"], call["arguments"], weights=state["weights"])}
+         "결과": run_tool(call["name"], call["arguments"], state)}
         for call in state["tool_calls"]
     ]
     return {"tool_result": results, "path": state["path"] + ["run_tools"]}

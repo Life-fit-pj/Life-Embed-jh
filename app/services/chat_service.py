@@ -149,7 +149,7 @@ def history_messages(history):
     return turns
 
 
-def chat(question, regions=None, weights=None, history=None):
+def chat(question, regions=None, weights=None, history=None, anon_id=None):
     """후속 질문에 답한다.
 
     실제 계산은 app/graph/graph.py 의 chat_graph 가 한다 —
@@ -165,6 +165,7 @@ def chat(question, regions=None, weights=None, history=None):
         "regions": regions or [],
         "weights": weights or {},
         "history": history_messages(history),
+        "anon_id": anon_id,
         "route": "",
         "tool_calls": [],
         "tool_result": [],

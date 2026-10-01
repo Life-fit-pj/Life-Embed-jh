@@ -320,6 +320,19 @@ def build_relative(scores):
     return {k: scores[k] - region_mean for k in keys}
 
 
+def nearest_base(scores: dict, base: list):
+    """동네마다 '기준 동네들 중 가장 닮은 곳'과의 닮음(0~100).
+
+    닮음 = 100 - 지표 점수 차이의 평균. 기준 동네가 여럿이면 평균 내지 않고 가장 가까운 하나와 견준다 —
+    성격이 다른 두 동네를 평균 내면 어느 쪽과도 안 닮은 중간 동네가 기준이 된다.
+    scores 는 {지표: 427개 배열}, base 는 기준 동네의 자리 번호들.
+    돌려주는 것: (닮음 배열, 동네마다 가장 닮은 기준 동네의 자리 번호 배열)
+    """
+    table = np.column_stack(list(scores.values()))                             # 동네 × 지표
+    gaps = np.abs(table[:, None, :] - table[base][None, :, :]).mean(axis=2)    # 동네 × 기준 동네 수
+    return 100 - gaps.min(axis=1), np.array(base)[gaps.argmin(axis=1)]
+
+
 def recommend(names, scores, relative, weights, top_k=5, mix=0.5, sharpen=6):
     """가중치 차이를 증폭해서 중시 지표가 순위를 주도하게 한다.
 
