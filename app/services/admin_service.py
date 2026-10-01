@@ -6,7 +6,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
-from app.engine.recommend import DERIVED_COLUMNS, INDICATOR_COLUMNS, to_percentile
+from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS, to_percentile
 from app.engine.resync import resync_member
 from app.engine.weights import find_similar_members
 from app.services import search_service, region_service, privacy_service
@@ -32,8 +32,8 @@ from app.repositories.regions import (
 )
 
 
-# 표에서 읽고·보여주고·고치는 칸. 계산된 칸(DERIVED_COLUMNS)은 표에 없으니 뺀다
-REGION_FIELDS = tuple(c for cols in INDICATOR_COLUMNS.values() for c in cols if c not in DERIVED_COLUMNS)
+# 표에서 읽고·보여주고·고치는 칸. 계산된 칸(DERIVED_COLUMNS)은 표에 없으니 빠져 있다 — 목록은 recommend.py 한 곳에서 온다
+REGION_FIELDS = tuple(DB_COLUMNS)
 
 # 화이트리스트
 CUSTOMER_FIELDS = ("name", "gender", "age", "phone", "email",

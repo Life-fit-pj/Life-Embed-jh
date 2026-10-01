@@ -8,7 +8,9 @@
 import numpy as np
 
 from app.domain.dong import dong_variants
-from app.repositories.regions import dong_coords, park_areas, region_densities, school_counts
+from app.repositories.regions import (
+    category_counts, dong_coords, park_areas, region_densities, school_counts, school_level_counts,
+)
 from app.engine.housing import DEAL_COLUMNS
 
 INDICATOR_COLUMNS = {
@@ -23,6 +25,21 @@ INDICATOR_COLUMNS = {
 
 # master 표에 없고 load_regions() 가 계산해 넣는 칸. 관리자 화면이 이걸 보고 표에서 읽을 칸과 가른다 — 빠지면 KeyError
 DERIVED_COLUMNS = {"공원면적비율", "학교_밀도_2023"}
+
+# INDICATOR_COLUMNS 의 칸 중 실제로 master 표에 있는 것 (중복 없이, 순서 유지).
+# load_regions() 가 읽고, 관리자 화면(admin_service.REGION_FIELDS)이 보여주고·고친다 — 두 곳이 같은 목록을 써야 한다
+DB_COLUMNS = [c for c in dict.fromkeys(c for cs in INDICATOR_COLUMNS.values() for c in cs) if c not in DERIVED_COLUMNS]
+
+# 세부 강조 — 검색어가 콕 집어 말한 것("학원", "지하철")을 그 지표 안의 칸 하나로 잇는다.
+# 값은 values 에 있는 칸 이름이어야 한다(INDICATOR_COLUMNS 의 칸, 또는 STEP 2 가 만든 파생 칸).
+# 새 세부를 열 땐 여기 한 줄. 프롬프트의 허용 목록도 여기서 만들어진다 — 두 곳에 따로 적지 않는다
+SUB_COLUMNS = {
+    "교육": {"학원": "학원_밀도", "학교": "학교_밀도_2023"},
+    "교통": {"지하철": "지하철역_밀도", "버스": "버스정류장_밀도"},
+    "안전": {"CCTV": "CCTV_밀도", "경찰": "경찰관서_밀도"},
+    "상권": {"시장": "대형점포_밀도", "가게": "점포_밀도"},
+    "문화": {"도서관": "도서관_밀도", "문화시설": "문화시설_밀도"},
+}
 
 
 # 화면이 "공원 5개 · CCTV 120대" 처럼 보여줄 **원본 개수**.
@@ -45,19 +62,24 @@ BIG_PARK_M2 = float("inf")  # 분배 끔(=A). 골든셋 녹지 A 3/4 · B+ 1/4 �
 SPREAD_KM = 1.5             # + 동 자기 반지름 √(면적/π). 실제 경계로 채점: 진짜 이웃 96% 포착(3.0 은 정밀도 27% 로 너무 넓음)
 
 
+def _dong_index(names):
+    """(구, 동 표기 변형) → names 의 자리. 시설 표의 동 표기(시흥4동)가 master(시흥제4동)와 달라 dong_variants 로 잇는다"""
+    index = {}
+    for i, name in enumerate(names):
+        gu, dong = name.split(" ", 1)
+        for v in dong_variants(dong):
+            index[(gu, v)] = i
+    return index
+
+
 def build_green_ratio(names, area_m2, parks, coords, cap=1.0):
     """동별 공원 면적 비율 = (그 동 공원 면적 합) ÷ (동 면적). 427개 배열, cap 에서 자른다.
 
     개수 밀도는 60% 가 어린이공원(평균 1,600㎡)이라 "놀이터 밀도"였다(2026-09-29 실측).
     BIG_PARK_M2 이상 공원(불암산 5.3km² → 중계본동 244%)은 동 면적까지만 자기 동에 넣고,
     넘치는 만큼은 SPREAD_KM 반경 안 이웃에 면적 비례로 나눈다. 이웃이 없으면 초과분은 버린다.
-    parks 의 행정동 표기(시흥4동)와 names 의 표기(시흥제4동)가 달라 dong_variants 로 맞춘다.
     """
-    index = {}
-    for i, name in enumerate(names):
-        gu, dong = name.split(" ", 1)
-        for v in dong_variants(dong):
-            index[(gu, v)] = i
+    index = _dong_index(names)
 
     # 동 중심 좌표를 names 순서의 배열로 (없는 동은 nan → 반경 계산에서 자동 제외)
     lat = np.full(len(names), np.nan)
@@ -95,33 +117,55 @@ def load_regions():
     한 번의 쿼리로 둘을 같이 가져온다 — 순위에 쓸 밀도와, 화면 근거로 쓸 개수다.
     돌려주는 것 셋: names · values(밀도, numpy) · counts(개수, 동네별 dict)
     """
-    # 매핑에 등장하는 칸 중 표에 있는 것만 (중복 없이, 순서 유지). 계산된 칸은 표에 없다
-    cols = dict.fromkeys(c for cs in INDICATOR_COLUMNS.values() for c in cs)
-    db_cols = [c for c in cols if c not in DERIVED_COLUMNS]
-    rows = region_densities(db_cols + COUNT_COLUMNS + ["면적_m2", "면적_km2", "행정동ID_8자리"])   # 면적은 분모, 코드는 학교 표와 잇는 열쇠
+    rows = region_densities(DB_COLUMNS + COUNT_COLUMNS + ["면적_m2", "면적_km2", "행정동ID_8자리"])   # 면적은 분모, 코드는 학교 표와 잇는 열쇠
     names = [f"{r['구']} {r['행정동명']}" for r in rows]
 
     def column(key):
         """rows 의 한 칸을 numpy 배열로. 빈 값은 0"""
         return np.array([r[key] or 0 for r in rows], dtype="float64")
 
-    # 밀도는 계산용이라 numpy 배열로
-    values = {c: column(c) for c in db_cols}
+    # 밀도는 계산용이라 numpy 배열로. 계산된 칸(DERIVED_COLUMNS)은 표에 없어 아래에서 만든다
+    values = {c: column(c) for c in DB_COLUMNS}
 
     # 계산된 칸 — 원본 표는 안 고치고 여기서 계산한다(시세와 같은 방식)
     values["공원면적비율"] = build_green_ratio(names, column("면적_m2"), park_areas(), dong_coords())
 
-    # 학교는 2023년 학교 표로 센다. master 의 학교_수·학교_밀도 는 10년치가 섞여 약 10배다
-    by_code = dict(school_counts())
-    codes = [r["행정동ID_8자리"] for r in rows]
-    shared = {c: codes.count(c) for c in set(codes)}    # 한 코드를 몇 줄이 쓰나. 신설동·용두동이 11060810 을 같이 쓴다(2009년 용신동 통합, 경계 데이터가 없어 못 가른다)
-    school_n = np.array([by_code.get(c, 0) / shared[c] for c in codes], dtype="float64")
-    values["학교_밀도_2023"] = school_n / np.maximum(column("면적_km2"), 0.01)
+    # 학교는 2023년 학교 표로 센다(행정동 코드로 잇는다). master 의 학교_수·학교_밀도 는 10년치가 섞여 약 10배다.
+    # 한 코드를 여러 줄이 쓰면(신설동·용두동이 11060810 — 2009년 용신동 통합, 경계 데이터가 없어 못 가른다) 줄 수로 나눈다
+    area_km2 = np.maximum(column("면적_km2"), 0.01)
+    rows_of_code = {}
+    for i, r in enumerate(rows):
+        rows_of_code.setdefault(r["행정동ID_8자리"], []).append(i)
+
+    def add_by_code(arr, code, n):
+        """코드 code 의 개수 n 을 그 코드를 쓰는 줄들에 나눠 더한다"""
+        for i in rows_of_code.get(code, ()):
+            arr[i] += n / len(rows_of_code[code])
+
+    school_n = np.zeros(len(names))
+    for code, n in school_counts():
+        add_by_code(school_n, code, n)
+    values["학교_밀도_2023"] = school_n / area_km2
+
+    # 분류별 파생 칸 — "학원:입시.검정 및 보습_밀도" 처럼 "종류:분류_밀도" 이름으로. 세부 강조(SUB_COLUMNS)가 가리킨다.
+    # ':' 가 든 이름은 master 칸과 절대 안 겹치고, 아래에서 파생 칸만 골라 면적으로 나누는 표시가 된다.
+    # INDICATOR_COLUMNS 에 없으니 관리자 화면(REGION_FIELDS)엔 안 들어간다 — build_column_scores 가 백분위로 만든다
+    index = _dong_index(names)
+    for kind in ("학원", "의료기관", "문화시설", "점포", "공원"):
+        for gu, dong, cat, n in category_counts(kind):
+            i = index.get((gu, dong.strip()))
+            if i is not None:
+                values.setdefault(f"{kind}:{cat}_밀도", np.zeros(len(names)))[i] += n
+    for code, level, n in school_level_counts():
+        add_by_code(values.setdefault(f"학교:{level}_밀도", np.zeros(len(names))), code, n)
+    for col in values:
+        if ":" in col:
+            values[col] /= area_km2
 
     # 개수는 화면에 그대로 보여줄 값이라 {동네이름: {칸: 값}}.
     # 학교_수 는 2023년 값으로 덮는다 — 웹 typespot.py 카드가 이 키를 읽는다
     counts = {
-        name: {**{c: row[c] for c in COUNT_COLUMNS}, "학교_수": int(n)}
+        name: {**{c: row[c] for c in COUNT_COLUMNS}, "학교_수": round(n)}
         for name, row, n in zip(names, rows, school_n)
     }
 
@@ -149,20 +193,46 @@ def to_percentile(values, invert=False) :
 INDICATOR_INVERT = {"시세"}   # 이 지표들은 낮을수록 좋다
 
 
-def build_scores(values):
-    """밀도 칸들을 7개 지표 점수(0~100)로 바꾼다.
+def build_column_scores(values):
+    """칸 하나하나의 백분위. {칸 이름: 427개 배열}. build_scores() 의 재료이자, 세부 강조가 지표 평균 대신 꺼내 쓰는 값.
 
-    칸이 여러 개인 지표는 각각 백분위로 바꾼 뒤 평균낸다.
-    (안전 = CCTV 백분위와 경찰관서 백분위의 평균)
+    invert 는 지표 기준(INDICATOR_INVERT)을 따른다 — 시세처럼 낮을수록 좋은 지표의 칸도 같이 뒤집힌다
     """
     scores = {}
-    
     for indicator, cols in INDICATOR_COLUMNS.items():
         invert = indicator in INDICATOR_INVERT
-        parts = [to_percentile(values[c], invert=invert) for c in cols]
-        scores[indicator] = sum(parts) / len(parts)
-
+        for c in cols:
+            scores[c] = to_percentile(values[c], invert=invert)
+    # 파생 칸(INDICATOR_COLUMNS 밖, 이름에 ':')도 세부로 쓸 수 있게 전부 백분위로
+    for c in values:
+        if c not in scores:
+            scores[c] = to_percentile(values[c])
     return scores
+
+
+def build_scores(column_scores):
+    """칸별 백분위를 7개 지표 점수(0~100)로 묶는다. 칸이 여러 개인 지표는 평균낸다.
+    (안전 = CCTV 백분위와 경찰관서 백분위의 평균). 백분위 계산은 build_column_scores() 한 곳에서만 한다
+    """
+    return {
+        indicator: sum(column_scores[c] for c in cols) / len(cols)
+        for indicator, cols in INDICATOR_COLUMNS.items()
+    }
+
+
+def apply_focus(scores, column_scores, focus):
+    """세부 강조를 반영한 지표 점수. 새 딕셔너리를 돌려준다 — 원본 scores 는 안 건드린다.
+
+    focus 예: {"교육": "학원"} → 교육 점수 = (학교·학원 평균) 대신 학원_밀도 의 백분위.
+    준비물(get_ready)은 모든 요청이 같이 쓰므로, 여기서 복사본을 만들지 않으면
+    한 요청의 세부 강조가 다음 요청까지 남는다
+    """
+    out = dict(scores)
+    for indicator, sub in (focus or {}).items():
+        col = SUB_COLUMNS.get(indicator, {}).get(sub)
+        if col in column_scores:
+            out[indicator] = column_scores[col]
+    return out
 
 
 # ── 목표가 없을 때(접근 A) 시세를 8번째 신호로 쓰기 위한 재료 ──────────────
@@ -244,7 +314,7 @@ def recommend(names, scores, relative, weights, top_k=5, mix=0.5, sharpen=6):
 
 if __name__ == "__main__" :
     names, values, _ = load_regions()
-    scores = build_scores(values)
+    scores = build_scores(build_column_scores(values))
     relative = build_relative(scores)
     
     # 07번에서 나왔던 실제 가중치로 시험해본다

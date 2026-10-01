@@ -47,9 +47,3 @@ def post_history(body: HistoryEntryIn):
 def get_history_route(anon_id: str):
     """검색·대화 기록 조회."""
     return get_history(anon_id)
-
-
-@router.get("/likes/{anon_id}", response_model=list[LikeItem])
-def get_likes_route(anon_id: str):
-    """좋아요한 동네 목록 조회."""
-    return get_likes(anon_id)

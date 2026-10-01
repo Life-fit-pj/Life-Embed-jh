@@ -59,15 +59,14 @@ def region_densities(db, columns):
 def region_one(db, gu, dong, columns):
     stmt = (
         select(master.c["구"], master.c["행정동명"], *[master.c[c] for c in columns])
-        .where(func.trim(master.c["구"]) == gu.strip(),
-               func.trim(master.c["행정동명"]).in_(dong_variants(dong)))
+        .where(*_in_dong(master, "구", "행정동명", gu, dong))
     )
     row = db.execute(stmt).mappings().first()
     return dict(row) if row else None
 
 
 def _in_dong(t, gu_col, dong_col, gu, dong):
-    """시설 함수 셋이 똑같이 쓰는 WHERE. 한 곳에 둔다"""
+    """(구, 동) 한 곳을 찾는 WHERE. 표기 변형(dong_variants)과 공백까지 여기서 흡수한다 — 동을 찾는 함수는 전부 이걸 쓴다"""
     return (func.trim(t.c[gu_col]) == gu.strip(),
             func.trim(t.c[dong_col]).in_(dong_variants(dong)))
 
@@ -123,6 +122,16 @@ def school_counts(db):
     return [(code, int(n)) for code, n in db.execute(stmt).all()]
 
 
+def school_level_counts(db):
+    """(행정동코드, 학교급, 개수). 유치원·초·중·고를 따로 세는 파생 칸 재료"""
+    stmt = (
+        select(학교.c["행정동코드"], 학교.c["학교급"], func.count())
+        .where(학교.c["행정동코드"].isnot(None), 학교.c["행정동코드"] != "")
+        .group_by(학교.c["행정동코드"], 학교.c["학교급"])
+    )
+    return [(code, level, int(n)) for code, level, n in db.execute(stmt).all()]
+
+
 def column_percentile(db, column, value, invert=False):
     if value is None:
         return None
@@ -148,8 +157,7 @@ def update_region(db, gu, dong, patch, allowed):
 
     db.execute(
         update(master)
-        .where(func.trim(master.c["구"]) == gu.strip(),
-               func.trim(master.c["행정동명"]).in_(dong_variants(dong)))
+        .where(*_in_dong(master, "구", "행정동명", gu, dong))
         .values(values)
     )
     db.commit()
@@ -207,6 +215,19 @@ def facility_categories(db, gu, dong, kind="학원", top=8):
         .limit(top)
     )
     return [dict(r) for r in db.execute(stmt).mappings()]
+
+
+def category_counts(db, kind):
+    """시설 종류 하나의 (구, 동, 분류, 개수) 전부. 세부 강조의 파생 칸 재료다.
+
+    facility_categories() 는 동 하나만 세고, 이건 427동을 한 번에 센다 — 동마다 부르면 427번 쿼리(N+1)
+    """
+    t, gu_col, dong_col, _, cat_col = FACILITY_TABLES[kind]
+    stmt = (
+        select(t.c[gu_col], t.c[dong_col], t.c[cat_col], func.count())
+        .group_by(t.c[gu_col], t.c[dong_col], t.c[cat_col])
+    )
+    return [(gu, dong, cat, int(n)) for gu, dong, cat, n in db.execute(stmt).all() if gu and dong and cat]
 
 
 # ── 생활 여건 ──────────────────────────────────

@@ -14,6 +14,7 @@ import numpy as np
 from app.engine.explain import explain, find_cases, with_scores
 from app.engine.recommend import (
     load_regions, build_scores, build_relative, recommend,
+    build_column_scores, apply_focus, SUB_COLUMNS,
     PRICE_COLUMNS, load_price_values, build_price_score,
 )
 from app.engine.housing import matching_regions, attach_price
@@ -35,7 +36,8 @@ def get_ready():
         print("⏳ 파이프라인 준비 중...")
 
         names, values, counts = load_regions()
-        scores = build_scores(values)
+        column_scores = build_column_scores(values)   # 칸별 백분위. 지표 점수의 재료이자 세부 강조가 꺼내 쓰는 값
+        scores = build_scores(column_scores)
         relative = build_relative(scores)
 
         price_values = load_price_values(region_densities(PRICE_COLUMNS))
@@ -46,6 +48,7 @@ def get_ready():
             "values": values,      # 밀도 원값(427개 배열). 관리자가 계산된 칸의 백분위를 낼 때 쓴다
             "scores": scores,
             "relative": relative,
+            "column_scores": column_scores,
             "price_score": price_score,
             "counts": counts,      # 화면 근거용 원본 개수. 순위 계산에는 안 쓴다
         }
@@ -56,7 +59,15 @@ def get_ready():
 DEFAULT_PRICE_WEIGHT = 3   # 다른 지표들의 "보통"과 같은 값. 굳이 저렴함을 강하게 밀지 않는다
 
 
-def recommend_by_weights(weights, top_k=5, housing=None, region=None):
+def _keep(names, scores, relative, mask):
+    """불리언 마스크로 names·scores·relative 를 같이 자른다 — 셋의 길이가 어긋나면 recommend() 가 죽는다"""
+    names = [n for n, k in zip(names, mask) if k]
+    scores = {ind: arr[mask] for ind, arr in scores.items()}
+    relative = {ind: arr[mask] for ind, arr in relative.items()}
+    return names, scores, relative
+
+
+def recommend_by_weights(weights, top_k=5, housing=None, region=None, focus=None):
     """가중치 → TOP 5. housing 을 주면 그 조건에 맞는 동으로 먼저 추린다.
 
     housing 예시(전세): {"건물유형": "아파트", "거래유형": "전세", "targets": {"예산": 65000}}
@@ -66,16 +77,21 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None):
     region 을 주면("강남구" 등) 그 구의 동으로만 다시 추린다. housing 필터와 별개로,
     항상 맨 마지막에 건다 — housing 이 없을 때 얹는 "시세" 8번째 신호(아래 else)까지
     427개 길이로 다 만들어진 뒤라야 배열 길이가 서로 맞는다.
+
+    focus 를 주면({"교육": "학원"}) 그 지표 점수를 콕 집은 칸의 백분위로 바꾼다. 맨 먼저 건다 —
+    housing·region 이 배열을 자르기 전이라야 길이가 맞는다.
     """
     r = get_ready()
     names, scores, relative = r["names"], r["scores"], r["relative"]
 
+    if focus:
+        # 세부 강조 — 그 지표 점수를 평균 대신 콕 집은 칸의 백분위로. 준비물은 복사해서 쓴다(apply_focus 가 새 dict)
+        scores = apply_focus(scores, r["column_scores"], focus)
+        relative = build_relative(scores)
+
     if housing:
         candidates = set(matching_regions(**housing))
-        keep = np.array([n in candidates for n in names])
-        names = [n for n, k in zip(names, keep) if k]
-        scores = {ind: arr[keep] for ind, arr in scores.items()}
-        relative = {ind: arr[keep] for ind, arr in relative.items()}
+        names, scores, relative = _keep(names, scores, relative, np.array([n in candidates for n in names]))
     else:
         # 목표가가 없을 때만 "시세는 낮을수록 좋다"를 8번째 신호로 얹는다.
         # housing이 있으면 matching_regions()가 이미 목표가 근접도로 걸러내므로
@@ -92,16 +108,22 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None):
         # 매치가 하나도 없으면(Claude 가 없는 구를 지어낸 경우) 필터를 걸지 않고 넘어간다.
         keep = np.array([n.startswith(region + " ") for n in names])
         if keep.any():
-            names = [n for n, k in zip(names, keep) if k]
-            scores = {ind: arr[keep] for ind, arr in scores.items()}
-            relative = {ind: arr[keep] for ind, arr in relative.items()}
+            names, scores, relative = _keep(names, scores, relative, keep)
 
     result = recommend(names, scores, relative, weights, top_k=top_k)
     detailed = with_scores(result, names, scores, r["counts"])
     return attach_price(detailed, housing)
 
 
-def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None):
+def focus_options():
+    """지표별로 콕 집을 수 있는 세부 이름. {"교육": ["학원", "학교"], …}. 화면이 칩을 그릴 때 쓴다.
+
+    출처는 SUB_COLUMNS 하나다 — 화면에 따로 적으면 세부를 열 때마다 두 곳이 어긋난다
+    """
+    return {ind: list(subs) for ind, subs in SUB_COLUMNS.items()}
+
+
+def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None, focus=None):
     """이미 계산된 가중치 + 사람 묘사 문장 -> TOP 5 + 설명문.
 
     search()와 달리 검색어를 안 받는다. 서술형 설문처럼 가중치를 이미
@@ -110,7 +132,7 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
     recommend_by_weights() -> explain() 만 돈다.
     """
     r = get_ready()
-    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
+    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing, focus=focus)
     cases = find_cases(persona_query)
     text = explain(persona_query, weights, detailed, cases, housing=housing)
     return {
@@ -120,7 +142,7 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
         "housing": housing,
     }
 
-def search(query, top_k=5, housing_override=None, weights_override=None):
+def search(query, top_k=5, housing_override=None, weights_override=None, focus_override=None):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 
     실제 계산은 app/graph/graph.py 의 search_graph 가 한다 —
@@ -143,11 +165,13 @@ def search(query, top_k=5, housing_override=None, weights_override=None):
         "top_k": top_k,
         "housing_override": housing_override,
         "weights_override": weights_override,
+        "focus_override": focus_override,
         "draft": {},
         "persona_query": "",
         "weights": {},
         "housing": None,
         "region": None,
+        "focus": None,
         "notice": None,
         "regions": [],
         "cases": [],

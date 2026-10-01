@@ -11,7 +11,7 @@ Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제�
 
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
                                 region_price_note, price_gap_text, format_won)
-from app.engine.recommend import load_regions, build_scores, build_relative, recommend
+from app.engine.recommend import load_regions, build_column_scores, build_scores, build_relative, recommend
 from app.repositories.regions import region_densities
 from app.ai.llm import ask
 from app.rag.retriever import retrieve
@@ -161,8 +161,9 @@ def build_context(query, weights, detailed, cases, housing=None):
         lines.append("")
         lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
 
-        # 427행 조회는 루프 밖에서 한 번만 — 예전엔 TOP 5 마다 다시 읽었다
-        rows = region_densities(list(cols.values()))
+        # 427행 조회는 루프 밖에서 한 번만 — 예전엔 TOP 5 마다 다시 읽었다.
+        # 모르는 (건물유형, 거래유형) 조합이면 cols 가 None — 빈 목록으로 두어 아래가 전부 "시세 데이터 없음"이 되게(region_service 와 같은 처리)
+        rows = region_densities(list(cols.values())) if cols else []
         by_name = {(r["구"], r["행정동명"]): r for r in rows}
 
         for d in detailed:
@@ -206,7 +207,7 @@ if __name__ == "__main__" :
                "의료": 2.9, "교육": 4.6, "문화": 2.6}
     
     names, values = load_regions()
-    scores = build_scores(values)
+    scores = build_scores(build_column_scores(values))
     relative = build_relative(scores)
     result = recommend(names, scores, relative, weights)
     

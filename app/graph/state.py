@@ -15,6 +15,7 @@ class SearchState(TypedDict):
     top_k: int
     housing_override: dict | None
     weights_override: dict | None
+    focus_override: dict | None
 
     # weights 노드가 채운다: Claude 초안 + 검색용 문장
     draft: dict
@@ -28,6 +29,9 @@ class SearchState(TypedDict):
 
     # weights 노드가 채운다: 검색어에서 뽑힌 자치구. 없으면 None
     region: str | None
+
+    # weights 노드가 채운다: 검색어가 콕 집은 세부 {"교육": "학원"}. 없으면 None
+    focus: dict | None
 
     # weights 노드가 채운다: 검색어가 요구했지만 데이터가 없어 못 담은 조건. 없으면 None
     notice: str | None

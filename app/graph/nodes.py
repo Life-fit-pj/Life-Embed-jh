@@ -40,6 +40,7 @@ def weights_node(state):
         "weights": weights,
         "housing": housing,
         "region": draft.get("지역"),
+        "focus": state["focus_override"] or draft.get("세부"),   # 칩이 고른 것이 검색어에서 뽑은 것보다 확실하다
         "notice": draft.get("미지원_조건"),
         "path": state["path"] + ["weights"],
     }
@@ -49,6 +50,7 @@ def weights_node(state):
 def recommend_node(state):
     regions = recommend_by_weights(
         state["weights"], top_k=state["top_k"], housing=state["housing"], region=state["region"],
+        focus=state["focus"],
     )
     return {"regions": regions, "path": state["path"] + ["recommend"]}
 

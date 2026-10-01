@@ -16,12 +16,17 @@ class SearchRequest(BaseModel):
     top_k: int = 5
     housing_override: Housing | None = None
     weights_override: dict[str, float] | None = None
+    # 화면의 칩이 고른 세부 {"교육": "학원"}. 있으면 검색어에서 뽑은 세부 대신 이걸 쓴다 — 누른 사람이 제일 확실하다
+    focus_override: dict[str, str] | None = None
 
 
 class RecommendRequest(BaseModel):
     weights: dict[str, float]
     top_k: int = 5
     housing: Housing | None = None
+    # 세부 강조 {"교육": "학원"}. 화면의 칩이 채운다. 고를 수 있는 값은 GET /recommend/focus-options.
+    # 없으면 지금까지와 똑같이 지표 평균으로 순위를 낸다
+    focus: dict[str, str] | None = None
 
 
 class RecommendExplainedRequest(BaseModel):
@@ -29,6 +34,7 @@ class RecommendExplainedRequest(BaseModel):
     persona_query: str
     top_k: int = 5
     housing: Housing | None = None
+    focus: dict[str, str] | None = None
 
 
 class RegionOut(BaseModel):

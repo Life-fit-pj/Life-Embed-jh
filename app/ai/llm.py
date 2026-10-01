@@ -16,11 +16,10 @@ from app.core.config import API_KEY, MODEL
 client = Anthropic(api_key=API_KEY)
 
 
-def ask(messages, max_tokens=800, temperature=None):
-    """Claude 의 답을 글자 그대로 돌려준다.
+def _to_sdk(messages):
+    """("system"|"human", 글) 튜플 목록(또는 글 한 개)을 SDK 가 받는 (system 문자열, turns 목록)으로.
 
-    messages 는 ("system"|"human", 글) 튜플 목록이거나 글 한 개다 —
-    survey.py 와 fix_member_persona.py 가 글 한 개를 그냥 넘긴다
+    survey.py 와 fix_member_persona.py 가 글 한 개를 그냥 넘긴다 — 그건 human 한 턴으로 친다
     """
     if isinstance(messages, str):
         messages = [("human", messages)]
@@ -31,6 +30,12 @@ def ask(messages, max_tokens=800, temperature=None):
         for role, text in messages
         if role != "system"
     ]
+    return system, turns
+
+
+def ask(messages, max_tokens=800, temperature=None):
+    """Claude 의 답을 글자 그대로 돌려준다."""
+    system, turns = _to_sdk(messages)
 
     # temperature 는 SDK 1.x 의 create() 시그니처에서 빠졌다(2026-09-28 확인) — 지금 모델(Haiku 4.5)은
     # 아직 받으므로 extra_body 로 요청 JSON 에 그대로 실어 보낸다. None 이면 아예 안 보낸다(API 기본값).
@@ -57,15 +62,7 @@ def ask_with_tools(messages, tool_specs, max_tokens=800):
 
     돌려주는 값: [{"name": ..., "arguments": {...}}] — 안 고르면 빈 리스트.
     """
-    if isinstance(messages, str):
-        messages = [("human", messages)]
-
-    system = "\n\n".join(text for role, text in messages if role == "system")
-    turns = [
-        {"role": "user", "content": text}
-        for role, text in messages
-        if role != "system"
-    ]
+    system, turns = _to_sdk(messages)
 
     reply = client.messages.create(
         model=MODEL,

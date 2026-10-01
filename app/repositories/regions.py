@@ -74,6 +74,14 @@ def school_counts():
     return _run(repo.school_counts)
 
 
+def school_level_counts():
+    return _run(repo.school_level_counts)
+
+
+def category_counts(kind):
+    return _run(repo.category_counts, kind)
+
+
 def region_price_detail(gu, dong, bldg, deal):
     return _run(repo.region_price_detail, gu, dong, bldg, deal)
 

@@ -9,19 +9,21 @@
 import json
 
 from app.core.config import INDICATORS, SIMILARITY_FLOOR
+from app.engine.recommend import SUB_COLUMNS
 from app.rag.retriever import retrieve_people
 from app.repositories.members import member_weights
 from app.ai.llm import ask
 
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니다.
-사용자의 검색어를 읽고 다섯 가지를 만드세요.
+사용자의 검색어를 읽고 여섯 가지를 만드세요.
 
 (1) 7개 지표의 중요도 (1~5점)
 (2) 그런 조건을 원하는 사람이 어떤 사람인지 묘사하는 한 문장
 (3) 검색어에 담긴 가격 조건 (없으면 전부 null)
 (4) 검색어에 언급된 자치구 (없으면 null)
 (5) 검색어가 요구했지만 이 서비스가 답할 수 없는 조건 (없으면 null)
+(6) 검색어가 지표 안의 한 가지를 콕 집어 말했으면 그것 (없으면 null)
 
 지표 설명:
 - 녹지: 공원, 산책로, 자연환경
@@ -59,12 +61,22 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니�
    그 외의 것(외국인·인구통계, 학군 배정, 범죄 통계 수치, 특정 시설의 품질·평판 등)을
    검색어가 조건으로 요구하면, 무엇을 답할 수 없는지 한 문장으로 "미지원_조건"에 쓰세요.
    답할 수 있는 조건만 있으면 null 입니다.
-7. 반드시 아래 JSON 형식으로만 답하세요. 설명이나 인사말을 붙이지 마세요.
+7. 세부: 사용자가 지표 안의 한 가지를 **콕 집어 말했을 때만** 채우세요. 고를 수 있는 것은
+   __SUB_HINT__ 뿐입니다. "애들 키우기 좋은"처럼 넓게 말했으면 null 입니다 —
+   짐작으로 채우면 넓은 질문이 좁은 답을 받습니다.
+   예) "버스 노선 많은 동네" -> "세부": {"교통": "버스"}
+   예) "치안 좋은 동네" -> "세부": null   (지표 자체를 말했을 뿐 그 안의 한 가지를 집지 않았다)
+8. 반드시 아래 JSON 형식으로만 답하세요. 설명이나 인사말을 붙이지 마세요.
 
 {"녹지": 3, "안전": 3, "교통": 3, "상권": 3, "의료": 3, "교육": 3, "문화": 3,
  "persona_query": "...",
  "건물유형": null, "거래유형": null, "예산": null, "보증금": null,
- "지역": null, "미지원_조건": null}"""
+ "지역": null, "미지원_조건": null,
+ "세부": null}"""
+
+# 허용 목록은 SUB_COLUMNS 에서 만든다 — "교육: 학원/학교, 교통: 지하철/버스, …"
+SUB_HINT = ", ".join(f"{ind}: {'/'.join(subs)}" for ind, subs in SUB_COLUMNS.items())
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace("__SUB_HINT__", SUB_HINT)
 
 # Claude 초안과 회원 평균을 몇 대 몇으로 섞을지.
 # 0.7 이면 Claude 70%, 회원 30%
@@ -115,7 +127,7 @@ def ask_claude(query):
         print(f"[경고] JSON 파싱 실패: {text[:80]}")
         weights = {k: 3 for k in INDICATORS}            # 실패하면 전부 보통값
         weights.update({"건물유형": None, "거래유형": None, "예산": None, "보증금": None,
-                        "지역": None, "미지원_조건": None})
+                        "지역": None, "미지원_조건": None, "세부": None})
         return weights, query
 
     # 7개가 다 있는지, 1~5 범위인지 검사한다
@@ -145,6 +157,13 @@ def ask_claude(query):
     weights["지역"] = 지역 if 지역.endswith("구") else None
 
     weights["미지원_조건"] = (data.get("미지원_조건") or "").strip() or None
+
+    # 세부 강조 — SUB_COLUMNS 에 있는 이름만 통과시킨다. Claude 가 "보습학원"처럼 목록 밖을 주면 버린다
+    focus = data.get("세부") or {}
+    if not isinstance(focus, dict):     # "세부": "학원" 처럼 모양이 틀리면 버린다 — .items() 에서 요청 전체가 죽지 않게
+        focus = {}
+    weights["세부"] = {ind: sub for ind, sub in focus.items()
+                     if isinstance(sub, str) and sub in SUB_COLUMNS.get(ind, {})} or None
 
     return weights, persona_query
 
