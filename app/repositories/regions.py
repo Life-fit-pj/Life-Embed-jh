@@ -70,10 +70,6 @@ def dong_coords():
     return _run(repo.dong_coords)
 
 
-def school_counts():
-    return _run(repo.school_counts)
-
-
 def school_level_counts():
     return _run(repo.school_level_counts)
 

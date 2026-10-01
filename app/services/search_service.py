@@ -45,10 +45,9 @@ def get_ready():
         
         _ready = {
             "names": names,
-            "values": values,      # 밀도 원값(427개 배열). 관리자가 계산된 칸의 백분위를 낼 때 쓴다
             "scores": scores,
             "relative": relative,
-            "column_scores": column_scores,
+            "column_scores": column_scores,    # 칸별 백분위. 세부 강조(apply_focus)와 관리자 화면의 계산된 칸이 읽는다
             "price_score": price_score,
             "counts": counts,      # 화면 근거용 원본 개수. 순위 계산에는 안 쓴다
         }
@@ -145,7 +144,6 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
     find_similar_members()/blend()(회원 유사도 보정) 두 단계를 건너뛰고
     recommend_by_weights() -> explain() 만 돈다.
     """
-    r = get_ready()
     detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
     cases = find_cases(persona_query)
     text = explain(persona_query, weights, detailed, cases, housing=housing)

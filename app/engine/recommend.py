@@ -9,7 +9,7 @@ import numpy as np
 
 from app.domain.dong import dong_variants
 from app.repositories.regions import (
-    category_counts, dong_coords, park_areas, region_densities, school_counts, school_level_counts,
+    category_counts, dong_coords, park_areas, region_densities, school_level_counts,
 )
 from app.engine.housing import DEAL_COLUMNS
 
@@ -30,19 +30,46 @@ DERIVED_COLUMNS = {"공원면적비율", "학교_밀도_2023"}
 # load_regions() 가 읽고, 관리자 화면(admin_service.REGION_FIELDS)이 보여주고·고친다 — 두 곳이 같은 목록을 써야 한다
 DB_COLUMNS = [c for c in dict.fromkeys(c for cs in INDICATOR_COLUMNS.values() for c in cs) if c not in DERIVED_COLUMNS]
 
-# 세부 강조 — 검색어가 콕 집어 말한 것("학원", "지하철")을 그 지표 안의 칸 하나로 잇는다.
-# 값은 values 에 있는 칸 이름이어야 한다(INDICATOR_COLUMNS 의 칸, 또는 STEP 2 가 만든 파생 칸).
-# 새 세부를 열 땐 여기 한 줄. 프롬프트의 허용 목록도 여기서 만들어진다 — 두 곳에 따로 적지 않는다
-SUB_COLUMNS = {
-    "교육": {"학원": "학원_밀도", "학교": "학교_밀도_2023"},
+def _hint(columns):
+    """{"교육": {"학원": …, "학교": …}, …} → "교육: 학원/학교, …". 프롬프트와 도구 설명에 싣는 허용 목록 글"""
+    return ", ".join(f"{ind}: {'/'.join(subs)}" for ind, subs in columns.items())
+
+
+# 세부 강조 — 지표 안의 한 가지("학원", "지하철")를 그 지표의 칸 하나로 잇는다. 유일한 정의처.
+# 값은 values 에 있는 칸 이름이어야 한다 — INDICATOR_COLUMNS 의 칸이거나 load_regions() 가 만드는 파생 칸("종류:분류_밀도").
+# 글자 하나 틀리면 apply_focus 가 조용히 무시한다. 분류 이름은 DB 의 원본 표기 그대로다(2026-10-01 확인).
+# 키는 사용자가 말할 법한 낱말이다. 새 세부를 열 땐 여기 한 줄 — 채팅 도구의 고를 수 있는 목록이 여기서 만들어진다
+FOCUS_COLUMNS = {
+    "교육": {"학원": "학원_밀도", "학교": "학교_밀도_2023",
+            "유치원": "학교:유치원_밀도", "초등학교": "학교:초등학교_밀도",
+            "중학교": "학교:중학교_밀도", "고등학교": "학교:고등학교_밀도",
+            "보습학원": "학원:입시.검정 및 보습_밀도", "독서실": "학원:독서실_밀도"},
     "교통": {"지하철": "지하철역_밀도", "버스": "버스정류장_밀도"},
     "안전": {"CCTV": "CCTV_밀도", "경찰": "경찰관서_밀도"},
-    "상권": {"시장": "점포:전통시장_밀도", "가게": "점포_밀도"},
-    "문화": {"도서관": "도서관_밀도", "문화시설": "문화시설_밀도"},
+    "상권": {"시장": "점포:전통시장_밀도", "가게": "점포_밀도",       # '시장' 은 전통시장 265곳만. 대형점포_밀도 는 백화점·마트까지 든 점포 표 전체다
+            "대형점포": "대형점포_밀도", "대형마트": "점포:대형마트_밀도",
+            "백화점": "점포:백화점_밀도", "쇼핑몰": "점포:복합쇼핑몰_밀도"},
+    "문화": {"도서관": "도서관_밀도", "문화시설": "문화시설_밀도",
+            "공연장": "문화시설:공연시설_밀도", "전시관": "문화시설:전시시설_밀도"},
+    "의료": {"병원": "의료기관:병원_밀도", "의원": "의료기관:의원_밀도"},
+    "녹지": {"큰공원": "공원:근린공원_밀도", "놀이터": "공원:어린이공원_밀도"},
 }
 
-# 허용 목록을 글로 — "교육: 학원/학교, 교통: 지하철/버스, …". 가중치 프롬프트와 채팅 도구 설명이 같이 쓴다
-SUB_HINT = ", ".join(f"{ind}: {'/'.join(subs)}" for ind, subs in SUB_COLUMNS.items())
+# 채팅 도구(rerank_by_focus) 설명에 싣는 허용 목록 — "교육: 학원/학교/유치원/…, 교통: 지하철/버스, …"
+FOCUS_HINT = _hint(FOCUS_COLUMNS)
+
+# 검색 프롬프트(weights.py 규칙 8)가 아는 세부는 처음 열 개로 얼려 둔다 — 세부를 더 여는 것은 채팅에만 반영한다.
+# 검색 프롬프트는 모든 검색이 읽고 한 번에 일곱 가지를 시키는 자리라, 목록이 길어지면 넓은 질문에 세부를 찍을 위험이 커진다.
+# 여기를 고치면 SUB_HINT 가 달라져 검색 프롬프트 글자가 바뀐다 — 프롬프트를 손볼 때 같이 정한다(이슈 10)
+_SEARCH_SUBS = {
+    "교육": ("학원", "학교"),
+    "교통": ("지하철", "버스"),
+    "안전": ("CCTV", "경찰"),
+    "상권": ("시장", "가게"),
+    "문화": ("도서관", "문화시설"),
+}
+SUB_COLUMNS = {ind: {sub: FOCUS_COLUMNS[ind][sub] for sub in subs} for ind, subs in _SEARCH_SUBS.items()}
+SUB_HINT = _hint(SUB_COLUMNS)
 
 
 # 화면이 "공원 5개 · CCTV 120대" 처럼 보여줄 **원본 개수**.
@@ -145,12 +172,14 @@ def load_regions():
         for i in rows_of_code.get(code, ()):
             arr[i] += n / len(rows_of_code[code])
 
+    # 학교급별로 한 번만 읽는다. 동의 전체 학교 수는 그 합이고, 학교급 하나하나는 세부 강조용 파생 칸이 된다
     school_n = np.zeros(len(names))
-    for code, n in school_counts():
+    for code, level, n in school_level_counts():
         add_by_code(school_n, code, n)
+        add_by_code(values.setdefault(f"학교:{level}_밀도", np.zeros(len(names))), code, n)
     values["학교_밀도_2023"] = school_n / area_km2
 
-    # 분류별 파생 칸 — "학원:입시.검정 및 보습_밀도" 처럼 "종류:분류_밀도" 이름으로. 세부 강조(SUB_COLUMNS)가 가리킨다.
+    # 분류별 파생 칸 — "학원:입시.검정 및 보습_밀도" 처럼 "종류:분류_밀도" 이름으로. 세부 강조(FOCUS_COLUMNS)가 가리킨다.
     # ':' 가 든 이름은 master 칸과 절대 안 겹치고, 아래에서 파생 칸만 골라 면적으로 나누는 표시가 된다.
     # INDICATOR_COLUMNS 에 없으니 관리자 화면(REGION_FIELDS)엔 안 들어간다 — build_column_scores 가 백분위로 만든다
     index = _dong_index(names)
@@ -159,8 +188,6 @@ def load_regions():
             i = index.get((gu, dong.strip()))
             if i is not None:
                 values.setdefault(f"{kind}:{cat}_밀도", np.zeros(len(names)))[i] += n
-    for code, level, n in school_level_counts():
-        add_by_code(values.setdefault(f"학교:{level}_밀도", np.zeros(len(names))), code, n)
     for col in values:
         if ":" in col:
             values[col] /= area_km2
@@ -232,7 +259,7 @@ def apply_focus(scores, column_scores, focus):
     """
     out = dict(scores)
     for indicator, sub in (focus or {}).items():
-        col = SUB_COLUMNS.get(indicator, {}).get(sub)
+        col = FOCUS_COLUMNS.get(indicator, {}).get(sub)
         if col in column_scores:
             out[indicator] = column_scores[col]
     return out

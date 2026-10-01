@@ -12,7 +12,8 @@ import inspect
 
 from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
-from app.engine.recommend import SUB_COLUMNS, SUB_HINT
+from app.engine.recommend import FOCUS_COLUMNS, FOCUS_HINT
+from app.repositories.region_repository import FACILITY_TABLES
 from app.repositories.regions import facility_counts, facility_categories, region_extras
 from app.services.search_service import recommend_by_weights
 
@@ -28,8 +29,8 @@ def rerank_by_focus(weights, indicator, sub):
     가격 조건·자치구 제한은 채팅 요청에 안 실려 와서 반영하지 못한다. 그 사실을 결과에 같이 적어
     Claude 가 답할 때 밝히게 한다
     """
-    if sub not in SUB_COLUMNS.get(indicator, {}):
-        return {"오류": f"그 조합은 없습니다. 고를 수 있는 것 — {SUB_HINT}"}
+    if sub not in FOCUS_COLUMNS.get(indicator, {}):
+        return {"오류": f"그 조합은 없습니다. 고를 수 있는 것 — {FOCUS_HINT}"}
 
     weights = {k: float((weights or {}).get(k, 3)) for k in INDICATORS}     # 지표 7개만. 다른 키가 섞이면 recommend() 가 죽는다
     weights[indicator] = max(weights[indicator], FOCUS_WEIGHT)
@@ -65,20 +66,25 @@ _DONG_INPUT = {
     "required": ["gu", "dong"],
 }
 
+# 조회 도구가 아는 시설 종류 — "문화시설·의료기관·학원·공원·점포·학교". 표 목록(FACILITY_TABLES)에서 만든다.
+# 여기 글자로 적어 두면 표를 더할 때 도구 설명만 옛 목록으로 남는다
+FACILITY_KINDS = list(FACILITY_TABLES)
+_KINDS_TEXT = "·".join(FACILITY_KINDS)
+
 TOOL_SPECS = [
     {
         "name": "get_facility_counts",
         "description": (
-            "행정동 하나의 시설 종류별 개수를 센다 (문화시설·의료기관·학원·공원·점포). "
-            "\"학원 몇 개야\", \"병원 있어?\" 같은 질문에 쓴다."
+            f"행정동 하나의 시설 종류별 개수를 센다 ({_KINDS_TEXT}). "
+            "\"학원 몇 개야\", \"병원 있어?\", \"학교 몇 곳이야\" 같은 질문에 쓴다."
         ),
         "input_schema": _DONG_INPUT,
     },
     {
         "name": "get_facility_categories",
         "description": (
-            "시설 종류 하나(문화시설·의료기관·학원·공원·점포)의 세부 분류별 개수를 센다. "
-            "\"영어학원 몇 곳\", \"어떤 병원이 많아\" 같은 세부 질문에 쓴다."
+            f"시설 종류 하나({_KINDS_TEXT})의 세부 분류별 개수를 센다. 학교는 학교급(유치원·초등학교·중학교·고등학교)으로 갈린다. "
+            "\"영어학원 몇 곳\", \"어떤 병원이 많아\", \"유치원 있어?\" 같은 세부 질문에 쓴다."
         ),
         "input_schema": {
             "type": "object",
@@ -87,7 +93,7 @@ TOOL_SPECS = [
                 "dong": {"type": "string", "description": "행정동 이름, 예: 역삼1동"},
                 "kind": {
                     "type": "string",
-                    "enum": ["문화시설", "의료기관", "학원", "공원", "점포"],
+                    "enum": FACILITY_KINDS,
                     "description": "어떤 시설 종류의 세부 분류를 볼지",
                 },
             },
@@ -117,15 +123,15 @@ TOOL_SPECS = [
         "description": (
             "지금 추천 조건은 그대로 두고, 지표 하나를 그 안의 한 가지로만 봤을 때의 서울 TOP 5 를 다시 뽑는다. "
             "\"학원 많은 쪽으로 다시 보면?\", \"지하철 기준으로는 어디야?\" 처럼 추천 기준을 좁혀 "
-            f"다시 묻는 질문에 쓴다. 고를 수 있는 조합 — {SUB_HINT}"
+            f"다시 묻는 질문에 쓴다. 고를 수 있는 조합 — {FOCUS_HINT}"
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "indicator": {"type": "string", "enum": list(SUB_COLUMNS), "description": "어느 지표를 좁힐지"},
+                "indicator": {"type": "string", "enum": list(FOCUS_COLUMNS), "description": "어느 지표를 좁힐지"},
                 "sub": {
                     "type": "string",
-                    "enum": sorted({sub for subs in SUB_COLUMNS.values() for sub in subs}),
+                    "enum": sorted({sub for subs in FOCUS_COLUMNS.values() for sub in subs}),
                     "description": "그 지표 안에서 콕 집을 한 가지. 위 조합에 있는 짝만 된다",
                 },
             },

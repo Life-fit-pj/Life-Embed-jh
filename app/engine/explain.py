@@ -206,7 +206,7 @@ if __name__ == "__main__" :
     weights = {"녹지": 3.2, "안전": 3.3, "교통": 2.7, "상권": 3.2,
                "의료": 2.9, "교육": 4.6, "문화": 2.6}
     
-    names, values = load_regions()
+    names, values, _ = load_regions()
     scores = build_scores(build_column_scores(values))
     relative = build_relative(scores)
     result = recommend(names, scores, relative, weights)

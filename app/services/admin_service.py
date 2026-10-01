@@ -7,7 +7,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
-from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS, to_percentile
+from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS
 from app.engine.resync import resync_member
 from app.engine.weights import find_similar_members
 from app.services import search_service, region_service, privacy_service
@@ -83,7 +83,8 @@ def list_members():
 def _derived_percentiles(gu, dong):
     """계산된 칸(공원면적비율 등)의 백분위.
 
-    순위 계산이 든 get_ready() 의 밀도 원값을 같은 to_percentile 로 잰다. 계산된 칸을 따로 백분위 내면 구현이 세 곳이 된다.
+    순위 계산이 쓰는 칸별 백분위(get_ready() 의 column_scores)를 그대로 읽는다 — 여기서 다시 계산하지 않는다.
+    지표 점수(scores)가 아니다. 교육처럼 칸이 둘인 지표의 점수는 두 칸의 평균이라 칸 하나의 백분위와 다르다
     """
     r = search_service.get_ready()
     name = f"{gu} {dong}"
@@ -91,7 +92,7 @@ def _derived_percentiles(gu, dong):
         return {}
     i = r["names"].index(name)
     return {
-        col: round(float(to_percentile(r["values"][col])[i]))    # 지표 평균(scores)이 아니라 그 칸 하나의 백분위
+        col: round(float(r["column_scores"][col][i]))
         for col in DERIVED_COLUMNS
     }
 
