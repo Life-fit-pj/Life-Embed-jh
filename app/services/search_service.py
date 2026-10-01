@@ -14,7 +14,7 @@ import numpy as np
 from app.engine.explain import explain, find_cases, with_scores
 from app.engine.recommend import (
     load_regions, build_scores, build_relative, recommend,
-    build_column_scores, apply_focus, SUB_COLUMNS,
+    build_column_scores, apply_focus,
     PRICE_COLUMNS, load_price_values, build_price_score,
 )
 from app.engine.housing import matching_regions, attach_price
@@ -89,7 +89,8 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None, price_tier
     설명문이 "저렴하다"로 정반대로 읽는다.
 
     focus 를 주면({"교육": "학원"}) 그 지표 점수를 콕 집은 칸의 백분위로 바꾼다. 맨 먼저 건다 —
-    housing·region 이 배열을 자르기 전이라야 길이가 맞는다.
+    housing·region 이 배열을 자르기 전이라야 길이가 맞는다. 주는 곳은 둘 — 검색어에서 뽑힌 세부(weights 노드)와
+    채팅의 rerank_by_focus 도구(app/tools/tools.py).
     """
     r = get_ready()
     names, scores, relative = r["names"], r["scores"], r["relative"]
@@ -136,15 +137,7 @@ def recommend_by_weights(weights, top_k=5, housing=None, region=None, price_tier
     return attach_price(detailed, housing)
 
 
-def focus_options():
-    """지표별로 콕 집을 수 있는 세부 이름. {"교육": ["학원", "학교"], …}. 화면이 칩을 그릴 때 쓴다.
-
-    출처는 SUB_COLUMNS 하나다 — 화면에 따로 적으면 세부를 열 때마다 두 곳이 어긋난다
-    """
-    return {ind: list(subs) for ind, subs in SUB_COLUMNS.items()}
-
-
-def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None, focus=None):
+def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None):
     """이미 계산된 가중치 + 사람 묘사 문장 -> TOP 5 + 설명문.
 
     search()와 달리 검색어를 안 받는다. 서술형 설문처럼 가중치를 이미
@@ -153,7 +146,7 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
     recommend_by_weights() -> explain() 만 돈다.
     """
     r = get_ready()
-    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing, focus=focus)
+    detailed = recommend_by_weights(weights, top_k=top_k, housing=housing)
     cases = find_cases(persona_query)
     text = explain(persona_query, weights, detailed, cases, housing=housing)
     return {
@@ -163,7 +156,7 @@ def recommend_by_weights_explained(weights, persona_query, top_k=5, housing=None
         "housing": housing,
     }
 
-def search(query, top_k=5, housing_override=None, weights_override=None, focus_override=None):
+def search(query, top_k=5, housing_override=None, weights_override=None):
     """검색어 → 가중치 + TOP 5 + 설명문. 서버가 부르는 메인 창구.
 
     실제 계산은 app/graph/graph.py 의 search_graph 가 한다 —
@@ -186,7 +179,6 @@ def search(query, top_k=5, housing_override=None, weights_override=None, focus_o
         "top_k": top_k,
         "housing_override": housing_override,
         "weights_override": weights_override,
-        "focus_override": focus_override,
         "draft": {},
         "persona_query": "",
         "weights": {},

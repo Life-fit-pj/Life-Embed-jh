@@ -15,7 +15,6 @@ class SearchState(TypedDict):
     top_k: int
     housing_override: dict | None
     weights_override: dict | None
-    focus_override: dict | None
 
     # weights 노드가 채운다: Claude 초안 + 검색용 문장
     draft: dict

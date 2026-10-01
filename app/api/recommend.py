@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter
 
-from app.services.search_service import focus_options, recommend_by_weights, recommend_by_weights_explained, search
+from app.services.search_service import recommend_by_weights, recommend_by_weights_explained, search
 from app.schemas.recommend import (
     RecommendExplainedRequest, RecommendExplainedOut,
     RecommendRequest, RegionOut,
@@ -21,7 +21,6 @@ def post_search(body: SearchRequest):
         top_k=body.top_k,
         housing_override=body.housing_override.model_dump() if body.housing_override else None,
         weights_override=body.weights_override,
-        focus_override=body.focus_override,
     )
 
 
@@ -32,14 +31,7 @@ def post_recommend(body: RecommendRequest):
         body.weights,
         top_k=body.top_k,
         housing=body.housing.model_dump() if body.housing else None,
-        focus=body.focus,
     )
-
-
-@router.get("/recommend/focus-options", response_model=dict[str, list[str]])
-def get_focus_options():
-    """지표별로 콕 집을 수 있는 세부 목록. 화면이 칩을 그릴 때 쓴다 — {"교육": ["학원", "학교"], …}"""
-    return focus_options()
 
 
 @router.post("/recommend/explained", response_model=RecommendExplainedOut)
@@ -50,5 +42,4 @@ def post_recommend_explained(body: RecommendExplainedRequest):
         body.persona_query,
         top_k=body.top_k,
         housing=body.housing.model_dump() if body.housing else None,
-        focus=body.focus,
     )

@@ -1,19 +1,57 @@
 """Claude 가 채팅 중에 고를 수 있는 도구 목록이다.
 
-전부 chat_service.build_context() 가 지금 쓰는 함수를 그대로 부른다 —
+조회 도구 넷은 chat_service.build_context() 가 지금 쓰는 함수를 그대로 부른다 —
 시설(facility_counts·facility_categories), 시세(region_price_lines), 생활 여건(region_extras). 다른 점은 5개 동네
 데이터를 전부 미리 채워 넣는 대신, plan 노드가 필요하다고 고른 동네·항목만 그때 조회한다는 것이다.
+
+rerank_by_focus 하나만 성격이 다르다 — 동네를 조회하는 게 아니라 순위를 다시 매긴다.
+"학원 많은 쪽으로 다시 보면?" 처럼 추천 기준을 좁히는 말을, 화면을 늘리지 않고 채팅으로 받는 길이다.
 """
 
+from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
+from app.engine.recommend import SUB_COLUMNS, SUB_HINT
 from app.repositories.regions import facility_counts, facility_categories, region_extras
+from app.services.search_service import recommend_by_weights
+
+# "학원 많은 쪽으로 다시" 는 그 지표를 중시한다는 말이다. 원래 보통(3)이었어도 최댓값으로 올린다 —
+# 안 올리면 세부를 바꿔도 가중치가 낮아 순위가 거의 안 움직인다
+FOCUS_WEIGHT = 5
+
+
+def rerank_by_focus(weights, indicator, sub):
+    """지금 가중치는 그대로 두고, 지표 하나를 그 안의 한 칸(교육 → 학원)으로만 봤을 때의 TOP 5.
+
+    weights 는 Claude 가 아니라 채팅 상태(화면에 떠 있는 추천의 가중치)가 넣어 준다 — run_tool 참고.
+    가격 조건·자치구 제한은 채팅 요청에 안 실려 와서 반영하지 못한다. 그 사실을 결과에 같이 적어
+    Claude 가 답할 때 밝히게 한다
+    """
+    if sub not in SUB_COLUMNS.get(indicator, {}):
+        return {"오류": f"그 조합은 없습니다. 고를 수 있는 것 — {SUB_HINT}"}
+
+    weights = {k: float((weights or {}).get(k, 3)) for k in INDICATORS}     # 지표 7개만. 다른 키가 섞이면 recommend() 가 죽는다
+    weights[indicator] = max(weights[indicator], FOCUS_WEIGHT)
+    top = recommend_by_weights(weights, top_k=5, focus={indicator: sub})
+    return {
+        "기준": f"{indicator} 점수를 '{sub}' 하나로만 보고 서울 427개 동을 다시 줄 세움",
+        "안_반영된_것": "가격 조건(건물유형·예산)과 자치구 제한",
+        "순위": [
+            {"순위": rank, "동네": r["name"], "종합": r["total"], f"{indicator}({sub}) 백분위": r["scores"][indicator]}
+            for rank, r in enumerate(top, start=1)
+        ],
+    }
+
 
 TOOLS = {
     "get_facility_counts": facility_counts,
     "get_facility_categories": facility_categories,
     "get_region_prices": region_price_lines,
     "get_living_conditions": region_extras,
+    "rerank_by_focus": rerank_by_focus,
 }
+
+# 화면 상태(지금 가중치)를 같이 받아야 하는 도구. Claude 는 이 값을 모른다 — run_tool 이 채워 넣는다
+NEEDS_WEIGHTS = {"rerank_by_focus"}
 
 # gu·dong 두 칸만 받는 도구가 셋이라 모양을 한 번만 적는다
 _DONG_INPUT = {
@@ -72,9 +110,31 @@ TOOL_SPECS = [
         ),
         "input_schema": _DONG_INPUT,
     },
+    {
+        "name": "rerank_by_focus",
+        "description": (
+            "지금 추천 조건은 그대로 두고, 지표 하나를 그 안의 한 가지로만 봤을 때의 서울 TOP 5 를 다시 뽑는다. "
+            "\"학원 많은 쪽으로 다시 보면?\", \"지하철 기준으로는 어디야?\" 처럼 추천 기준을 좁혀 "
+            f"다시 묻는 질문에 쓴다. 고를 수 있는 조합 — {SUB_HINT}"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "indicator": {"type": "string", "enum": list(SUB_COLUMNS), "description": "어느 지표를 좁힐지"},
+                "sub": {
+                    "type": "string",
+                    "enum": sorted({sub for subs in SUB_COLUMNS.values() for sub in subs}),
+                    "description": "그 지표 안에서 콕 집을 한 가지. 위 조합에 있는 짝만 된다",
+                },
+            },
+            "required": ["indicator", "sub"],
+        },
+    },
 ]
 
 
-def run_tool(name, arguments):
-    """Claude 가 고른 도구를 실제로 실행한다."""
+def run_tool(name, arguments, weights=None):
+    """Claude 가 고른 도구를 실제로 실행한다. weights 는 지금 화면의 추천 가중치 — 필요한 도구에만 넣는다"""
+    if name in NEEDS_WEIGHTS:
+        return TOOLS[name](weights, **arguments)
     return TOOLS[name](**arguments)

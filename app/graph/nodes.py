@@ -41,7 +41,7 @@ def weights_node(state):
         "housing": housing,
         "region": draft.get("지역"),
         "price_tier": draft.get("가격대"),
-        "focus": state["focus_override"] or draft.get("세부"),   # 칩이 고른 것이 검색어에서 뽑은 것보다 확실하다
+        "focus": draft.get("세부"),
         "notice": draft.get("미지원_조건"),
         "path": state["path"] + ["weights"],
     }
@@ -77,7 +77,8 @@ def chat_plan_node(state):
 def chat_run_tools_node(state):
     # 비교 질문이면 같은 도구가 동네마다 불린다 — 어느 동네 결과인지 인자를 같이 붙인다
     results = [
-        {"도구": call["name"], "인자": call["arguments"], "결과": run_tool(call["name"], call["arguments"])}
+        {"도구": call["name"], "인자": call["arguments"],
+         "결과": run_tool(call["name"], call["arguments"], weights=state["weights"])}
         for call in state["tool_calls"]
     ]
     return {"tool_result": results, "path": state["path"] + ["run_tools"]}

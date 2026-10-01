@@ -9,7 +9,7 @@
 import json
 
 from app.core.config import INDICATORS, SIMILARITY_FLOOR
-from app.engine.recommend import SUB_COLUMNS
+from app.engine.recommend import SUB_COLUMNS, SUB_HINT
 from app.rag.retriever import retrieve_people
 from app.repositories.members import member_weights
 from app.ai.llm import ask
@@ -79,8 +79,7 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스의 분석 도구입니�
  "지역": null, "미지원_조건": null, "가격대": null,
  "세부": null}"""
 
-# 허용 목록은 SUB_COLUMNS 에서 만든다 — "교육: 학원/학교, 교통: 지하철/버스, …"
-SUB_HINT = ", ".join(f"{ind}: {'/'.join(subs)}" for ind, subs in SUB_COLUMNS.items())
+# 허용 목록은 SUB_COLUMNS 에서 만든다(recommend.SUB_HINT) — 프롬프트에 따로 적지 않는다
 SYSTEM_PROMPT = SYSTEM_PROMPT.replace("__SUB_HINT__", SUB_HINT)
 
 # Claude 초안과 회원 평균을 몇 대 몇으로 섞을지.
