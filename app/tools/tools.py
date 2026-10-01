@@ -16,10 +16,10 @@ import numpy as np
 from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
 from app.engine.recommend import FOCUS_COLUMNS, FOCUS_HINT, nearest_base
-from app.repositories.members import customer_list
+from app.engine.weights import find_members_like
+from app.repositories.members import customer_homes
 from app.repositories.region_repository import FACILITY_TABLES
 from app.repositories.regions import facility_counts, facility_categories, region_extras
-from app.services.admin_service import similar_members
 from app.services.history_service import get_likes
 from app.services.search_service import get_ready, recommend_by_weights
 
@@ -66,6 +66,11 @@ MEMBER_ID = re.compile(r"C\d+")
 LOGIN_FIRST = {"오류": "로그인한 회원만 쓸 수 있는 기능입니다. 로그인한 뒤 다시 물어 달라고 안내하세요"}
 
 
+def _is_member(anon_id):
+    """로그인한 회원인가 — 번호가 회원 번호 꼴("C107")인가"""
+    return bool(MEMBER_ID.fullmatch(anon_id or ""))
+
+
 def _similar_places(places, what, regions):
     """기준 동네들("구 동")과 지표 점수가 닮은 동네 — 지금 추천된 곳 중 가장 닮은 곳과, 추천 밖에서 가장 닮은 다섯 곳.
 
@@ -99,7 +104,7 @@ def _similar_places(places, what, regions):
 
 def similar_to_my_likes(anon_id, regions):
     """내가 좋아요 누른 동네와 닮은 동네. anon_id 와 regions 는 Claude 가 아니라 채팅 상태가 넣어 준다(FROM_STATE)"""
-    if not MEMBER_ID.fullmatch(anon_id or ""):
+    if not _is_member(anon_id):
         return LOGIN_FIRST
     places = [f"{like['gu']} {like['dong']}" for like in get_likes(anon_id)]
     if not places:
@@ -108,11 +113,12 @@ def similar_to_my_likes(anon_id, regions):
 
 
 def people_like_me(anon_id, regions):
-    """나와 페르소나가 닮은 회원들이 실제로 사는 동네와 닮은 동네. 닮은 회원은 관리자 화면과 같은 함수로 찾는다"""
-    if not MEMBER_ID.fullmatch(anon_id or ""):
+    """나와 페르소나가 닮은 회원들이 실제로 사는 동네와 닮은 동네. 닮은 회원은 관리자 화면과 같은 engine 함수로 찾는다"""
+    if not _is_member(anon_id):
         return LOGIN_FIRST
-    home = {c["customer_id"]: f"{c['city']} {c['city_dong']}" for c in customer_list()}
-    places = [home[p["customer_id"]] for p in similar_members(anon_id) or [] if p["customer_id"] in home]   # 자기 자신은 빠져 있다
+    ids = [cid for cid, _ in find_members_like(anon_id) or []]      # 닮은 순. 자기 자신은 빠져 있다
+    home = customer_homes(ids) if ids else {}                       # 그 다섯 명의 구·동만 읽는다
+    places = [home[cid] for cid in ids if cid in home]
     if not places:
         return {"오류": "가입 때 적은 답변(페르소나)이 없어 닮은 회원을 찾을 수 없습니다. "
                       "좋아요를 누른 동네가 있으면 그 동네와 닮은 곳은 볼 수 있다고 안내하세요"}
@@ -246,7 +252,7 @@ MEMBER_TOOLS = {"similar_to_my_likes", "people_like_me"}
 
 def tool_specs(anon_id):
     """Claude 에게 보여 줄 도구 목록. 로그인 안 했으면 회원 전용 도구를 뺀다"""
-    if MEMBER_ID.fullmatch(anon_id or ""):
+    if _is_member(anon_id):
         return TOOL_SPECS
     return [spec for spec in TOOL_SPECS if spec["name"] not in MEMBER_TOOLS]
 

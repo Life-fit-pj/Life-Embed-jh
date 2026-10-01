@@ -11,7 +11,7 @@ import json
 from app.core.config import INDICATORS, SIMILARITY_FLOOR
 from app.engine.recommend import SUB_COLUMNS, SUB_HINT
 from app.rag.retriever import retrieve_people
-from app.repositories.members import member_weights
+from app.repositories.members import customer_persona, member_weights
 from app.ai.llm import ask
 
 
@@ -101,6 +101,26 @@ def find_similar_members(query, top_k=5):
         for customer_id, score, row in retrieve_people("member", query, top_k)
         if score >= SIMILARITY_FLOOR   # 안 비슷한 사람의 선호를 30% 섞지 않는다. 다 걸러지면 blend() 가 초안만 쓴다
     ]
+
+
+def find_members_like(customer_id: str, top_k: int = 5):
+    """이 회원과 페르소나가 닮은 회원들. 자기 자신은 뺀다. 페르소나가 없는 회원이면 None
+
+    반환 모양은 find_similar_members 와 같다: [(customer_id, (점수, 칸이름, 글))]
+    부르는 곳은 둘 — 관리자 화면(admin_service.similar_members)과 채팅 도구(tools.people_like_me)
+    """
+    persona = customer_persona(customer_id)
+    if not persona:
+        return None
+
+    # persona 칸을 대표로 쓰고, 비어 있으면 있는 칸 아무거나 하나
+    query = persona.get("persona") or next(iter(persona.values()), "")
+    if not query:
+        return []
+
+    # 자기 자신이 반드시 1등으로 걸리므로 한 명 더 받아서 뺀다
+    ranked = find_similar_members(query, top_k=top_k + 1)
+    return [(cid, hit) for cid, hit in ranked if cid != customer_id][:top_k]
 
 
 def ask_claude(query):

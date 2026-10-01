@@ -48,6 +48,10 @@ def customer_one(customer_id):
     return _run(repo.customer_one, customer_id)
 
 
+def customer_homes(customer_ids):
+    return _run(repo.customer_homes, customer_ids)
+
+
 def customer_preferences(customer_id):
     return _run(repo.customer_preferences, customer_id)
 

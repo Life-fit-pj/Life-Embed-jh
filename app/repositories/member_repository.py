@@ -87,6 +87,16 @@ def customer_list(db):
     return [dict(zip(CUSTOMER_LIST_FIELDS, row)) for row in rows]
 
 
+def customer_homes(db, customer_ids):
+    """회원들의 거주 동. {customer_id: "구 동"} — 채팅의 닮은 회원 도구가 쓴다. 이름·연락처는 안 읽는다"""
+    rows = (
+        db.query(Customer.customer_id, Customer.city, Customer.city_dong)
+        .filter(Customer.customer_id.in_(customer_ids))
+        .all()
+    )
+    return {cid: f"{city} {dong}" for cid, city, dong in rows}
+
+
 def customer_one(db, customer_id):
     """customers 표에서 회원 한 명. 없으면 None
 

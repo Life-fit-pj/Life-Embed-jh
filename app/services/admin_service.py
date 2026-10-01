@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
 from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS
 from app.engine.resync import resync_member
-from app.engine.weights import find_similar_members
+from app.engine.weights import find_members_like
 from app.services import search_service, region_service, privacy_service
 from app.repositories.chunks import member_chunk_count, persona_lengths, replace_member_chunks
 from app.repositories.history import (
@@ -281,32 +281,22 @@ def preview_member(customer_id):
 
 
 def similar_members(customer_id: str, top_k: int = 5) -> list | None:
-    """이 회원과 페르소나가 비슷한 회원들. 자기 자신은 뺀다."""
-    persona = customer_persona(customer_id)
-    if not persona:
+    """이 회원과 페르소나가 비슷한 회원들. 자기 자신은 뺀다.
+
+    찾는 일은 engine(find_members_like)이 한다 — 채팅 도구도 그 함수를 부른다. 여기서는 관리자 화면 모양으로만 바꾼다
+    """
+    ranked = find_members_like(customer_id, top_k)
+    if ranked is None:
         return None
-
-    # persona 칸을 대표로 쓰고, 비어 있으면 있는 칸 아무거나 하나
-    query = persona.get("persona") or next(iter(persona.values()), "")
-    if not query:
-        return []
-
-    # 자기 자신이 반드시 1등으로 걸리므로 한 명 더 받아서 뺀다
-    # 벡터는 vector_store 가 들고 있다 — get_ready() 에서 뺐다(7-7절)
-    ranked = find_similar_members(query, top_k=top_k + 1)
-
-    out = []
-    for cid, (score, category, text) in ranked:     # ← 튜플 안에 튜플이라 이렇게 푼다
-        if cid == customer_id:
-            continue
-        out.append({
+    return [
+        {
             "customer_id": cid,
             "score": round(score, 3),
             "category": category,
             "text": privacy_service.mask_text(text)[:120],                   # 가린 뒤에 자른다
-        })
-
-    return out[:top_k]
+        }
+        for cid, (score, category, text) in ranked     # ← 튜플 안에 튜플이라 이렇게 푼다
+    ]
 
 
 def health() -> dict:
