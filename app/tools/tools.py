@@ -8,6 +8,8 @@ rerank_by_focus 하나만 성격이 다르다 — 동네를 조회하는 게 아
 "학원 많은 쪽으로 다시 보면?" 처럼 추천 기준을 좁히는 말을, 화면을 늘리지 않고 채팅으로 받는 길이다.
 """
 
+import inspect
+
 from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
 from app.engine.recommend import SUB_COLUMNS, SUB_HINT
@@ -134,7 +136,18 @@ TOOL_SPECS = [
 
 
 def run_tool(name, arguments, weights=None):
-    """Claude 가 고른 도구를 실제로 실행한다. weights 는 지금 화면의 추천 가중치 — 필요한 도구에만 넣는다"""
-    if name in NEEDS_WEIGHTS:
-        return TOOLS[name](weights, **arguments)
-    return TOOLS[name](**arguments)
+    """Claude 가 고른 도구를 실제로 실행한다. weights 는 지금 화면의 추천 가중치 — 필요한 도구에만 넣는다.
+
+    도구 이름과 인자는 Claude 가 쓴 것이라 믿지 않는다. 없는 도구·안 맞는 인자면 죽지 않고
+    {"오류": …} 를 결과로 돌려준다 — generate 가 그걸 보고 "그건 볼 수 없다"고 답한다(SYSTEM_PROMPT 규칙 4)
+    """
+    tool = TOOLS.get(name)
+    if tool is None:
+        return {"오류": f"'{name}' 이라는 도구는 없습니다"}
+
+    args = (weights,) if name in NEEDS_WEIGHTS else ()
+    try:
+        inspect.signature(tool).bind(*args, **arguments)      # 부르기 전에 인자가 맞는지만 본다
+    except TypeError as e:
+        return {"오류": f"도구 인자가 맞지 않습니다 — {e}"}
+    return tool(*args, **arguments)
