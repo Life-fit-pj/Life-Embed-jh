@@ -129,11 +129,11 @@ py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    #
 
 ```bash
 py -m pytest tests -q       # 테스트 8파일 42개
-bash check.sh               # 규칙이 지켜지나 일곱 가지
+bash check.sh               # 규칙이 지켜지나 여섯 가지
 py -m tools.check_routes    # Life-Web 이 부르는 HTTP 경로 36개가 열렸나
 ```
 
-`check.sh`는 일곱 가지를 셉니다.
+`check.sh`는 여섯 가지를 셉니다.
 
 | | 무엇 | 통과 기준 |
 | --- | --- | --- |
@@ -182,7 +182,7 @@ Life-Embed-jh/
 ├── tests/        DB·서버 없이 도는 것 + 골든 사진 4장
 ├── tools/        check_routes.py — Life-Web 이 부르는 HTTP 경로 36개가 열렸나
 ├── docs/         REFACTOR.md — 옛 계획 기록
-├── check.sh      규칙 일곱 가지를 센다
+├── check.sh      규칙 여섯 가지를 센다
 └── data/         원본 CSV (DB 는 Supabase 에 있다. life.db 는 지웠다)
 ```
 
@@ -250,7 +250,7 @@ POST /recommend  "애들 학원 보내기 좋은 곳"
 1. app/schemas/<이름>_schema.py     주고받을 형식
 2. app/api/<이름>_router.py         라우터. app.services 를 부른다
 3. app/main.py                      include_router 한 줄
-4. bash check.sh                    일곱 가지 전부 OK
+4. bash check.sh                   여섯 가지 전부 OK
 ```
 
 **3번을 빼먹기 쉽다.** 라우터 파일만 만들고 `include_router` 를 안 하면 **웹이 404 를 받는다.**

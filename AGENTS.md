@@ -29,7 +29,7 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 같은 폴더의 `*_repository.py` 에 있다. **새 코드는 다리를 부르지 않는다**.
 
 패키지는 `requirements.txt`. `pyproject.toml`·린트 설정은 아직 없다.
-검증은 `tests/`(pytest 8파일 42개) + `bash check.sh`(일곱 가지) + `py -m tools.check_routes`(Life-Web 이 부르는 HTTP 경로 36개).
+검증은 `tests/`(pytest 8파일 42개) + `bash check.sh`(여섯 가지) + `py -m tools.check_routes`(Life-Web 이 부르는 HTTP 경로 36개).
 
 ## Setup / commands
 
@@ -82,7 +82,7 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 ### 돌리는 법
 
     py -m pytest tests -q        # 저장소 뿌리에서. 8파일 42개 (40 통과 / 2 실패 — 아래 참고)
-    bash check.sh                # 규칙 일곱 가지
+    bash check.sh                # 규칙 여섯 가지
     py -m tools.check_routes     # Life-Web 이 부르는 HTTP 경로 36개가 엔진에 다 열렸나
 
     tests/test_dong.py         행정동 이름 표기 변형 (양방향)
@@ -100,17 +100,16 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 `tools/check_routes.py` 는 **반드시 `-m` 으로** 부른다. 파일 경로로 실행하면 뿌리가 검색
 경로에 안 잡혀 `app` import 가 실패한다 — 코드는 멀쩡하고 부르는 법만 틀린 것이다.
 
-### 규칙이 지켜지나 — `bash check.sh` 일곱 가지
+### 규칙이 지켜지나 — `bash check.sh` 여섯 가지
 
 | | 무엇 | 통과 |
 | --- | --- | --- |
 | ① | **`app/`·`pipeline/` 에 날 SQL 이 있나** (`text("…")`) | 0곳 |
 | ② | 함수 안 import 가 있나 | 0곳 |
-| ③ | 계층 방향 (`tests/test_layers.py`) | `3 passed` |
+| ③ | 계층 방향 (`tests/test_layers.py`) | `5 passed` |
 | ④ | 0바이트 `__init__.py` 가 있나 | 0개 |
 | ⑤ | LangChain 이 되살아났나 | 0곳 |
-| ⑥ | `app` 밖(tests·tools·pipeline)이 다리에 기대나 | 0곳 |
-| ⑦ | **SQLite 전용 코드가 되살아났나** | 0곳 |
+| ⑥ | **SQLite 전용 코드가 되살아났나** | 0곳 |
 
 **②가 왜 규칙인가** — 함수 안 import 는 순환 참조를 고치는 게 아니라 눈에 안 보이게 덮는다.
 필요해지면 그건 공통 부분을 아래층으로 내리라는 신호다.
@@ -118,13 +117,13 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 **①이 `text("…")` 만 보는 이유** — 4단계에서 전부 ORM 으로 옮긴 뒤로 **날 SQL 을 실행할 길이
 `text()` 하나뿐**이다. `SELECT `·`INSERT ` 같은 낱말로 훑으면 "옛 SQL 은 `SELECT *` 였다" 같은
 **주석까지 잡혀** 검사가 늘 X 로 끝난다. `app/models/` 만 예외인데, 거기 `text("CURRENT_TIMESTAMP")` 는
-질의가 아니라 `server_default` 다. ⑦도 같은 이유로 글자 "SQLite" 가 아니라 `import sqlite3` 같은
+질의가 아니라 `server_default` 다. ⑥도 같은 이유로 글자 "SQLite" 가 아니라 `import sqlite3` 같은
 **코드**만 본다 — 주석의 "SQLite 시절에는 …" 은 왜 이렇게 짰나를 남긴 기록이다.
 
 Windows PowerShell 에는 `bash`·`grep` 이 없다. Git Bash 터미널에서 돌리거나
 (VSCode 터미널 `∨` → Git Bash), VSCode `Ctrl+Shift+F`(files to include 에 `*.py`)를 쓴다.
 
-**마지막 확인 2026-09-12** — pytest `40 passed / 2 failed`, check.sh ①②④⑤⑥⑦ OK(③은 위 참고),
+**마지막 확인 2026-10-01** — pytest `53 passed`, check.sh ①③④⑤⑥ OK · ② X 2곳(순환 import — services ↔ graph).
 계약 36개 전부 생존. 표 24개 · `chunks.embedding` 9,900줄 전부 채워짐.
 
 **남은 실패 둘은 DB 작업과 무관하다** — ③(위)과 `tests/test_supabase_auth.py`.
@@ -185,8 +184,8 @@ HTTP 로 넘어갔다. 옛 이름 검사기 `check_contract.py` 는 `app/feature
 **층 번호 — 아래층은 위층을 부르지 않는다.**
 
 ```
-0 domain → 1 schemas · core → 2 models · repositories · tables · ai
-         → 3 rag → 4 engine → 5 services → 7 api → Life-Web
+0 domain → 1 schemas · core · db → 2 models · repositories · ai
+         → 3 rag → 4 engine → 5 services · graph · tools → 7 api → 8 main → Life-Web
 ```
 
 이 번호표는 `tests/test_layers.py`의 `LAYER` 표와 짝이다. 한쪽만 고치면 어긋난다.

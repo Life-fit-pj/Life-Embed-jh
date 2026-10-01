@@ -8,4 +8,4 @@ from app.ai.supabase_auth import verify_token
 
 
 def test_가짜_토큰은_거부된다():
-    assert verify_token("이건-진짜-토큰이-아니다") is None
+    assert verify_token("not-a-real-token") is None
