@@ -44,10 +44,20 @@ def rerank_by_focus(weights, indicator, sub):
         ],
     }
 
+# Claude 에게 보이는 종류 이름. 표 이름(FACILITY_TABLES 의 키)과 다르게 보여야 할 때만 적는다.
+# "학교" 만 보이면 유치원 질문이 '학원' 으로 갔다(2026-10-01 실측 3/3). 이름에 유치원이 보여야 고른다 —
+# kind 의 설명에 "유치원은 학교다"라고 적는 것으로는 안 고쳐졌다. 표 이름은 그대로 둔다(결과 라벨로 웹·채팅에 나간다)
+_KIND_LABELS = {"학교": "학교·유치원"}
+_KIND_OF_LABEL = {label: kind for kind, label in _KIND_LABELS.items()}
+
+
+def _facility_categories(gu, dong, kind):
+    """Claude 가 고른 종류 이름(학교·유치원)을 표 이름(학교)으로 바꿔 조회한다"""
+    return facility_categories(gu, dong, _KIND_OF_LABEL.get(kind, kind))
 
 TOOLS = {
     "get_facility_counts": facility_counts,
-    "get_facility_categories": facility_categories,
+    "get_facility_categories": _facility_categories,
     "get_region_prices": region_price_lines,
     "get_living_conditions": region_extras,
     "rerank_by_focus": rerank_by_focus,
@@ -66,10 +76,10 @@ _DONG_INPUT = {
     "required": ["gu", "dong"],
 }
 
-# 조회 도구가 아는 시설 종류 — "문화시설·의료기관·학원·공원·점포·학교". 표 목록(FACILITY_TABLES)에서 만든다.
+# 조회 도구가 아는 시설 종류 — "문화시설, 의료기관, 학원, 공원, 점포, 학교·유치원". 표 목록(FACILITY_TABLES)에서 만든다.
 # 여기 글자로 적어 두면 표를 더할 때 도구 설명만 옛 목록으로 남는다
-FACILITY_KINDS = list(FACILITY_TABLES)
-_KINDS_TEXT = "·".join(FACILITY_KINDS)
+FACILITY_KINDS = [_KIND_LABELS.get(kind, kind) for kind in FACILITY_TABLES]
+_KINDS_TEXT = ", ".join(FACILITY_KINDS)      # '·' 로 이으면 "학교·유치원" 이 두 종류로 읽힌다
 
 TOOL_SPECS = [
     {
@@ -83,7 +93,7 @@ TOOL_SPECS = [
     {
         "name": "get_facility_categories",
         "description": (
-            f"시설 종류 하나({_KINDS_TEXT})의 세부 분류별 개수를 센다. 학교는 학교급(유치원·초등학교·중학교·고등학교)으로 갈린다. "
+            f"시설 종류 하나({_KINDS_TEXT})의 세부 분류별 개수를 센다. '학교·유치원' 은 유치원·초등학교·중학교·고등학교로 갈린다. "
             "\"영어학원 몇 곳\", \"어떤 병원이 많아\", \"유치원 있어?\" 같은 세부 질문에 쓴다."
         ),
         "input_schema": {
