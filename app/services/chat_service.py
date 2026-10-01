@@ -8,6 +8,8 @@ region_service.py 는 동네 하나를 설명하고 끝난다.
 다른 점은 "무엇을 물었는지" 에 따라 필요한 동네만 골라 온다는 것이다.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 from app.repositories.regions import facility_counts, facility_categories, region_extras
 from app.engine.housing import region_price_lines
 
@@ -59,6 +61,50 @@ rerank_by_focus 를 고르세요 — 지표 하나와 그 안의 한 가지를 �
 점수의 의미나 왜 추천됐는지처럼 도구로 답할 수 없는 질문이면 도구를 고르지 마세요."""
 
 
+def _region_block(r):
+    """추천된 동네 하나의 재료 줄들. DB 조회가 전부 여기 모여 있다 — build_context 가 동네마다 스레드로 부른다"""
+    lines = []
+    name = r.get("name", "").replace("서울특별시 ", "")
+    scores = r.get("scores") or {}
+    score_text = " / ".join(f"{k} {round(v)}" for k, v in scores.items())
+    lines.append(f"{r.get('rank', '?')}위 {name} (종합 {r.get('score')})")
+    lines.append(f"     {score_text}")
+
+    parts = name.split(" ", 1)
+    if len(parts) == 2:
+        gu, dong = parts
+        counts = facility_counts(gu, dong)
+        if counts:
+            text = " · ".join(f"{k} {n}곳" for k, n in counts.items())
+            lines.append(f"     시설: {text}")
+
+            # 분류별 개수도 넣는다.
+            # "영어학원 많아?" 같은 질문은 개수만으로는 답할 수 없다.
+            # facilities() 의 표본이 아니라 전체를 센 값이라 숫자를 그대로 써도 된다
+            for kind in counts:
+                cats = facility_categories(gu, dong, kind, top=6)
+                if len(cats) > 1:
+                    cat_text = " · ".join(f"{c['category']} {c['n']}" for c in cats)
+                    lines.append(f"       {kind} 분류: {cat_text}")
+
+        price_lines = region_price_lines(gu, dong)
+        if price_lines:
+            lines.append("     시세 (동네 전체 중앙값, 실제 매물가 아님):")
+            for pl in price_lines:
+                lines.append(f"       {pl}")
+
+        extras = region_extras(gu, dong)
+        noise = extras.get("소음_주간_구"), extras.get("소음_야간_구")
+        if any(v is not None for v in noise):
+            lines.append(
+                f"     생활여건({gu} 구 단위 평균): 소음 주간 {noise[0]} · 야간 {noise[1]}"
+                + (f" · 거주안정성 {extras['거주안정성_점수']}점"
+                   if extras.get("거주안정성_점수") is not None else "")
+            )
+
+    return lines
+
+
 def build_context(regions, weights, question):
     """Claude 에게 넘길 재료를 글로 정리한다.
 
@@ -73,44 +119,12 @@ def build_context(regions, weights, question):
     lines.append("")
 
     lines.append("## 추천된 동네 (점수는 서울 427개 동 중 백분위)")
-    for r in regions or []:
-        name = r.get("name", "").replace("서울특별시 ", "")
-        scores = r.get("scores") or {}
-        score_text = " / ".join(f"{k} {round(v)}" for k, v in scores.items())
-        lines.append(f"{r.get('rank', '?')}위 {name} (종합 {r.get('score')})")
-        lines.append(f"     {score_text}")
-
-        parts = name.split(" ", 1)
-        if len(parts) == 2:
-            gu, dong = parts
-            counts = facility_counts(gu, dong)
-            if counts:
-                text = " · ".join(f"{k} {n}곳" for k, n in counts.items())
-                lines.append(f"     시설: {text}")
-
-                # 분류별 개수도 넣는다.
-                # "영어학원 많아?" 같은 질문은 개수만으로는 답할 수 없다.
-                # facilities() 의 표본이 아니라 전체를 센 값이라 숫자를 그대로 써도 된다
-                for kind in counts:
-                    cats = facility_categories(gu, dong, kind, top=6)
-                    if len(cats) > 1:
-                        cat_text = " · ".join(f"{c['category']} {c['n']}" for c in cats)
-                        lines.append(f"       {kind} 분류: {cat_text}")
-
-            price_lines = region_price_lines(gu, dong)
-            if price_lines:
-                lines.append("     시세 (동네 전체 중앙값, 실제 매물가 아님):")
-                for pl in price_lines:
-                    lines.append(f"       {pl}")
-
-            extras = region_extras(gu, dong)
-            noise = extras.get("소음_주간_구"), extras.get("소음_야간_구")
-            if any(v is not None for v in noise):
-                lines.append(
-                    f"     생활여건({gu} 구 단위 평균): 소음 주간 {noise[0]} · 야간 {noise[1]}"
-                    + (f" · 거주안정성 {extras['거주안정성_점수']}점"
-                       if extras.get("거주안정성_점수") is not None else "")
-                )
+    # 동네마다 조회가 20번이 넘고 원격 DB 라 건당 0.3초다. 차례로 하면 5곳에 35초 — 웹의 30초 한도를 넘어
+    # 500 이 됐다(2026-10-01 실측). 동시에 보내 가장 느린 한 곳만큼만 기다린다.
+    # map 은 넣은 순서대로 돌려주므로 1위~5위 순서는 그대로다
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for block in pool.map(_region_block, regions or []):
+            lines.extend(block)
 
     return "\n".join(lines)
 

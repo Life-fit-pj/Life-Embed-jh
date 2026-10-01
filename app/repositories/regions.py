@@ -86,6 +86,10 @@ def region_price_detail(gu, dong, bldg, deal):
     return _run(repo.region_price_detail, gu, dong, bldg, deal)
 
 
+def region_price_details(gu, dong):
+    return _run(repo.region_price_details, gu, dong)
+
+
 # ── 쓰기 ──────────────────────────────────────
 
 def update_region(gu, dong, patch, allowed):

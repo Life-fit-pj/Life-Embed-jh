@@ -291,6 +291,22 @@ def region_price_detail(db, gu, dong, bldg, deal):
     return dict(row) if row else None
 
 
+def region_price_details(db, gu, dong):
+    """동네 하나의 시세 상세 전부. {(건물용도, 거래유형): {칸: 값}}.
+
+    region_price_detail() 을 조합마다 부르면 12번이다(N+1) — 한 번에 가져와 부르는 쪽이 골라 쓴다.
+    같은 조합이 두 줄이면 먼저 온 것을 쓴다(region_price_detail 의 .first() 와 같은 규칙)
+    """
+    stmt = (
+        select(시세.c["건물용도"], 시세.c["거래유형"], *[시세.c[c] for c in PRICE_COLUMNS])
+        .where(*_in_dong(시세, "자치구명", "지역명", gu, dong))
+    )
+    details = {}
+    for r in db.execute(stmt).mappings():
+        details.setdefault((r["건물용도"], r["거래유형"]), {c: r[c] for c in PRICE_COLUMNS})
+    return details
+
+
 # ── 이름 목록 ──────────────────────────────────
 
 def gu_names(db):

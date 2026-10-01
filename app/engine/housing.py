@@ -6,7 +6,7 @@
 새 표를 만들 필요 없이 여기서 바로 걸러낸다.
 """
 
-from app.repositories.regions import region_densities, region_price_detail
+from app.repositories.regions import region_densities, region_one, region_price_detail, region_price_details
 
 # {건물유형}_{거래유형}_{금액종류} 규칙 그대로 매핑한다.
 # 매매·전세는 금액이 하나("예산")뿐이지만, 월세는 다르다 — 보증금(목돈)과 월세(매달 나가는 돈)가
@@ -145,10 +145,10 @@ def region_price_lines(gu, dong):
     "매매 95,250만원" 만으로는 표본이 42건인지 2건인지 알 수 없어서다.
     """
     all_cols = sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()})
-    rows = region_densities(all_cols)
-    row = next((r for r in rows if r["구"] == gu and r["행정동명"] == dong), None)
+    row = region_one(gu, dong, all_cols)             # 427행을 다 읽지 않고 한 줄만
     if row is None:
         return []
+    details = region_price_details(gu, dong)         # 조합 12개의 상세를 한 번에 (전엔 조합마다 한 번씩 12번)
 
     lines = []
     for 건물유형 in ("단독다가구", "아파트", "연립다세대", "오피스텔"):
@@ -157,7 +157,7 @@ def region_price_lines(gu, dong):
             cols = DEAL_COLUMNS.get((건물유형, 거래유형))
             if not cols:
                 continue
-            note = region_price_note(gu, dong, 건물유형, 거래유형)
+            note = _format_price_note(details.get((건물유형, 거래유형)))
             for field, col in cols.items():
                 value = row.get(col)
                 if value is None:
