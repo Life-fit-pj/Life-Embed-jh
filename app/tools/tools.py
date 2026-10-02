@@ -17,7 +17,7 @@ from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
 from app.engine.recommend import FOCUS_COLUMNS, FOCUS_HINT, nearest_base
 from app.engine.weights import find_members_like
-from app.repositories.members import customer_homes
+from app.repositories.members import customer_homes, members_near_weights
 from app.repositories.region_repository import FACILITY_TABLES
 from app.repositories.regions import facility_counts, facility_categories, region_extras
 from app.services.history_service import get_likes
@@ -26,6 +26,11 @@ from app.services.search_service import get_ready, recommend_by_weights
 # "학원 많은 쪽으로 다시" 는 그 지표를 중시한다는 말이다. 원래 보통(3)이었어도 최댓값으로 올린다 —
 # 안 올리면 세부를 바꿔도 가중치가 낮아 순위가 거의 안 움직인다
 FOCUS_WEIGHT = 5
+
+
+def _seven(weights):
+    """채팅 상태의 가중치에서 지표 7개만. 빠진 것은 보통(3). 다른 키(시세 등)가 섞이면 recommend() 가 죽는다"""
+    return {k: float((weights or {}).get(k, 3)) for k in INDICATORS}
 
 
 def rerank_by_focus(weights, indicator, sub):
@@ -38,7 +43,7 @@ def rerank_by_focus(weights, indicator, sub):
     if sub not in FOCUS_COLUMNS.get(indicator, {}):
         return {"오류": f"그 조합은 없습니다. 고를 수 있는 것 — {FOCUS_HINT}"}
 
-    weights = {k: float((weights or {}).get(k, 3)) for k in INDICATORS}     # 지표 7개만. 다른 키가 섞이면 recommend() 가 죽는다
+    weights = _seven(weights)
     weights[indicator] = max(weights[indicator], FOCUS_WEIGHT)
     top = recommend_by_weights(weights, top_k=5, focus={indicator: sub})
     return {
@@ -93,8 +98,9 @@ def _similar_places(places, what, regions):
     skip = set(base) | set(now)
     others = [int(i) for i in np.argsort(-sim) if int(i) not in skip][:5]
     return {
-        "기준": f"{what}({', '.join(names[i] for i in base)})와 지표 {len(INDICATORS)}개({'·'.join(INDICATORS)}) 점수가 "
-                "닮은 순으로 뽑았다. 닮음 100 = 똑같음. 답할 때 이 기준을 맨 먼저 밝힌다",
+        "기준": f"{what}({', '.join(names[i] for i in base)})를 참고했다. 그 동네들과 지표 {len(INDICATORS)}개({'·'.join(INDICATORS)}) 점수가 "
+                "가장 닮은 순으로 뽑았다. 닮음 100 = 똑같음. 답할 때 이 기준을 맨 먼저 밝히고, 지금 추천 중 가장 닮은 곳과 "
+                "추천 밖에서 닮은 동네를 둘 다 '닮은 곳'으로 소개한다",
         "안_반영된_것": "시세와 가격 조건",
         "지금_추천_중_가장_닮은_곳": row(now[0]) if now else None,
         "지금_추천_나머지의_닮음": {names[i]: round(float(sim[i])) for i in now[1:]},
@@ -112,17 +118,27 @@ def similar_to_my_likes(anon_id, regions):
     return _similar_places(places, "회원님이 좋아요를 누른 동네", regions)
 
 
-def people_like_me(anon_id, regions):
-    """나와 페르소나가 닮은 회원들이 실제로 사는 동네와 닮은 동네. 닮은 회원은 관리자 화면과 같은 engine 함수로 찾는다"""
+def people_like_me(anon_id, regions, weights):
+    """나와 닮은 회원들이 실제로 사는 동네와 닮은 동네.
+
+    닮은 회원은 페르소나(가입 설문)로 찾는다 — 관리자 화면과 같은 engine 함수다. 페르소나가 없는 회원은
+    빈손으로 돌려보내지 않고, 지금 검색의 가중치와 선호 가중치가 가까운 회원으로 대신 찾은 뒤 프로필을 채우라고 권한다
+    """
     if not _is_member(anon_id):
         return LOGIN_FIRST
     ids = [cid for cid, _ in find_members_like(anon_id) or []]      # 닮은 순. 자기 자신은 빠져 있다
+    what, tip = "회원님과 성향이 닮은 분 {n}명이 실제로 사는 동네", None
+    if not ids:
+        ids = members_near_weights(_seven(weights), exclude=anon_id)
+        what = "회원님과 비슷한 조건을 중시하는 분 {n}명이 실제로 사는 동네"
+        tip = ("가입 설문(프로필)이 비어 있어 성향 대신 지금 검색의 가중치로 찾았다. 답 끝에, 프로필을 채우면 "
+               "성향이 닮은 회원을 기준으로 더 정확히 볼 수 있다고 한 문장으로 권한다")
     home = customer_homes(ids) if ids else {}                       # 그 다섯 명의 구·동만 읽는다
     places = [home[cid] for cid in ids if cid in home]
     if not places:
-        return {"오류": "가입 때 적은 답변(페르소나)이 없어 닮은 회원을 찾을 수 없습니다. "
-                      "좋아요를 누른 동네가 있으면 그 동네와 닮은 곳은 볼 수 있다고 안내하세요"}
-    return _similar_places(places, f"페르소나가 회원님과 닮은 회원 {len(places)}명이 실제로 사는 동네", regions)
+        return {"오류": "닮은 회원을 찾지 못했습니다. 좋아요를 누른 동네가 있으면 그 동네와 닮은 곳은 볼 수 있다고 안내하세요"}
+    result = _similar_places(places, what.format(n=len(places)), regions)
+    return {**result, "안내": tip} if tip else result
 
 
 TOOLS = {
@@ -140,7 +156,7 @@ TOOLS = {
 FROM_STATE = {
     "rerank_by_focus": ("weights",),
     "similar_to_my_likes": ("anon_id", "regions"),
-    "people_like_me": ("anon_id", "regions"),
+    "people_like_me": ("anon_id", "regions", "weights"),
 }
 
 # gu·dong 두 칸만 받는 도구가 셋이라 모양을 한 번만 적는다

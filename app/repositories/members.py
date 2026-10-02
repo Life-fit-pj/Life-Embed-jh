@@ -38,6 +38,10 @@ def member_weights(customer_ids):
     return _run(repo.member_weights, customer_ids)
 
 
+def members_near_weights(weights, top_k=5, exclude=None):
+    return _run(repo.members_near_weights, weights, top_k, exclude)
+
+
 # ── 회원 관리자 조회 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def customer_list():

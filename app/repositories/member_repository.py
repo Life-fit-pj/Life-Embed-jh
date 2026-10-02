@@ -78,6 +78,23 @@ def member_weights(db, customer_ids):
     return _dicts(db, columns, fields, Preference.customer_id.in_(customer_ids))
 
 
+def members_near_weights(db, weights, top_k=5, exclude=None):
+    """선호 가중치 7개가 weights 와 가장 가까운 회원 번호들(가까운 순). exclude 는 뺄 회원(자기 자신).
+
+    거리 = 지표별 차이의 제곱 합. 계산과 정렬을 DB 가 하므로 top_k 줄만 받는다.
+    동점은 회원 번호 순 — 같은 질문에 같은 답이 나오게 한다
+    """
+    distance = sum((getattr(Preference, k) - weights[k]) * (getattr(Preference, k) - weights[k]) for k in INDICATORS)
+    rows = (
+        db.query(Preference.customer_id)
+        .filter(Preference.customer_id != (exclude or ""))
+        .order_by(distance, Preference.customer_id)
+        .limit(top_k)
+        .all()
+    )
+    return [cid for (cid,) in rows]
+
+
 # ── 회원 관리자 조회 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def customer_list(db):
