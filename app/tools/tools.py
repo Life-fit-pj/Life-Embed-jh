@@ -16,7 +16,7 @@ import numpy as np
 from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
 from app.engine.recommend import FOCUS_COLUMNS, FOCUS_HINT, nearest_base
-from app.engine.weights import find_members_like
+from app.engine.weights import find_members_like, indicator_weights
 from app.repositories.members import customer_homes, members_near_weights
 from app.repositories.region_repository import FACILITY_TABLES
 from app.repositories.regions import facility_counts, facility_categories, region_extras
@@ -26,11 +26,6 @@ from app.services.search_service import get_ready, recommend_by_weights
 # "학원 많은 쪽으로 다시" 는 그 지표를 중시한다는 말이다. 원래 보통(3)이었어도 최댓값으로 올린다 —
 # 안 올리면 세부를 바꿔도 가중치가 낮아 순위가 거의 안 움직인다
 FOCUS_WEIGHT = 5
-
-
-def _seven(weights):
-    """채팅 상태의 가중치에서 지표 7개만. 빠진 것은 보통(3). 다른 키(시세 등)가 섞이면 recommend() 가 죽는다"""
-    return {k: float((weights or {}).get(k, 3)) for k in INDICATORS}
 
 
 def rerank_by_focus(weights, indicator, sub):
@@ -43,7 +38,7 @@ def rerank_by_focus(weights, indicator, sub):
     if sub not in FOCUS_COLUMNS.get(indicator, {}):
         return {"오류": f"그 조합은 없습니다. 고를 수 있는 것 — {FOCUS_HINT}"}
 
-    weights = _seven(weights)
+    weights = indicator_weights(weights)
     weights[indicator] = max(weights[indicator], FOCUS_WEIGHT)
     top = recommend_by_weights(weights, top_k=5, focus={indicator: sub})
     return {
@@ -82,8 +77,7 @@ def _similar_places(places, what, regions):
     what 은 기준 동네가 무엇인지의 설명이다. 결과의 "기준" 에 실어 Claude 가 답 첫머리에 밝히게 한다
     """
     r = get_ready()
-    names = r["names"]
-    index = {name: i for i, name in enumerate(names)}                 # "구 동" -> 자리 번호
+    names, index = r["names"], r["index"]                             # index 는 "구 동" -> 자리 번호
     base = [index[n] for n in dict.fromkeys(places) if n in index]
     if not base:
         return {"오류": "기준으로 삼을 동네를 찾지 못했습니다"}
@@ -129,7 +123,7 @@ def people_like_me(anon_id, regions, weights):
     ids = [cid for cid, _ in find_members_like(anon_id) or []]      # 닮은 순. 자기 자신은 빠져 있다
     what, tip = "회원님과 성향이 닮은 분 {n}명이 실제로 사는 동네", None
     if not ids:
-        ids = members_near_weights(_seven(weights), exclude=anon_id)
+        ids = members_near_weights(indicator_weights(weights), exclude=anon_id)
         what = "회원님과 비슷한 조건을 중시하는 분 {n}명이 실제로 사는 동네"
         tip = ("가입 설문(프로필)이 비어 있어 성향 대신 지금 검색의 가중치로 찾았다. 답 끝에, 프로필을 채우면 "
                "성향이 닮은 회원을 기준으로 더 정확히 볼 수 있다고 한 문장으로 권한다")

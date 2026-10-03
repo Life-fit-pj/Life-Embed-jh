@@ -45,6 +45,7 @@ def get_ready():
         
         _ready = {
             "names": names,
+            "index": {name: i for i, name in enumerate(names)},     # "구 동" -> 자리 번호. 이름으로 동네를 찾는 곳들이 같이 쓴다
             "scores": scores,
             "relative": relative,
             "column_scores": column_scores,    # 칸별 백분위. 세부 강조(apply_focus)와 관리자 화면의 계산된 칸이 읽는다

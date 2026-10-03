@@ -87,6 +87,15 @@ SYSTEM_PROMPT = SYSTEM_PROMPT.replace("__SUB_HINT__", SUB_HINT)
 CLAUDE_RATIO = 0.7
 
 
+def indicator_weights(weights: dict | None) -> dict:
+    """가중치에서 지표 7개만 뽑는다. 빠졌거나 비어 있는 지표는 보통(3)이다.
+
+    채팅 상태의 가중치에는 시세 같은 다른 키가 섞여 온다 — 그대로 넘기면 recommend() 가 죽는다.
+    회원의 선호도 행은 아예 없거나(None) 칸이 비어 있을 수 있다
+    """
+    return {k: float((weights or {}).get(k) or 3) for k in INDICATORS}
+
+
 def find_similar_members(query, top_k=5):
     """검색어와 비슷한 회원 top_k 명.
 
