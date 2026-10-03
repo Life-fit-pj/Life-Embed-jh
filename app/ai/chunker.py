@@ -20,7 +20,7 @@
 
 import re
 
-from app.core.config import CHUNK_COLUMNS, MIN_LENGTH
+from app.core.config import ACTIVITY_COLUMN, CHUNK_COLUMNS, MIN_LENGTH
 
 # 토큰 수를 정확히 재려면 임베딩 모델의 tokenizer 가 필요한데,
 # 그러려면 무거운 모델을 청킹 단계에서부터 올려야 한다.
@@ -35,32 +35,51 @@ KB_KEYS = ("uuid", "district")
 MEMBER_KEYS = ("customer_id",)      # ← 값이 하나일 때 쉼표를 빼면 튜플이 아니다
 
 def split_long_text(text, max_length=MAX_LENGTH):
-    """긴 텍스트를 max_length 글자 이하 조각 여러 개로 쪼갠다.
+    """긴 텍스트를 max_length 글자 안팎의 조각 여러 개로 쪼갠다. 글자는 하나도 버리지 않는다.
 
-    1단계 — 문장 단위로 나눈다. 문장 하나가 max_length 안이면 그대로 둔다.
-    2단계 — 마침표가 없어서 문장이 안 나뉘는 경우(사용자가 마침표 없이
-            길게 이어 쓴 경우), 그 조각만 글자 수로 강제로 잘라낸다.
+    1단계 — 문장 단위로 나눈 뒤, 한도를 넘지 않는 만큼 이어 붙여 한 조각으로 만든다.
+            문장 하나를 조각 하나로 두면 "집에서 쉽니다." 같은 짧은 문장이 MIN_LENGTH 에 걸려
+            통째로 버려진다(2026-10-03 실측: 371자 글의 25%).
+    2단계 — 문장 하나가 한도를 넘으면(마침표 없이 길게 이어 쓴 경우) 그 문장만 글자 수로 자른다.
+    3단계 — 그래도 MIN_LENGTH 보다 짧은 조각이 남으면 옆 조각에 붙인다. 그 조각은 한도를 MIN_LENGTH 만큼
+            넘을 수 있다 — 한도가 넉넉한 어림값이라 괜찮다.
 
     반환값은 항상 리스트다. text가 짧으면 [text] 하나짜리 리스트로 온다.
+    조각을 공백으로 이으면 원래 글이 된다 — member_repository.customer_persona() 가 그렇게 되읽는다
     """
     text = text.strip()
     if len(text) <= max_length:
         return [text]
 
-    pieces = []
+    pieces, current = [], ""
     for sentence in _SENTENCE_END.split(text):
         sentence = sentence.strip()
         if not sentence:
             continue
 
-        if len(sentence) <= max_length:
-            pieces.append(sentence)
-        else:
-            # 문장 분리로도 못 줄인 조각 -> 글자 수로 강제 분할
-            for i in range(0, len(sentence), max_length):
-                pieces.append(sentence[i:i + max_length])
+        if current and len(current) + 1 + len(sentence) <= max_length:
+            current = f"{current} {sentence}"       # 한도 안이면 이어 붙인다
+            continue
+        if current:
+            pieces.append(current)
 
-    return pieces
+        # 문장 하나가 한도를 넘으면 글자 수로 자른다. 마지막 토막에는 다음 문장이 이어 붙는다
+        cuts = [sentence[i:i + max_length] for i in range(0, len(sentence), max_length)]
+        pieces += cuts[:-1]
+        current = cuts[-1]
+    pieces.append(current)
+
+    # 짧게 남은 조각은 앞 조각에 붙인다. 맨 앞이 짧으면 뒤 조각에 붙인다
+    merged = []
+    for piece in pieces:
+        if merged and len(piece) < MIN_LENGTH:
+            merged[-1] = f"{merged[-1]} {piece}"
+        else:
+            merged.append(piece)
+    if len(merged) > 1 and len(merged[0]) < MIN_LENGTH:
+        merged[1:2] = [f"{merged[0]} {merged[1]}"]
+        del merged[0]
+    return merged
 
 
 def make_chunks(rows, keep):
@@ -71,7 +90,7 @@ def make_chunks(rows, keep):
     chunks = []
 
     for row in rows:
-        for column in CHUNK_COLUMNS:
+        for column in (*CHUNK_COLUMNS, ACTIVITY_COLUMN):      # 활동 칸은 회원 줄에만 있다 — kb 줄에는 없어서 건너뛴다
             text = (row.get(column) or "").strip()
 
             if len(text) < MIN_LENGTH:

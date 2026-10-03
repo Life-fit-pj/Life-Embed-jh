@@ -155,7 +155,10 @@ def customer_preferences_initial(db, customer_id):
 
 
 def customer_persona(db, customer_id):
-    """chunks 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다.
+    """chunks 에서 회원 한 명의 페르소나 칸들을 {category: text} 로 되돌린다.
+
+    350자를 넘는 글은 조각 여러 개로 나뉘어 있다 — 넣은 순서(chunk_id)대로 이어 붙여 원래 글로 돌려준다.
+    한 조각만 돌려주면 관리자가 다른 칸을 고쳐 저장할 때 나머지 조각이 조용히 지워진다(admin_service.update_member).
 
     표를 합친 뒤로는 source 로 회원 줄만 걸러야 한다 — 옛 member_chunk 였을 때는
     표 이름이 그 일을 대신해 줬다(5-10절).
@@ -163,9 +166,13 @@ def customer_persona(db, customer_id):
     rows = (
         db.query(Chunk.category, Chunk.text)
         .filter(Chunk.source == "member", Chunk.source_id == customer_id)
+        .order_by(Chunk.chunk_id)
         .all()
     )
-    return {category: text for category, text in rows}
+    persona = {}
+    for category, text in rows:
+        persona[category] = f"{persona[category]} {text}" if category in persona else text
+    return persona
 
 
 # ── 회원 관리자 수정 (app/services/admin_service.py 가 쓴다) ──────────────

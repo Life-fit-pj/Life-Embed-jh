@@ -15,7 +15,7 @@ from app.models.chunk import Chunk
 from app.models.customer import Customer
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
 from app.models.preference import Preference
-from app.core.config import EMBED_DIMENSION
+from app.core.config import ACTIVITY_COLUMN, EMBED_DIMENSION
 
 
 # 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
@@ -37,7 +37,10 @@ ALL_MODELS = [model for model, _ in FIXED] + GROWING
 def test_고정_표는_줄_수가_맞는다(model, expected):
     db = SessionLocal()
     try:
-        assert db.query(func.count()).select_from(model).scalar() == expected
+        rows = db.query(func.count()).select_from(model)
+        if model is Chunk:      # 활동 조각은 관리자가 저장할 때마다 늘어난다 — 고정 데이터가 아니다
+            rows = rows.filter(Chunk.category != ACTIVITY_COLUMN)
+        assert rows.scalar() == expected
     finally:
         db.close()
 
@@ -92,7 +95,8 @@ def test_chunks_는_source_로_나뉜다():
     db = SessionLocal()
     try:
         counts = dict(
-            db.query(Chunk.source, func.count()).group_by(Chunk.source).all()
+            db.query(Chunk.source, func.count()).filter(Chunk.category != ACTIVITY_COLUMN)
+            .group_by(Chunk.source).all()
         )
         assert counts == {"member": 914, "kb": 9000}
     finally:

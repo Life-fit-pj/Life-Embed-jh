@@ -6,7 +6,7 @@ import datetime
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
+from app.core.config import ACTIVITY_COLUMN, INDICATORS, CHUNK_COLUMNS, MAX_PERSONA_LENGTH, MIN_LENGTH
 from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS
 from app.engine.resync import resync_member
 from app.engine.weights import find_members_like
@@ -41,7 +41,7 @@ REGION_FIELDS = tuple(DB_COLUMNS)
 CUSTOMER_FIELDS = ("name", "gender", "age", "phone", "email",
                     "city", "city_dong", "work_city", "work_dong")
 PREFERENCE_FIELDS = tuple(INDICATORS)
-PERSONA_FIELDS = tuple(CHUNK_COLUMNS)
+PERSONA_FIELDS = (*CHUNK_COLUMNS, ACTIVITY_COLUMN)     # 가입 설문 아홉 칸 + 활동에서 본 성향
 # REGION_FIELDS 는 이미 위에 있음
 
 # 값 규칙 — (최솟값, 최댓값). 칸 이름은 config 에서 오므로 여기 또 안 적는다
@@ -50,7 +50,7 @@ RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 �
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
 
 def get_member(customer_id):
-    """회원 한 명 = 기본정보 + 희망조건(현재/가입시) + 페르소나 9칸 + 활동(좋아요/검색/채팅)
+    """회원 한 명 = 기본정보 + 희망조건(현재/가입시) + 페르소나(가입 설문 9칸 + 활동에서 본 성향) + 활동(좋아요/검색/채팅)
 
     preferences_initial 은 가입 때 받은 값이다. 관리자가 고쳐도 안 바뀐다 —
     화이트리스트(PREFERENCE_FIELDS)가 INDICATORS 7개뿐이라 `_초기` 칸은
@@ -87,10 +87,9 @@ def _derived_percentiles(gu, dong):
     지표 점수(scores)가 아니다. 교육처럼 칸이 둘인 지표의 점수는 두 칸의 평균이라 칸 하나의 백분위와 다르다
     """
     r = search_service.get_ready()
-    name = f"{gu} {dong}"
-    if name not in r["names"]:
+    i = r["index"].get(f"{gu} {dong}")
+    if i is None:
         return {}
-    i = r["names"].index(name)
     return {
         col: round(float(r["column_scores"][col][i]))
         for col in DERIVED_COLUMNS
@@ -150,6 +149,15 @@ def _validate(patch: dict) -> None:
             errors[name] = f"{low} 이상이어야 한다"
         elif high is not None and number > high:
             errors[name] = f"{low}~{high} 사이여야 한다"
+
+    # 페르소나 글의 길이. 빈 글은 "그 칸을 지운다"는 뜻이라 통과시킨다.
+    # 20자 미만은 조각이 안 만들어져 글이 통째로 사라진다 — 조각이 이 글의 유일한 저장소다
+    for name in PERSONA_FIELDS:
+        length = len(str(patch.get(name) or "").strip())
+        if 0 < length < MIN_LENGTH:
+            errors[name] = f"{MIN_LENGTH}자 이상 써야 벡터가 만들어진다 (지금 {length}자)"
+        elif length > MAX_PERSONA_LENGTH:
+            errors[name] = f"{MAX_PERSONA_LENGTH}자 이하로 써야 한다 (지금 {length}자)"
     if errors:
         raise InvalidPatch(errors)
 
@@ -179,7 +187,7 @@ def update_member(customer_id, patch):
 
     persona_patch = {k: v for k, v in patch.items() if k in PERSONA_FIELDS}
     if persona_patch:
-        row = dict(customer_persona(customer_id))   # 지금 9칸 전부
+        row = dict(customer_persona(customer_id))   # 지금 있는 칸 전부. 긴 글은 조각을 이어 붙인 원문이다
         row.update(persona_patch)                   # 바뀐 칸만 덮어쓰기
         row["customer_id"] = customer_id            # resync 가 요구하는 칸
         resync_member(customer_id, row)             # 벡터 재생성
@@ -209,14 +217,9 @@ def create_member(payload: dict) -> dict:
     """
     _validate(payload)     # 나이·가중치 범위는 기존 규칙을 그대로 쓴다
 
-    # 20자 미만 페르소나는 make_chunks() 가 조용히 버린다 —
-    # 여기서 먼저 막아야 "썼는데 왜 안 잡히지"가 안 생긴다
+    # 페르소나 길이(20자 이상 · 700자 이하)는 위의 _validate() 가 봤다 — 수정과 같은 규칙이다
     persona_patch = {k: v for k, v in payload.items()
                       if k in PERSONA_FIELDS and (v or "").strip()}
-    too_short = {k: f"{MIN_LENGTH}자 이상 써야 벡터가 만들어진다 (지금 {len(v.strip())}자)"
-                 for k, v in persona_patch.items() if len(v.strip()) < MIN_LENGTH}
-    if too_short:
-        raise InvalidPatch(too_short)
 
     customer_id = _next_customer_id()
     insert_customer(customer_id, payload, CUSTOMER_FIELDS)

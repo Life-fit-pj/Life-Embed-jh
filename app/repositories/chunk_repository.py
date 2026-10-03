@@ -7,6 +7,7 @@
 
 from sqlalchemy import Integer, cast, func
 
+from app.core.config import ACTIVITY_COLUMN
 from app.models.chunk import Chunk
 
 # 부르는 쪽이 쓰는 딕셔너리 키다. 표를 합친 뒤에도 이 이름은 안 바꾼다 —
@@ -68,8 +69,9 @@ def nearest_chunks(db,source, query_vector, top_k=5):
 def nearest_people(db, source, query_vector, top_k=5):
     """사람 단위로 top_k. [(id, 점수, 행)] — 한 사람은 가장 가까운 청크 하나로만 센다.
 
-    후보를 top_k 의 10배 받아 사람별 첫 줄만 남긴다. 한 사람의 청크는 많아야
-    9개(config.CHUNK_COLUMNS 의 개수)라, 50개 안에는 반드시 5명 이상이 들어 있다
+    후보를 top_k 의 10배 받아 사람별 첫 줄만 남긴다. 한 사람의 청크는 보통 열 개 안쪽이라
+    (가입 설문 아홉 칸 + 활동 한 칸, 350자를 넘는 글만 조각이 둘) 50개 안에 5명은 거의 늘 들어 있다.
+    보장은 아니다 — 모자라면 있는 만큼만 돌려준다
     """
     
     key = ID_KEY[source]
@@ -82,11 +84,11 @@ def nearest_people(db, source, query_vector, top_k=5):
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
 def member_chunk_count(db):
-    """회원 청크가 몇 개 쌓여 있나."""
+    """회원의 가입 설문 조각이 몇 개 쌓여 있나. 활동 조각은 뺀다 — 시스템 탭이 "회원 × 9칸"과 견준다"""
     return (
         db.query(func.count())
         .select_from(Chunk)
-        .filter(Chunk.source == "member")
+        .filter(Chunk.source == "member", Chunk.category != ACTIVITY_COLUMN)
         .scalar()
     )
 
@@ -98,7 +100,7 @@ def persona_lengths(db):
     return [
         tuple(row)
         for row in db.query(Chunk.category, avg_length)
-        .filter(Chunk.source == "member")
+        .filter(Chunk.source == "member", Chunk.category != ACTIVITY_COLUMN)
         .group_by(Chunk.category)
         .order_by(avg_length.desc())
         .all()

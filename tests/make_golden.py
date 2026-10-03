@@ -54,13 +54,24 @@ def snap_embed():
     }
 
 
+def _golden_member_chunks():
+    """사진에 담는 회원 조각 — 찍을 때 있던 100명의 가입 설문 조각만.
+
+    그 뒤 가입자의 조각과, 관리자가 저장할 때마다 늘어나는 활동 조각은 뺀다
+    """
+    from app.core.config import ACTIVITY_COLUMN
+    from app.repositories.chunks import member_chunks
+
+    return [row for row in member_chunks()
+            if row["customer_id"] in GOLDEN_MEMBERS and row["category"] != ACTIVITY_COLUMN]
+
+
 def snap_tables():
     """조회 함수가 무엇을 어떤 모양으로 돌려주나. 3단계에서 이것을 본다."""
-    from app.repositories.chunks import member_chunks
     from app.repositories.members import member_weights
 
     return {
-        "member_chunk_count": sum(row["customer_id"] in GOLDEN_MEMBERS for row in member_chunks()),
+        "member_chunk_count": len(_golden_member_chunks()),
         "member_weights": member_weights(["C001", "C002"]),
     }
 
@@ -74,7 +85,7 @@ def snap_chunks():
     """
     import hashlib
 
-    from app.repositories.chunks import kb_chunks, member_chunks
+    from app.repositories.chunks import kb_chunks
 
     def fingerprint(rows, key):
         # 정렬해서 담는다 — 새 파이프라인이 다른 순서로 넣어도 통과해야 한다.
@@ -84,9 +95,7 @@ def snap_chunks():
         return {"개수": len(texts), "해시": hashlib.sha256(joined).hexdigest()[:16]}
 
     return {
-        "member": fingerprint(
-            [row for row in member_chunks() if row["customer_id"] in GOLDEN_MEMBERS], "customer_id"
-        ),
+        "member": fingerprint(_golden_member_chunks(), "customer_id"),
         "kb": fingerprint(kb_chunks(), "uuid"),
     }
 
