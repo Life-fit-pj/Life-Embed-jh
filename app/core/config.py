@@ -79,8 +79,10 @@ MIN_LENGTH = 20
 # pipeline/fix_member_persona.py 가 아홉 칸이 전부 있다고 가정한다
 ACTIVITY_COLUMN = "activity_persona"
 
-# 페르소나 한 칸의 최대 글자 수. 넘으면 저장을 거절한다 — 350자를 넘는 글은 조각 여러 개로 나뉘므로(chunker.MAX_LENGTH) 두 조각까지만 받는다
-MAX_PERSONA_LENGTH = 700
+# 페르소나 한 칸의 최대 글자 수. 넘으면 저장을 거절한다.
+# 가입 설문은 입력칸 하나에 250자를 받고(Life-Web signup.html 의 ANSWER_LIMIT) 답 둘~셋을 이어 한 칸으로 만든다 —
+# 셋을 다 채우면 752자라 800 으로 둔다. 350자를 넘는 글은 조각으로 나뉘므로(chunker.MAX_LENGTH) 한 칸이 많아야 세 조각이다
+MAX_PERSONA_LENGTH = 800
 
 # ── 벡터 검색 임계값 ─────────────────────────
 # 코사인 유사도(1 = 같음). 이보다 낮으면 "비슷한 사람이 없다"로 보고 버린다.

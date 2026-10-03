@@ -83,25 +83,46 @@ def nearest_people(db, source, query_vector, top_k=5):
     
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
-def member_chunk_count(db):
-    """회원의 가입 설문 조각이 몇 개 쌓여 있나. 활동 조각은 뺀다 — 시스템 탭이 "회원 × 9칸"과 견준다"""
-    return (
-        db.query(func.count())
-        .select_from(Chunk)
-        .filter(Chunk.source == "member", Chunk.category != ACTIVITY_COLUMN)
-        .scalar()
+def member_chunk_stats(db):
+    """회원 조각의 현황. 칸(회원 × 종류)과 조각을 따로 센다 — 350자를 넘는 글은 한 칸이 조각 둘이다.
+
+    chunks   조각 수 전부(활동 조각 포함)
+    slots    가입 설문 칸 중 채워진 것. 조각이 둘이어도 한 칸이다 — 시스템 탭이 "회원 × 9칸"과 견준다
+    activity 활동에서 본 성향 칸이 있는 회원 수
+    split    조각이 둘 이상인 칸 수
+    """
+    cells = (
+        db.query(Chunk.category.label("category"), func.count().label("pieces"))
+        .filter(Chunk.source == "member")
+        .group_by(Chunk.source_id, Chunk.category)
+        .subquery()
     )
+    chunks, slots, activity, split = db.query(
+        func.coalesce(func.sum(cells.c.pieces), 0),
+        func.count().filter(cells.c.category != ACTIVITY_COLUMN),
+        func.count().filter(cells.c.category == ACTIVITY_COLUMN),
+        func.count().filter(cells.c.pieces > 1),
+    ).one()
+    return {"chunks": int(chunks), "slots": slots, "activity": activity, "split": split}
 
 
 def persona_lengths(db):
-    """페르소나 칸별 평균 글자 수. (칸이름, 평균길이) 목록."""
-    avg_length = cast(func.avg(func.length(Chunk.text)), Integer)
+    """페르소나 칸별 평균 글자 수. (칸이름, 평균길이) 목록. 가입 설문 칸만 본다 — 활동 칸은 뺀다.
+
+    칸 단위로 잰다 — 350자를 넘어 조각이 둘인 글은 조각 길이를 더한 것이 그 칸의 길이다
+    """
+    cells = (
+        db.query(Chunk.category.label("category"), func.sum(func.length(Chunk.text)).label("length"))
+        .filter(Chunk.source == "member", Chunk.category != ACTIVITY_COLUMN)
+        .group_by(Chunk.source_id, Chunk.category)
+        .subquery()
+    )
+    avg_length = cast(func.avg(cells.c.length), Integer)
 
     return [
         tuple(row)
-        for row in db.query(Chunk.category, avg_length)
-        .filter(Chunk.source == "member", Chunk.category != ACTIVITY_COLUMN)
-        .group_by(Chunk.category)
+        for row in db.query(cells.c.category, avg_length)
+        .group_by(cells.c.category)
         .order_by(avg_length.desc())
         .all()
     ]

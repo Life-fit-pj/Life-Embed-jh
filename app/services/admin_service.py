@@ -11,7 +11,7 @@ from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS
 from app.engine.resync import resync_member
 from app.engine.weights import find_members_like
 from app.services import search_service, region_service, privacy_service
-from app.repositories.chunks import member_chunk_count, persona_lengths, replace_member_chunks
+from app.repositories.chunks import member_chunk_stats, persona_lengths, replace_member_chunks
 from app.repositories.history import (
     write_admin_log,
     admin_log_count, admin_log_recent, like_count,
@@ -391,7 +391,7 @@ def dashboard() -> dict:
         genders_f = pool.submit(gender_counts)
         weights_f = pool.submit(indicator_averages)
         gu_f = pool.submit(gu_count)
-        chunks_f = pool.submit(member_chunk_count)
+        chunks_f = pool.submit(member_chunk_stats)
         edits_f = pool.submit(admin_log_count)
         joins_f = pool.submit(join_month_counts)
         member_gu_f = pool.submit(home_city_counts)
@@ -420,7 +420,7 @@ def dashboard() -> dict:
                 "members":  base["members"],
                 "regions":  base["regions"],
                 "gu":       gu_f.result(),
-                "chunks":   chunks_f.result(),
+                **chunks_f.result(),       # chunks(조각) · slots(설문 칸) · activity(활동 칸) · split(조각이 둘 이상인 칸)
                 "edits":    edits_f.result(),
             },
             "charts": {
