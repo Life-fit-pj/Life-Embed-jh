@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.models.customer import Customer
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
 
 
@@ -225,13 +226,15 @@ def write_admin_log(db, target, target_id, patch):
     json.dumps 와 datetime.now() 는 옛 함수가 하던 그대로 여기에 둔다.
     admin_log 는 DDL 에 DEFAULT 가 없어서 시각을 파이썬이 만들어 넣어야 한다
     """
+    changed_at = datetime.now().isoformat(timespec="seconds")
     db.add(AdminLog(
         target=target,
         target_id=target_id,
         patch=json.dumps(patch, ensure_ascii=False),
-        changed_at=datetime.now().isoformat(timespec="seconds"),
+        changed_at=changed_at,
     ))
     db.commit()
+    return changed_at       # 적힌 시각. 제안 기록처럼 방금 쓴 것을 바로 돌려줘야 하는 쪽이 받는다
 
 
 def admin_log_recent(db, limit=8):
@@ -245,6 +248,46 @@ def admin_log_recent(db, limit=8):
         )
         .order_by(AdminLog.log_id.desc())
         .limit(limit)
+        .all()
+    ]
+
+
+def admin_logs_of(db, target, target_id, since=""):
+    """한 대상의 기록을 오래된 것부터. since 는 changed_at 의 앞머리("2026-10-02") — 그때부터의 것만 준다"""
+    fields = ("patch", "changed_at")
+
+    return [
+        dict(zip(fields, row))
+        for row in db.query(AdminLog.patch, AdminLog.changed_at)
+        .filter(AdminLog.target == target, AdminLog.target_id == target_id, AdminLog.changed_at >= since)
+        .order_by(AdminLog.log_id)
+        .all()
+    ]
+
+
+def last_change_times(db, target, field):
+    """대상마다 그 칸을 마지막으로 고친 시각. {target_id: changed_at}
+
+    patch 는 JSON 글자라 칸 이름을 글자로 찾는다 — 따옴표까지 넣어 이름이 겹치는 다른 칸과 안 헷갈리게 한다
+    """
+    rows = (
+        db.query(AdminLog.target_id, func.max(AdminLog.changed_at))
+        .filter(AdminLog.target == target, AdminLog.patch.like(f'%"{field}"%'))
+        .group_by(AdminLog.target_id)
+        .all()
+    )
+    return {target_id: changed_at for target_id, changed_at in rows}
+
+
+def member_searches(db):
+    """회원의 검색 전부. [(회원 번호, 시각, 검색어)]
+
+    회원 표와 이어서 읽는다 — 로그인 전 기기 번호로 쌓인 검색은 이어지는 회원이 없어 저절로 빠진다
+    """
+    return [
+        tuple(row)
+        for row in db.query(SearchHistory.anon_id, SearchHistory.created_at, SearchHistory.query)
+        .join(Customer, Customer.customer_id == SearchHistory.anon_id)
         .all()
     ]
 
