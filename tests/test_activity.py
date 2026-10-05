@@ -1,6 +1,6 @@
 """활동에서 본 성향 — 순수 계산만. DB 도 Claude 도 안 부른다."""
 
-from app.services.activity_service import _as_time, _fresh_counts, _material, _parse
+from app.services.activity_service import _as_time, _fresh_counts, _material, _parse, _unused
 
 WEIGHTS = {"녹지": 3.0, "안전": 3.0, "교통": 3.0, "상권": 3.0, "의료": 3.0, "교육": 4.0, "문화": 2.5}
 
@@ -55,3 +55,18 @@ def test_마지막_저장_뒤의_서로_다른_검색어만_센다():
                 ("C102", "2026-10-02 05:00:00+00", "공원 가까운 곳"),      # 같은 검색을 또 — 한 건으로 센다
                 ("C107", "2026-10-01 01:00:00+00", "역세권")]              # 한 번도 저장 안 한 회원
     assert _fresh_counts(searches, {"C102": saved_at}) == {"C102": 1, "C107": 1}
+
+
+def test_제안이_건네는_칸을_저장하면_그_전_제안은_쓴_것이다():
+    suggestions = [{"patch": "{}", "changed_at": "2026-10-05T12:25:17"},
+                   {"patch": "{}", "changed_at": "2026-10-05T16:56:25"},
+                   {"patch": "{}", "changed_at": "2026-10-05T17:30:00"}]
+    saves = [{"patch": '{"교통": 4.5, "activity_persona": "이 회원은"}', "changed_at": "2026-10-05T16:56:41"}]
+    assert [s["changed_at"] for s in _unused(suggestions, saves)] == ["2026-10-05T17:30:00"]
+
+
+def test_이름만_고친_저장은_제안을_쓴_것으로_안_본다():
+    suggestions = [{"patch": "{}", "changed_at": "2026-10-05T12:25:17"}]
+    saves = [{"patch": '{"name": "홍길동", "phone": "010"}', "changed_at": "2026-10-05T13:00:00"}]
+    assert _unused(suggestions, saves) == suggestions
+    assert _unused(suggestions, []) == suggestions

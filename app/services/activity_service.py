@@ -22,6 +22,7 @@ DAILY_LIMIT = 5             # 한 회원에게 하루에 줄 수 있는 제안 �
 MIN_SEARCHES = 5            # 이보다 적으면 재료가 모자라 Claude 가 지어낸다
 SEARCH_LIMIT = 30           # 재료로 싣는 검색어 수(최근 것부터)
 SUGGESTION = "suggestion"   # admin_log 의 target. 회원 수정("member")과 구분한다
+OFFERED = {ACTIVITY_COLUMN, *INDICATORS}    # 제안이 건네는 칸. 이 중 하나라도 저장했으면 그 전에 받은 제안은 쓴 것으로 본다
 
 SYSTEM = f"""당신은 주거지 추천 서비스 LIFE,FIT 의 회원 성향을 정리합니다.
 아래는 회원 한 명이 로그인한 뒤 남긴 검색어와, 좋아요를 누른 동네입니다.
@@ -118,13 +119,26 @@ def _liked(likes: list) -> list:
     return out
 
 
-def suggestions_today(customer_id: str) -> dict:
-    """오늘 이 회원에게 준 제안들(받은 순)과 남은 횟수. 화면이 이 목록을 나란히 놓고 고르게 한다"""
-    today = datetime.now().date().isoformat()        # admin_log.changed_at 을 찍는 것과 같은 시계다
-    items = [{**json.loads(log["patch"]), "created_at": log["changed_at"]}
-             for log in admin_logs_of(SUGGESTION, customer_id, today)]
-    return {"suggestions": items, "remaining": max(0, DAILY_LIMIT - len(items))}
+def _unused(suggestions: list, saves: list) -> list:
+    """제안 기록 중 아직 안 쓴 것. 둘 다 admin_log 의 줄({"patch", "changed_at"}) 목록이다.
 
+    제안이 건네는 칸(활동 칸 · 가중치)을 관리자가 저장하면 그 전에 받은 제안은 쓴 것으로 본다 — 저장이 곧 승인이다.
+    남겨 두면 이미 쓴 안이 새 안처럼 보인다. 이름 · 연락처만 고친 저장은 세지 않는다
+    """
+    used_at = max((log["changed_at"] for log in saves if OFFERED & json.loads(log["patch"]).keys()), default="")
+    return [log for log in suggestions if log["changed_at"] > used_at]
+
+
+def suggestions_today(customer_id: str) -> dict:
+    """오늘 이 회원에게 준 제안 중 아직 안 쓴 것(받은 순)과 남은 횟수. 화면이 이 목록을 나란히 놓고 고르게 한다
+
+    남은 횟수는 쓴 제안까지 다 센다 — 하루 한도는 받은 횟수다(누를 때마다 Claude 를 부른다)
+    """
+    today = datetime.now().date().isoformat()        # admin_log.changed_at 을 찍는 것과 같은 시계다
+    logs = admin_logs_of(SUGGESTION, customer_id, today)
+    items = [{**json.loads(log["patch"]), "created_at": log["changed_at"]}
+             for log in _unused(logs, admin_logs_of("member", customer_id, today))]
+    return {"suggestions": items, "remaining": max(0, DAILY_LIMIT - len(logs))}
 
 def _generate(customer_id: str) -> dict:
     """제안 하나를 만든다(Claude 1번). 아무것도 저장하지 않는다"""
