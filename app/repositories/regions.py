@@ -86,6 +86,10 @@ def region_price_details(gu, dong):
     return _run(repo.region_price_details, gu, dong)
 
 
+def region_price_details_many(places):
+    return _run(repo.region_price_details_many, places)
+
+
 def region_bundle(places, columns):
     return _run(repo.region_bundle, places, columns)
 
