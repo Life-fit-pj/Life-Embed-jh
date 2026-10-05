@@ -32,6 +32,9 @@ class SearchState(TypedDict):
     # weights 노드가 채운다: 말로만 한 가격대 "고가"|"저가". 없으면 None
     price_tier: str | None
 
+    # weights 노드가 채운다: 검색어가 콕 집은 세부 {"교육": "학원"}. 없으면 None
+    focus: dict | None
+
     # weights 노드가 채운다: 검색어가 요구했지만 데이터가 없어 못 담은 조건. 없으면 None
     notice: str | None
 
@@ -57,6 +60,9 @@ class ChatState(TypedDict):
 
     # 앞선 대화. llm.ask 가 받는 ("human"|"ai", 글) 튜플 목록
     history: list
+
+    # 누가 묻는지. 웹이 보내는 기기 번호 — 로그인하면 회원 번호("C101")다. 좋아요·닮은 회원 도구가 읽는다. 없으면 None
+    anon_id: str | None
 
     # plan 노드가 정한다: "tool" 또는 "context"
     route: str

@@ -2,8 +2,8 @@
 
 부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
   app/ai/vector_store.py        nearest_chunks · nearest_people (검색마다)
-  app/engine/resync.py          replace_kb_chunks · replace_member_chunks
-  app/services/admin_service.py member_chunk_count · persona_lengths
+  app/engine/resync.py          replace_member_chunks
+  app/services/admin_service.py member_chunk_stats · persona_lengths
   tests/make_golden.py          네 함수 모두 (골든 사진)
 
 8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
@@ -45,8 +45,8 @@ def nearest_people(source, query_vector, top_k=5):
 
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
-def member_chunk_count():
-    return _run(repo.member_chunk_count)
+def member_chunk_stats():
+    return _run(repo.member_chunk_stats)
 
 
 def persona_lengths():
@@ -55,9 +55,5 @@ def persona_lengths():
 
 # ── 재임베딩 쓰기 (app/engine/resync.py 가 쓴다) ────────
 
-def replace_kb_chunks(uuid, rows):
-    return _run(repo.replace_kb_chunks, uuid, rows)
-
-
-def replace_member_chunks(customer_id, rows):
-    return _run(repo.replace_member_chunks, customer_id, rows)
+def replace_member_chunks(customer_id, rows, categories=None):
+    return _run(repo.replace_member_chunks, customer_id, rows, categories)

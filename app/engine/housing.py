@@ -6,7 +6,8 @@
 새 표를 만들 필요 없이 여기서 바로 걸러낸다.
 """
 
-from app.repositories.regions import region_densities, region_price_detail
+from app.repositories.regions import (region_densities, region_one, region_price_detail, region_price_details,
+                                      region_price_details_many)
 
 # {건물유형}_{거래유형}_{금액종류} 규칙 그대로 매핑한다.
 # 매매·전세는 금액이 하나("예산")뿐이지만, 월세는 다르다 — 보증금(목돈)과 월세(매달 나가는 돈)가
@@ -134,6 +135,20 @@ def region_price_note(gu, dong, 건물유형, 거래유형):
     return _format_price_note(region_price_detail(gu, dong, 건물유형, 거래유형))
 
 
+def price_notes(names, 건물유형, 거래유형):
+    """여러 동네("구 동")의 신뢰등급·거래건수·분포 문장 조각을 한 번에. {이름: 조각} — region_price_note() 의 여러 곳 판이다.
+
+    TOP 5 를 동네마다 물으면 다섯 번 왕복이다. 한 번에 읽어 부르는 쪽이 이름으로 꺼내 쓴다
+    """
+    places = {name: tuple(name.split(" ", 1)) for name in names if " " in name}
+    details = region_price_details_many(list(places.values()))
+    return {name: _format_price_note(details.get(places.get(name), {}).get((건물유형, 거래유형))) for name in names}
+
+
+# 시세 줄(price_lines)을 만드는 데 드는 master 의 칸 전부
+PRICE_LINE_COLUMNS = tuple(sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()}))
+
+
 def region_price_lines(gu, dong):
     """동네 하나의 시세 전부를 건물유형별 한 줄씩 문장으로 만든다.
 
@@ -144,12 +159,17 @@ def region_price_lines(gu, dong):
     금액 뒤엔 그 (건물유형, 거래유형) 조합의 신뢰등급·거래건수·분포를 괄호로 덧붙인다 —
     "매매 95,250만원" 만으로는 표본이 42건인지 2건인지 알 수 없어서다.
     """
-    all_cols = sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()})
-    rows = region_densities(all_cols)
-    row = next((r for r in rows if r["구"] == gu and r["행정동명"] == dong), None)
+    row = region_one(gu, dong, list(PRICE_LINE_COLUMNS))     # 427행을 다 읽지 않고 한 줄만
     if row is None:
         return []
+    return price_lines(row, region_price_details(gu, dong))   # 조합 12개의 상세를 한 번에 (전엔 조합마다 한 번씩 12번)
 
+
+def price_lines(row, details):
+    """master 의 한 줄(row)과 시세 상세(details)로 건물유형별 문장을 만든다. DB 를 안 읽는다.
+
+    한 곳이면 region_price_lines() 가, 여러 곳이면 chat_context.build_context() 가 읽어서 넘긴다
+    """
     lines = []
     for 건물유형 in ("단독다가구", "아파트", "연립다세대", "오피스텔"):
         parts = []
@@ -157,7 +177,7 @@ def region_price_lines(gu, dong):
             cols = DEAL_COLUMNS.get((건물유형, 거래유형))
             if not cols:
                 continue
-            note = region_price_note(gu, dong, 건물유형, 거래유형)
+            note = _format_price_note(details.get((건물유형, 거래유형)))
             for field, col in cols.items():
                 value = row.get(col)
                 if value is None:
@@ -171,6 +191,30 @@ def region_price_lines(gu, dong):
         if parts:
             lines.append(f"{건물유형}: " + " · ".join(parts))
     return lines
+
+
+def price_head_lines(housing):
+    """재료 글의 가격 절 머리 — 사용자가 말한 금액과 "참고 시세" 제목. 추천 설명문·동네 설명문이 같이 쓴다.
+
+    프롬프트(app/prompts/common.py 의 PRICE_SCORE_RULE)가 "## 사용자가 원한 가격" 절이 있는지로 금액을 말할지 정한다 — 제목의 글자가 그것과 맞아야 한다
+    """
+    # 사용자가 말한 금액을 먼저 밝힌다 — 이게 없으면 Claude 는 "비싸다/싸다"를 무엇과 비교해서 말해야 하는지 모른다
+    target_text = " / ".join(f"{field} {format_won(value)}" for field, value in housing["targets"].items())
+    return [
+        "",
+        f"## 사용자가 원한 가격\n{housing['건물유형']} {housing['거래유형']} {target_text}",
+        "",
+        "## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)",
+    ]
+
+
+def price_fit_line(row, cols, housing, note=""):
+    """동네 한 곳의 시세 한 줄 — 금액 · 조건 일치도 · 목표와의 차이, 그리고 붙일 조각(note). row 는 master 의 그 동네 줄이다"""
+    fit = housing_fit_score(row, cols, housing["targets"])
+    gap = price_gap_text(row, cols, housing["targets"])
+    # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
+    parts = [f"{field} {format_won(row[col])}" for field, col in cols.items()]
+    return f"{housing['건물유형']} {housing['거래유형']} " + " / ".join(parts) + f" (조건 일치도 {fit}점 · {gap}){note}"
 
 
 def attach_price(detailed, housing):
@@ -194,6 +238,9 @@ def attach_price(detailed, housing):
 
     rows = region_densities(list(cols.values()))
     by_name = {f"{r['구']} {r['행정동명']}": r for r in rows}
+    # 신뢰도·분포는 다섯 곳 것을 한 번에 읽는다 — 동네마다 물으면 다섯 번 왕복이다
+    places = {d["name"]: tuple(d["name"].split(" ", 1)) for d in detailed if d["name"] in by_name}
+    details = region_price_details_many(list(places.values()))
 
     for d in detailed:
         row = by_name.get(d["name"])
@@ -201,8 +248,7 @@ def attach_price(detailed, housing):
             d["price"] = None
             continue
 
-        gu, dong = d["name"].split(" ", 1)
-        detail = region_price_detail(gu, dong, housing["건물유형"], housing["거래유형"])
+        detail = details.get(places[d["name"]], {}).get((housing["건물유형"], housing["거래유형"]))
 
         d["price"] = {
             "건물유형": housing["건물유형"],

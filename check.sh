@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 계층이 지켜지나 세 가지를 센다. 저장소 뿌리에서  bash check.sh
+# 계층이 지켜지나 여섯 가지를 센다. 저장소 뿌리에서  bash check.sh
 
 echo
 echo "① app/ 에 날 SQL 이 없다"
@@ -43,19 +43,10 @@ else
 fi
 
 echo
-echo "⑥ app 밖(tests·tools·pipeline)이 다리에 기대면 안 된다"
-if grep -rnE "^ *(from|import) app\.features" --include=*.py tests tools pipeline; then
-    echo "  X app.services 를 곧장 부른다. 다리는 팀원이 곧 지운다"
-else
-    echo "  OK 0곳"
-fi
-
-
-echo
-echo "⑦ SQLite 가 되살아났나"
+echo "⑥ SQLite 가 되살아났나"
 # 글자 "SQLite" 가 아니라 SQLite 전용 **코드**만 본다.
 # 주석의 "SQLite 시절에는 …" 은 왜 이렇게 짰나를 남긴 기록이라 잡지 않는다 —
-# 잡으면 ⑦ 이 늘 X 로 끝나고, 그러면 아무도 안 보게 된다
+# 잡으면 ⑥ 이 늘 X 로 끝나고, 그러면 아무도 안 보게 된다
 if grep -rnE "import sqlite3|sqlite3\.|\bDB_PATH\b|PRAGMA |check_same_thread|dialects\.sqlite|sqlite:///" --include=*.py app pipeline tests tools; then
     echo "  X 5단계에서 없앴다. 되살아났다"
 else

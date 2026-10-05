@@ -6,12 +6,13 @@ import datetime
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-from app.core.config import INDICATORS, CHUNK_COLUMNS, MIN_LENGTH
-from app.engine.recommend import INDICATOR_COLUMNS
+from app.core.config import ACTIVITY_COLUMN, INDICATORS, CHUNK_COLUMNS, MAX_PERSONA_LENGTH, MIN_LENGTH
+from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS
 from app.engine.resync import resync_member
-from app.engine.weights import find_similar_members
-from app.services import search_service, region_service, privacy_service
-from app.repositories.chunks import member_chunk_count, persona_lengths, replace_member_chunks
+from app.engine.weights import find_members_like
+from app.engine import ranking
+from app.services import region_service, privacy_service
+from app.repositories.chunks import member_chunk_stats, persona_lengths, replace_member_chunks
 from app.repositories.history import (
     write_admin_log,
     admin_log_count, admin_log_recent, like_count,
@@ -28,21 +29,20 @@ from app.repositories.members import (
     join_month_counts, home_city_counts, deal_type_counts,
 )
 from app.repositories.regions import (
-    region_list, region_one, column_percentile, region_count,
+    region_list, region_one, region_count,
     gu_count, region_gu_counts,
     update_region as db_update_region,
 )
 
 
-# {"녹지": ["공원_밀도"], "안전": ["CCTV_밀도", "경찰관서_밀도"], ...} 를 펼쳐서
-# ("공원_밀도", "CCTV_밀도", "경찰관서_밀도", ...) 12개로 만든다
-REGION_FIELDS = tuple(c for cols in INDICATOR_COLUMNS.values() for c in cols)
+# 표에서 읽고·보여주고·고치는 칸. 계산된 칸(DERIVED_COLUMNS)은 표에 없으니 빠져 있다 — 목록은 recommend.py 한 곳에서 온다
+REGION_FIELDS = tuple(DB_COLUMNS)
 
 # 화이트리스트
 CUSTOMER_FIELDS = ("name", "gender", "age", "phone", "email",
                     "city", "city_dong", "work_city", "work_dong")
 PREFERENCE_FIELDS = tuple(INDICATORS)
-PERSONA_FIELDS = tuple(CHUNK_COLUMNS)
+PERSONA_FIELDS = (*CHUNK_COLUMNS, ACTIVITY_COLUMN)     # 가입 설문 아홉 칸 + 활동에서 본 성향
 # REGION_FIELDS 는 이미 위에 있음
 
 # 값 규칙 — (최솟값, 최댓값). 칸 이름은 config 에서 오므로 여기 또 안 적는다
@@ -51,7 +51,7 @@ RULES.update({name: (1, 5) for name in INDICATORS})       # 가중치 7개는 �
 RULES.update({name: (0, None) for name in REGION_FIELDS}) # 밀도는 음수가 될 수 없다
 
 def get_member(customer_id):
-    """회원 한 명 = 기본정보 + 희망조건(현재/가입시) + 페르소나 9칸 + 활동(좋아요/검색/채팅)
+    """회원 한 명 = 기본정보 + 희망조건(현재/가입시) + 페르소나(가입 설문 9칸 + 활동에서 본 성향) + 활동(좋아요/검색/채팅)
 
     preferences_initial 은 가입 때 받은 값이다. 관리자가 고쳐도 안 바뀐다 —
     화이트리스트(PREFERENCE_FIELDS)가 INDICATORS 7개뿐이라 `_초기` 칸은
@@ -62,23 +62,52 @@ def get_member(customer_id):
     같은 customer_id 로 그대로 조회하면 이 회원 몫만 걸러진다. 로그인 전(임시
     UUID로 활동했을 때) 기록은 안 잡힌다 — 로그인해야 그 뒤로 이 사람 것이 된다.
     """
-    customer = customer_one(customer_id)
-    if customer is None:
-        return None
-    return {
-        "customer": customer,
-        "preferences": customer_preferences(customer_id) or {},
-        "preferences_initial": customer_preferences_initial(customer_id) or {},
-        "persona": customer_persona(customer_id),
-        "likes": list_likes(customer_id),
-        "searches": list_search_history(customer_id),
-        "chats": list_chat_history(customer_id),
-    }
+    # 일곱 조회는 서로 안 기댄다. 하나씩 보내면 원격 DB 왕복이 그대로 더해져 3초가 걸렸다(2026-10-03 실측) —
+    # 대시보드처럼 동시에 보내 가장 느린 것 하나만큼만 기다린다. 없는 회원이면 여섯은 헛걸음이지만 드문 일이다
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        customer_f = pool.submit(customer_one, customer_id)
+        preferences_f = pool.submit(customer_preferences, customer_id)
+        initial_f = pool.submit(customer_preferences_initial, customer_id)
+        persona_f = pool.submit(customer_persona, customer_id)
+        likes_f = pool.submit(list_likes, customer_id)
+        searches_f = pool.submit(list_search_history, customer_id)
+        chats_f = pool.submit(list_chat_history, customer_id)
+
+        customer = customer_f.result()
+        if customer is None:
+            return None
+        return {
+            "customer": customer,
+            "preferences": preferences_f.result() or {},
+            "preferences_initial": initial_f.result() or {},
+            "persona": persona_f.result(),
+            "likes": likes_f.result(),
+            "searches": searches_f.result(),
+            "chats": chats_f.result(),
+        }
 
 
 def list_members():
     """회원 100명 목록"""
     return customer_list()
+
+
+def _percentiles(row):
+    """화면에 그릴 칸 전부의 백분위 — 표에 있는 칸(REGION_FIELDS)과 계산된 칸(공원면적비율 등).
+
+    순위 계산이 쓰는 칸별 백분위(get_ready() 의 column_scores)를 그대로 읽는다 — 여기서 다시 계산하지 않는다.
+    칸마다 DB 에 물으면 왕복이 열 번이고(동네 하나 여는 데 3.9초), 그렇게 센 값은 순위가 쓰는 값과 1점씩 어긋났다.
+    지표 점수(scores)가 아니다. 교육처럼 칸이 둘인 지표의 점수는 두 칸의 평균이라 칸 하나의 백분위와 다르다
+    """
+    r = ranking.get_ready()
+    i = r["index"].get(f"{row['구']} {row['행정동명']}")
+    if i is None:
+        return {}
+    return {
+        # 값이 빈 칸은 백분위도 비운다. 계산된 칸은 row 에 없다 — 늘 값이 있다
+        col: None if row.get(col, 0) is None else round(float(r["column_scores"][col][i]))
+        for col in (*REGION_FIELDS, *DERIVED_COLUMNS)
+    }
 
 
 def get_region(gu: str, dong: str) -> dict | None:
@@ -98,7 +127,7 @@ def get_region(gu: str, dong: str) -> dict | None:
         "행정동명": row["행정동명"],
         "likes": likes,
         "values": {name: row[name] for name in REGION_FIELDS},
-        "percentiles": {name: column_percentile(name, row[name]) for name in REGION_FIELDS},
+        "percentiles": _percentiles(row),      # 순위가 쓰는 바로 그 점수를 보여준다 — 두 구현이 어긋날 길을 없앤다
     }
 
 
@@ -130,6 +159,15 @@ def _validate(patch: dict) -> None:
             errors[name] = f"{low} 이상이어야 한다"
         elif high is not None and number > high:
             errors[name] = f"{low}~{high} 사이여야 한다"
+
+    # 페르소나 글의 길이. 빈 글은 "그 칸을 지운다"는 뜻이라 통과시킨다.
+    # 20자 미만은 조각이 안 만들어져 글이 통째로 사라진다 — 조각이 이 글의 유일한 저장소다
+    for name in PERSONA_FIELDS:
+        length = len(str(patch.get(name) or "").strip())
+        if 0 < length < MIN_LENGTH:
+            errors[name] = f"{MIN_LENGTH}자 이상 써야 벡터가 만들어진다 (지금 {length}자)"
+        elif length > MAX_PERSONA_LENGTH:
+            errors[name] = f"{MAX_PERSONA_LENGTH}자 이하로 써야 한다 (지금 {length}자)"
     if errors:
         raise InvalidPatch(errors)
 
@@ -137,8 +175,17 @@ def _validate(patch: dict) -> None:
 # 캐시비우기
 def _clear_caches():
 
-    search_service._ready = None
+    ranking.reset_ready()
     region_service._cache.clear()
+    privacy_service.reset()          # 이름이 바뀌었을 수 있다
+
+
+def _clear_member_caches():
+    """회원을 만들고 · 고치고 · 지웠을 때 비울 것 — 이름 목록 하나다.
+
+    행정동 점수(ranking 의 준비물)와 동네 설명(region_service._cache)은 회원 데이터로 만들지 않는다.
+    같이 비우면 가입 한 번 · 저장 한 번마다 점수를 다시 만들고(DB 왕복 9번 · 3.5초) Claude 가 써 둔 설명을 다시 산다
+    """
     privacy_service.reset()          # 이름이 바뀌었을 수 있다
 
 
@@ -148,6 +195,19 @@ def clear_caches() -> dict:
     return {"ok": True, "cache_warm": False}
 
 
+def _insert_first_preferences(customer_id: str, patch: dict) -> None:
+    """선호도 행을 처음 만든다 — 새 회원, 그리고 설문을 건너뛰고 가입해 행이 없는 회원.
+
+    처음 저장하는 값이 "가입 시 값"(_초기)도 된다 — 방금 생긴 행은 지금 값과 가입 때 값이 같아야 정상이다.
+    받지 않은 지표는 보통(3)으로 채운다. patch 에 가중치가 하나도 없으면 아무것도 안 한다
+    """
+    if not any(k in patch for k in PREFERENCE_FIELDS):
+        return
+    weights = {k: patch[k] if patch.get(k) is not None else 3 for k in PREFERENCE_FIELDS}
+    row = {**weights, **{f"{k}_초기": v for k, v in weights.items()}}
+    insert_preferences(customer_id, row, tuple(row))
+
+
 # 회원수정
 def update_member(customer_id, patch):
     if customer_one(customer_id) is None:   # 존재 확인은 이 한 줄로 충분 — get_member() 는 7번 왕복한다
@@ -155,17 +215,17 @@ def update_member(customer_id, patch):
     _validate(patch)                     # 없는 회원 확인(404) 다음, 저장 전
 
     update_customer(customer_id, patch, CUSTOMER_FIELDS)
-    update_preferences(customer_id, patch, PREFERENCE_FIELDS)
+    if not update_preferences(customer_id, patch, PREFERENCE_FIELDS):
+        _insert_first_preferences(customer_id, patch)      # 고칠 행이 없었다 — 설문을 건너뛰고 가입한 회원
 
     persona_patch = {k: v for k, v in patch.items() if k in PERSONA_FIELDS}
     if persona_patch:
-        row = dict(customer_persona(customer_id))   # 지금 9칸 전부
-        row.update(persona_patch)                   # 바뀐 칸만 덮어쓰기
-        row["customer_id"] = customer_id            # resync 가 요구하는 칸
-        resync_member(customer_id, row)             # 벡터 재생성
+        # 고친 칸의 조각만 다시 만든다. 안 고친 칸은 읽지도 지우지도 않는다 —
+        # 통째로 다시 만들던 때는 되읽은 글이 원문과 어긋나면 안 고친 칸이 망가졌다
+        resync_member(customer_id, {**persona_patch, "customer_id": customer_id}, tuple(persona_patch))
 
     write_admin_log("member", customer_id, patch)
-    _clear_caches()
+    _clear_member_caches()
     return get_member(customer_id)
 
 
@@ -189,25 +249,14 @@ def create_member(payload: dict) -> dict:
     """
     _validate(payload)     # 나이·가중치 범위는 기존 규칙을 그대로 쓴다
 
-    # 20자 미만 페르소나는 make_chunks() 가 조용히 버린다 —
-    # 여기서 먼저 막아야 "썼는데 왜 안 잡히지"가 안 생긴다
+    # 페르소나 길이(20자 이상 · 800자 이하)는 위의 _validate() 가 봤다 — 수정과 같은 규칙이다
     persona_patch = {k: v for k, v in payload.items()
                       if k in PERSONA_FIELDS and (v or "").strip()}
-    too_short = {k: f"{MIN_LENGTH}자 이상 써야 벡터가 만들어진다 (지금 {len(v.strip())}자)"
-                 for k, v in persona_patch.items() if len(v.strip()) < MIN_LENGTH}
-    if too_short:
-        raise InvalidPatch(too_short)
 
     customer_id = _next_customer_id()
     insert_customer(customer_id, payload, CUSTOMER_FIELDS)
 
-    # 가중치를 하나라도 받았으면 '_초기' 칸도 같은 값으로 같이 채운다 —
-    # 방금 가입한 회원은 "지금 값"과 "가입 때 값"이 아직 같아야 정상이다
-    indicator_patch = {k: v for k, v in payload.items() if k in PREFERENCE_FIELDS}
-    if indicator_patch:
-        pref_row = dict(indicator_patch)
-        pref_row.update({f"{k}_초기": v for k, v in indicator_patch.items()})
-        insert_preferences(customer_id, pref_row, tuple(pref_row.keys()))
+    _insert_first_preferences(customer_id, payload)      # 가중치를 하나라도 받았으면 선호도 행을 만든다
 
     if persona_patch:
         row = {k: persona_patch.get(k, "") for k in PERSONA_FIELDS}
@@ -215,7 +264,7 @@ def create_member(payload: dict) -> dict:
         resync_member(customer_id, row)   # ← 청킹 + 임베딩 + 저장
 
     write_admin_log("member", customer_id, payload)
-    _clear_caches()
+    _clear_member_caches()
     return get_member(customer_id)
 
 
@@ -235,13 +284,13 @@ def delete_member(customer_id: str) -> bool:
     delete_customer(customer_id)
 
     write_admin_log("member", customer_id, {"action": "탈퇴"})
-    _clear_caches()
+    _clear_member_caches()
     return True
 
 
 # 행정동 수정
 def update_region(gu, dong, patch):
-    if get_region(gu, dong) is None:
+    if region_one(gu, dong, REGION_FIELDS) is None:      # 있는지만 본다 — get_region() 은 좋아요 수와 백분위까지 만든다
         return None
     _validate(patch)
 
@@ -251,42 +300,41 @@ def update_region(gu, dong, patch):
     return get_region(gu, dong)
 
 def preview_member(customer_id):
-    """이 회원의 희망조건으로 추천 TOP 5를 뽑아본다. 아무것도 안 고친다."""
+    """이 회원의 희망조건으로 추천 TOP 5를 뽑아본다. 아무것도 안 고친다.
+
+    선호도 행이 없는 회원(설문을 건너뛰고 가입)은 일곱 지표를 보통(3)으로 본다 — 화면의 슬라이더도 그렇게 그린다.
+    None 은 없는 회원일 때뿐이다. 행이 없다고 None 을 내면, 화면이 가중치 저장 직전에 부르는 이 조회가
+    404 로 죽어서 저장 요청이 아예 안 나간다
+    """
     prefs = customer_preferences(customer_id)
     if prefs is None:
-        return None
-    return search_service.recommend_by_weights(dict(prefs), top_k=5)
+        if customer_one(customer_id) is None:
+            return None
+        prefs = {name: 3 for name in INDICATORS}
+    return ranking.recommend_by_weights(dict(prefs), top_k=5)
 
 
 
 
 def similar_members(customer_id: str, top_k: int = 5) -> list | None:
-    """이 회원과 페르소나가 비슷한 회원들. 자기 자신은 뺀다."""
-    persona = customer_persona(customer_id)
-    if not persona:
-        return None
+    """이 회원과 페르소나가 비슷한 회원들. 자기 자신은 뺀다.
 
-    # persona 칸을 대표로 쓰고, 비어 있으면 있는 칸 아무거나 하나
-    query = persona.get("persona") or next(iter(persona.values()), "")
-    if not query:
-        return []
-
-    # 자기 자신이 반드시 1등으로 걸리므로 한 명 더 받아서 뺀다
-    # 벡터는 vector_store 가 들고 있다 — get_ready() 에서 뺐다(7-7절)
-    ranked = find_similar_members(query, top_k=top_k + 1)
-
-    out = []
-    for cid, (score, category, text) in ranked:     # ← 튜플 안에 튜플이라 이렇게 푼다
-        if cid == customer_id:
-            continue
-        out.append({
+    찾는 일은 engine(find_members_like)이 한다 — 채팅 도구도 그 함수를 부른다. 여기서는 관리자 화면 모양으로만 바꾼다
+    """
+    ranked = find_members_like(customer_id, top_k)
+    if ranked is None:
+        # 페르소나가 없는 회원과 없는 회원을 가른다 — 앞은 빈 목록이고 뒤만 None(404)이다.
+        # 둘 다 None 이면 화면이 "찾는 중…" 에서 안 넘어간다
+        return None if customer_one(customer_id) is None else []
+    return [
+        {
             "customer_id": cid,
             "score": round(score, 3),
             "category": category,
             "text": privacy_service.mask_text(text)[:120],                   # 가린 뒤에 자른다
-        })
-
-    return out[:top_k]
+        }
+        for cid, (score, category, text) in ranked     # ← 튜플 안에 튜플이라 이렇게 푼다
+    ]
 
 
 def health() -> dict:
@@ -306,7 +354,7 @@ def health() -> dict:
         "ok": ok,
         "regions": regions,
         "members": members,
-        "cache_warm": search_service._ready is not None,   # 캐시가 채워져 있나
+        "cache_warm": ranking.is_ready(),   # 캐시가 채워져 있나
         "error": error,
     }
 
@@ -317,7 +365,7 @@ def privacy_preview(customer_id: str) -> dict | None:
     무엇이 '안' 가려지는지 눈으로 확인하는 용도다. 아무것도 안 고친다.
     """
     persona = customer_persona(customer_id)
-    if not persona:
+    if not persona and customer_one(customer_id) is None:     # 페르소나가 없는 회원은 빈 결과다. None(404)은 없는 회원뿐이다
         return None
 
     masked = {name: privacy_service.mask_text(text) for name, text in persona.items()}
@@ -378,7 +426,7 @@ def dashboard() -> dict:
         genders_f = pool.submit(gender_counts)
         weights_f = pool.submit(indicator_averages)
         gu_f = pool.submit(gu_count)
-        chunks_f = pool.submit(member_chunk_count)
+        chunks_f = pool.submit(member_chunk_stats)
         edits_f = pool.submit(admin_log_count)
         joins_f = pool.submit(join_month_counts)
         member_gu_f = pool.submit(home_city_counts)
@@ -407,7 +455,7 @@ def dashboard() -> dict:
                 "members":  base["members"],
                 "regions":  base["regions"],
                 "gu":       gu_f.result(),
-                "chunks":   chunks_f.result(),
+                **chunks_f.result(),       # chunks(조각) · slots(설문 칸) · activity(활동 칸) · split(조각이 둘 이상인 칸)
                 "edits":    edits_f.result(),
             },
             "charts": {

@@ -62,8 +62,36 @@ def column_percentile(column, value, invert=False):
     return _run(repo.column_percentile, column, value, invert)
 
 
+def park_areas():
+    return _run(repo.park_areas)
+
+
+def dong_coords():
+    return _run(repo.dong_coords)
+
+
+def school_level_counts():
+    return _run(repo.school_level_counts)
+
+
+def category_counts(kind):
+    return _run(repo.category_counts, kind)
+
+
 def region_price_detail(gu, dong, bldg, deal):
     return _run(repo.region_price_detail, gu, dong, bldg, deal)
+
+
+def region_price_details(gu, dong):
+    return _run(repo.region_price_details, gu, dong)
+
+
+def region_price_details_many(places):
+    return _run(repo.region_price_details_many, places)
+
+
+def region_bundle(places, columns):
+    return _run(repo.region_bundle, places, columns)
 
 
 # ── 쓰기 ──────────────────────────────────────

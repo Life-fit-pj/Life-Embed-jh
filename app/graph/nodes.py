@@ -7,12 +7,13 @@ LangGraph 가 돌려받은 키만 기존 state 에 덮어쓴다.
 
 from app.ai.llm import ask, ask_with_tools
 from app.core.config import INDICATORS
+from app.engine.chat_context import build_context
 from app.engine.explain import explain, find_cases
 from app.engine.weights import ask_claude, blend, find_similar_members
+from app.prompts.chat import ANSWER_PROMPT, PLAN_PROMPT
 from app.repositories.members import member_weights
-from app.services.chat_service import PLAN_SYSTEM, SYSTEM_PROMPT, build_context
-from app.services.search_service import recommend_by_weights
-from app.tools.tools import TOOL_SPECS, run_tool
+from app.engine.ranking import recommend_by_weights
+from app.tools.tools import run_tool, tool_specs
 
 
 # 검색어 -> 가중치 + 가격 조건
@@ -41,6 +42,7 @@ def weights_node(state):
         "housing": housing,
         "region": draft.get("지역"),
         "price_tier": draft.get("가격대"),
+        "focus": draft.get("세부"),
         "notice": draft.get("미지원_조건"),
         "path": state["path"] + ["weights"],
     }
@@ -50,7 +52,7 @@ def weights_node(state):
 def recommend_node(state):
     regions = recommend_by_weights(
         state["weights"], top_k=state["top_k"], housing=state["housing"], region=state["region"],
-        price_tier=state["price_tier"],
+        price_tier=state["price_tier"], focus=state["focus"],
     )
     return {"regions": regions, "path": state["path"] + ["recommend"]}
 
@@ -58,15 +60,17 @@ def recommend_node(state):
 # TOP 5 -> 설명문
 def explain_node(state):
     cases = find_cases(state["persona_query"])
-    text = explain(state["query"], state["weights"], state["regions"], cases, housing=state["housing"])
+    text = explain(state["query"], state["weights"], state["regions"], cases, housing=state["housing"],
+                   focus=state["focus"])
     return {"cases": cases, "explanation": text, "path": state["path"] + ["explain"]}
 
 # 질문 -> 도구를 쓸지, 기존 방식(context 통째로)으로 답할지
 def chat_plan_node(state):
     names = [r.get("name", "").replace("서울특별시 ", "") for r in state["regions"] or []]
     user_prompt = f"추천된 동네: {', '.join(names)}\n\n질문: {state['question']}"
-    calls = ask_with_tools([("system", PLAN_SYSTEM), *state["history"], ("human", user_prompt)], TOOL_SPECS)
-
+    calls = ask_with_tools([("system", PLAN_PROMPT), *state["history"], ("human", user_prompt)],
+                           tool_specs(state.get("anon_id")))
+    
     if not calls:
         return {"route": "context", "tool_calls": [], "path": state["path"] + ["plan"]}
     return {"route": "tool", "tool_calls": calls, "path": state["path"] + ["plan"]}
@@ -76,7 +80,8 @@ def chat_plan_node(state):
 def chat_run_tools_node(state):
     # 비교 질문이면 같은 도구가 동네마다 불린다 — 어느 동네 결과인지 인자를 같이 붙인다
     results = [
-        {"도구": call["name"], "인자": call["arguments"], "결과": run_tool(call["name"], call["arguments"])}
+        {"도구": call["name"], "인자": call["arguments"],
+         "결과": run_tool(call["name"], call["arguments"], state)}
         for call in state["tool_calls"]
     ]
     return {"tool_result": results, "path": state["path"] + ["run_tools"]}
@@ -84,7 +89,7 @@ def chat_run_tools_node(state):
 
 # 질문 + 추천 결과 -> Claude 에게 넘길 재료 글 (route == "context" 일 때만 돈다)
 def chat_context_node(state):
-    context = build_context(state["regions"], state["weights"], state["question"])
+    context = build_context(state["regions"], state["weights"])
     return {"context": context, "path": state["path"] + ["context"]}
 
 
@@ -95,7 +100,7 @@ def chat_generate_node(state):
     else:
         user_prompt = f"{state['context']}\n\n## 질문\n{state['question']}"
 
-    messages = [("system", SYSTEM_PROMPT), *state["history"], ("human", user_prompt)]
+    messages = [("system", ANSWER_PROMPT), *state["history"], ("human", user_prompt)]
     answer = ask(messages, max_tokens=600).strip()
     return {"answer": answer, "path": state["path"] + ["generate"]}
 

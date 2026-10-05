@@ -36,9 +36,10 @@ class HistoryOut(BaseModel):
     chats: list[ChatHistoryItem]
 
 class LikeItem(BaseModel):
-    """좋아요 한 줄. repositories/history_repository.py 의 list_likes() 가 내는 모양 그대로다."""
-    구: str
-    행정동명: str
+    """좋아요 한 줄. services/history_service.py 의 get_likes() 가 내는 모양이다 — Life-Web 계약이 영문 키(gu/dong)라
+    저장소의 구/행정동명을 거기서 바꿔 준다. 여기를 구/행정동명으로 적으면 응답 검증에서 500 이 난다(2026-09-30 발견)"""
+    gu: str
+    dong: str
     created_at: str | None = None
 
 

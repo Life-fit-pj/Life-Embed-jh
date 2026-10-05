@@ -38,6 +38,10 @@ def member_weights(customer_ids):
     return _run(repo.member_weights, customer_ids)
 
 
+def members_near_weights(weights, top_k=5, exclude=None):
+    return _run(repo.members_near_weights, weights, top_k, exclude)
+
+
 # ── 회원 관리자 조회 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def customer_list():
@@ -46,6 +50,10 @@ def customer_list():
 
 def customer_one(customer_id):
     return _run(repo.customer_one, customer_id)
+
+
+def customer_homes(customer_ids):
+    return _run(repo.customer_homes, customer_ids)
 
 
 def customer_preferences(customer_id):
@@ -108,12 +116,12 @@ def indicator_averages():
     return _run(repo.indicator_averages)
 
 
-def indicator_spread(name):
-    return _run(repo.indicator_spread, name)
+def indicator_spreads():
+    return _run(repo.indicator_spreads)
 
 
-def indicator_drift(name):
-    return _run(repo.indicator_drift, name)
+def indicator_drifts():
+    return _run(repo.indicator_drifts)
 
 
 def age_group_counts():

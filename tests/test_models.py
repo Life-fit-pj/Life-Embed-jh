@@ -8,36 +8,43 @@
 import pytest
 import math
 import numpy as np
-from sqlalchemy import func
+from sqlalchemy import Float, func, inspect
 
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.models.chunk import Chunk
 from app.models.customer import Customer
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
 from app.models.preference import Preference
-from app.core.config import EMBED_DIMENSION
+from app.core.config import ACTIVITY_COLUMN, EMBED_DIMENSION, INDICATORS
 
 
-# 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
+# 고정 데이터 — 파이프라인이 CSV 에서 넣은 몫만 센다. 다시 적재하기 전까지 줄 수가 안 변한다.
 # 여기서 숫자가 틀리면 데이터가 유실된 것이므로 정확히 대조한다.
+# 표 전체를 세지 않는다 — 가입 · 관리자 저장으로 회원(C101~) · 선호도 행 · 회원 조각이 늘어난다.
+# 전체를 세면 "앱을 쓰면 깨지는 테스트" 가 된다(2026-10-05, C107 의 선호도 행이 생기며 실제로 깨졌다)
+LOADED = "C100"             # 적재로 들어온 마지막 회원 번호
+LOADED_CHUNK = (Chunk.source == "kb") | (Chunk.source_id <= LOADED)      # kb 전부 + 적재된 회원의 조각
 FIXED = [
-    (Customer, 104),
-    (Preference, 102),
-    (Chunk, 9914),          # member 900 + kb 9,000
+    (Customer, Customer.customer_id <= LOADED, 100),
+    (Preference, Preference.customer_id <= LOADED, 100),
+    (Chunk, LOADED_CHUNK, 9900),          # member 900 + kb 9,000
 ]
 
 # 기록용 표 — 서버를 켜서 검색 한 번만 해도 늘어난다.
 # 줄 수를 단언하면 "앱을 쓰면 깨지는 테스트" 가 되고, 그런 테스트는 곧 무시당한다.
 GROWING = [Like, SearchHistory, ChatHistory, AnalysisChat, AdminLog, UserLogin]
 
-ALL_MODELS = [model for model, _ in FIXED] + GROWING
+ALL_MODELS = [model for model, _, _ in FIXED] + GROWING
 
 
-@pytest.mark.parametrize("model,expected", FIXED, ids=lambda v: getattr(v, "__name__", v))
-def test_고정_표는_줄_수가_맞는다(model, expected):
+@pytest.mark.parametrize("model,loaded,expected", FIXED, ids=[model.__name__ for model, _, _ in FIXED])
+def test_적재된_몫은_줄_수가_맞는다(model, loaded, expected):
     db = SessionLocal()
     try:
-        assert db.query(func.count()).select_from(model).scalar() == expected
+        rows = db.query(func.count()).select_from(model).filter(loaded)
+        if model is Chunk:      # 활동 조각은 관리자가 저장할 때마다 늘어난다 — 고정 데이터가 아니다
+            rows = rows.filter(Chunk.category != ACTIVITY_COLUMN)
+        assert rows.scalar() == expected
     finally:
         db.close()
 
@@ -71,6 +78,22 @@ def test_한글_칸을_이름으로_꺼낼_수_있다():
         db.close()
 
 
+def test_가중치_칸은_모델도_DB도_실수다():
+    """4.5 를 저장하면 4.5 로 읽혀야 한다 — 어느 한쪽만 정수여도 오류 없이 4 로 깎인다.
+
+    모델이 Integer 면 SQLAlchemy 가 저장할 때 값에 ::INTEGER 를 붙여 보내고,
+    DB 칸이 정수면 DB 가 깎는다. pipeline.schema 를 다시 돌린 뒤에도 실수인지 여기서 본다.
+    실패하면 정수로 남은 칸의 이름이 찍힌다.
+    """
+    names = [*INDICATORS, *(f"{name}_초기" for name in INDICATORS)]
+
+    model = Preference.__table__.c
+    assert [n for n in names if not isinstance(model[n].type, Float)] == []
+
+    actual = {c["name"]: c["type"] for c in inspect(engine).get_columns("user_preferences")}
+    assert [n for n in names if not isinstance(actual[n], Float)] == []
+
+
 def test_임베딩이_1536개다():
     """Text 에 JSON 으로 담은 게 맞는지. 옛 이진 칸으로 남아 있으면 여기서 깨진다.
 
@@ -92,8 +115,9 @@ def test_chunks_는_source_로_나뉜다():
     db = SessionLocal()
     try:
         counts = dict(
-            db.query(Chunk.source, func.count()).group_by(Chunk.source).all()
+            db.query(Chunk.source, func.count()).filter(Chunk.category != ACTIVITY_COLUMN, LOADED_CHUNK)
+            .group_by(Chunk.source).all()
         )
-        assert counts == {"member": 914, "kb": 9000}
+        assert counts == {"member": 900, "kb": 9000}
     finally:
         db.close()

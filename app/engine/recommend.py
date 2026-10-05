@@ -7,18 +7,69 @@
 
 import numpy as np
 
-from app.repositories.regions import region_densities
+from app.domain.dong import dong_variants
+from app.repositories.regions import (
+    category_counts, dong_coords, park_areas, region_densities, school_level_counts,
+)
 from app.engine.housing import DEAL_COLUMNS
 
 INDICATOR_COLUMNS = {
-    "녹지" : ["공원_밀도"],
+    "녹지" : ["공원면적비율"],
     "안전" : ["CCTV_밀도","경찰관서_밀도"],
     "교통": ["버스정류장_밀도", "지하철역_밀도"],
     "상권": ["점포_밀도", "대형점포_밀도"],
     "의료": ["의료기관_밀도"],
-    "교육": ["학교_밀도", "학원_밀도"],
+    "교육": ["학교_밀도_2023", "학원_밀도"],
     "문화": ["문화시설_밀도", "도서관_밀도"],
 }
+
+# master 표에 없고 load_regions() 가 계산해 넣는 칸. 관리자 화면이 이걸 보고 표에서 읽을 칸과 가른다 — 빠지면 KeyError
+DERIVED_COLUMNS = {"공원면적비율", "학교_밀도_2023"}
+
+# INDICATOR_COLUMNS 의 칸 중 실제로 master 표에 있는 것 (중복 없이, 순서 유지).
+# load_regions() 가 읽고, 관리자 화면(admin_service.REGION_FIELDS)이 보여주고·고친다 — 두 곳이 같은 목록을 써야 한다
+DB_COLUMNS = [c for c in dict.fromkeys(c for cs in INDICATOR_COLUMNS.values() for c in cs) if c not in DERIVED_COLUMNS]
+
+def _hint(columns):
+    """{"교육": {"학원": …, "학교": …}, …} → "교육: 학원/학교, …". 프롬프트와 도구 설명에 싣는 허용 목록 글"""
+    return ", ".join(f"{ind}: {'/'.join(subs)}" for ind, subs in columns.items())
+
+
+# 세부 강조 — 지표 안의 한 가지("학원", "지하철")를 그 지표의 칸 하나로 잇는다. 유일한 정의처.
+# 값은 values 에 있는 칸 이름이어야 한다 — INDICATOR_COLUMNS 의 칸이거나 load_regions() 가 만드는 파생 칸("종류:분류_밀도").
+# 글자 하나 틀리면 apply_focus 가 조용히 무시한다. 분류 이름은 DB 의 원본 표기 그대로다(2026-10-01 확인).
+# 키는 사용자가 말할 법한 낱말이다. 새 세부를 열 땐 여기 한 줄 — 채팅 도구의 고를 수 있는 목록이 여기서 만들어진다
+FOCUS_COLUMNS = {
+    "교육": {"학원": "학원_밀도", "학교": "학교_밀도_2023",
+            "유치원": "학교:유치원_밀도", "초등학교": "학교:초등학교_밀도",
+            "중학교": "학교:중학교_밀도", "고등학교": "학교:고등학교_밀도",
+            "보습학원": "학원:입시.검정 및 보습_밀도", "독서실": "학원:독서실_밀도"},
+    "교통": {"지하철": "지하철역_밀도", "버스": "버스정류장_밀도"},
+    "안전": {"CCTV": "CCTV_밀도", "경찰": "경찰관서_밀도"},
+    "상권": {"시장": "점포:전통시장_밀도", "가게": "점포_밀도",       # '시장' 은 전통시장 265곳만. 대형점포_밀도 는 백화점·마트까지 든 점포 표 전체다
+            "대형점포": "대형점포_밀도", "대형마트": "점포:대형마트_밀도",
+            "백화점": "점포:백화점_밀도", "쇼핑몰": "점포:복합쇼핑몰_밀도"},
+    "문화": {"도서관": "도서관_밀도", "문화시설": "문화시설_밀도",
+            "공연장": "문화시설:공연시설_밀도", "전시관": "문화시설:전시시설_밀도"},
+    "의료": {"병원": "의료기관:병원_밀도", "의원": "의료기관:의원_밀도"},
+    "녹지": {"큰공원": "공원:근린공원_밀도", "놀이터": "공원:어린이공원_밀도"},
+}
+
+# 채팅 도구(rerank_by_focus) 설명에 싣는 허용 목록 — "교육: 학원/학교/유치원/…, 교통: 지하철/버스, …"
+FOCUS_HINT = _hint(FOCUS_COLUMNS)
+
+# 검색 프롬프트(weights.py 규칙 8)가 아는 세부는 처음 열 개로 얼려 둔다 — 세부를 더 여는 것은 채팅에만 반영한다.
+# 검색 프롬프트는 모든 검색이 읽고 한 번에 일곱 가지를 시키는 자리라, 목록이 길어지면 넓은 질문에 세부를 찍을 위험이 커진다.
+# 여기를 고치면 SUB_HINT 가 달라져 검색 프롬프트 글자가 바뀐다 — 프롬프트를 손볼 때 같이 정한다(이슈 10)
+_SEARCH_SUBS = {
+    "교육": ("학원", "학교"),
+    "교통": ("지하철", "버스"),
+    "안전": ("CCTV", "경찰"),
+    "상권": ("시장", "가게"),
+    "문화": ("도서관", "문화시설"),
+}
+SUB_COLUMNS = {ind: {sub: FOCUS_COLUMNS[ind][sub] for sub in subs} for ind, subs in _SEARCH_SUBS.items()}
+SUB_HINT = _hint(SUB_COLUMNS)
 
 
 # 화면이 "공원 5개 · CCTV 120대" 처럼 보여줄 **원본 개수**.
@@ -36,33 +87,116 @@ COUNT_COLUMNS = [
 ]
 
 
+BIG_PARK_M2 = float("inf")  # 분배 끔(=A). 골든셋 녹지 A 3/4 · B+ 1/4 · C 1/4(2026-09-30, data/golden/README.md).
+                            # mix 조정(로드맵 2-7) 뒤 1_000_000 으로 다시 켜서 잰다 — 그래서 분배 코드는 남긴다
+SPREAD_KM = 1.5             # + 동 자기 반지름 √(면적/π). 실제 경계로 채점: 진짜 이웃 96% 포착(3.0 은 정밀도 27% 로 너무 넓음)
+
+
+def _dong_index(names):
+    """(구, 동 표기 변형) → names 의 자리. 시설 표의 동 표기(시흥4동)가 master(시흥제4동)와 달라 dong_variants 로 잇는다"""
+    index = {}
+    for i, name in enumerate(names):
+        gu, dong = name.split(" ", 1)
+        for v in dong_variants(dong):
+            index[(gu, v)] = i
+    return index
+
+
+def build_green_ratio(names, area_m2, parks, coords, cap=1.0):
+    """동별 공원 면적 비율 = (그 동 공원 면적 합) ÷ (동 면적). 427개 배열, cap 에서 자른다.
+
+    개수 밀도는 60% 가 어린이공원(평균 1,600㎡)이라 "놀이터 밀도"였다(2026-09-29 실측).
+    BIG_PARK_M2 이상 공원(불암산 5.3km² → 중계본동 244%)은 동 면적까지만 자기 동에 넣고,
+    넘치는 만큼은 SPREAD_KM 반경 안 이웃에 면적 비례로 나눈다. 이웃이 없으면 초과분은 버린다.
+    """
+    index = _dong_index(names)
+
+    # 동 중심 좌표를 names 순서의 배열로 (없는 동은 nan → 반경 계산에서 자동 제외)
+    lat = np.full(len(names), np.nan)
+    lon = np.full(len(names), np.nan)
+    for (gu, dong), (la, lo) in coords.items():
+        i = index.get((gu, dong.strip()))
+        if i is not None:
+            lat[i], lon[i] = la, lo
+
+    total = np.zeros(len(names))
+    for gu, dong, area, plat, plon in parks:
+        i = index.get((gu, (dong or "").strip()))
+        if i is None:
+            continue
+        if area < BIG_PARK_M2 or plat is None or plon is None:
+            total[i] += area
+            continue
+        # 동 안에 다 들어가는 공원(올림픽공원 1.45km²)까지 나누면 그 동이 희석된다 — 넘치는 만큼만 이웃에
+        keep = min(area, area_m2[i])
+        total[i] += keep
+        excess = area - keep
+        d = np.sqrt(((lat - plat) * 111.0) ** 2 + ((lon - plon) * 88.0) ** 2)   # km (위도 1도≈111, 경도 1도≈88)
+        reach = SPREAD_KM + np.sqrt(area_m2 / 1e6 / np.pi)
+        near = np.where((d <= reach) & (np.arange(len(names)) != i))[0]       # 자기 동은 이미 찼다
+        if excess > 0 and len(near) > 0:
+            total[near] += excess * area_m2[near] / area_m2[near].sum()
+
+    ratio = total / np.maximum(area_m2, 1.0)     # 면적 0 인 동이 있어도 0 으로 나누지 않는다
+    return np.minimum(ratio, cap)
+
+
 def load_regions():
     """427개 동의 이름과, 밀도 칸·개수 칸을 꺼낸다.
 
     한 번의 쿼리로 둘을 같이 가져온다 — 순위에 쓸 밀도와, 화면 근거로 쓸 개수다.
     돌려주는 것 셋: names · values(밀도, numpy) · counts(개수, 동네별 dict)
     """
-    # 매핑에 등장하는 칸을 전부 모은다 (중복 없이, 순서 유지)
-    cols = []
-    for cs in INDICATOR_COLUMNS.values():
-        for c in cs:
-            if c not in cols:
-                cols.append(c)
-
-    rows = region_densities(cols + COUNT_COLUMNS)
-    
+    rows = region_densities(DB_COLUMNS + COUNT_COLUMNS + ["면적_m2", "면적_km2", "행정동ID_8자리"])   # 면적은 분모, 코드는 학교 표와 잇는 열쇠
     names = [f"{r['구']} {r['행정동명']}" for r in rows]
-    
-    # 밀도는 계산용이라 numpy 배열로
-    values = {}
-    for c in cols:
-        values[c] = np.array([r[c] or 0 for r in rows], dtype="float64")
-    
-    # 개수는 그대로 보여줄 값이라 동네별 딕셔너리로.
-    # 이름으로 찾을 일이 많아 리스트가 아니라 {동네이름: {칸: 값}} 이다
+
+    def column(key):
+        """rows 의 한 칸을 numpy 배열로. 빈 값은 0"""
+        return np.array([r[key] or 0 for r in rows], dtype="float64")
+
+    # 밀도는 계산용이라 numpy 배열로. 계산된 칸(DERIVED_COLUMNS)은 표에 없어 아래에서 만든다
+    values = {c: column(c) for c in DB_COLUMNS}
+
+    coords = dong_coords() if np.isfinite(BIG_PARK_M2) else {}     # 큰 공원 분배가 꺼져 있으면(inf) 좌표를 안 쓴다 — 안 읽는다
+    values["공원면적비율"] = build_green_ratio(names, column("면적_m2"), park_areas(), coords)
+
+    # 학교는 2023년 학교 표로 센다(행정동 코드로 잇는다). master 의 학교_수·학교_밀도 는 10년치가 섞여 약 10배다.
+    # 한 코드를 여러 줄이 쓰면(신설동·용두동이 11060810 — 2009년 용신동 통합, 경계 데이터가 없어 못 가른다) 줄 수로 나눈다
+    area_km2 = np.maximum(column("면적_km2"), 0.01)
+    rows_of_code = {}
+    for i, r in enumerate(rows):
+        rows_of_code.setdefault(r["행정동ID_8자리"], []).append(i)
+
+    def add_by_code(arr, code, n):
+        """코드 code 의 개수 n 을 그 코드를 쓰는 줄들에 나눠 더한다"""
+        for i in rows_of_code.get(code, ()):
+            arr[i] += n / len(rows_of_code[code])
+
+    # 학교급별로 한 번만 읽는다. 동의 전체 학교 수는 그 합이고, 학교급 하나하나는 세부 강조용 파생 칸이 된다
+    school_n = np.zeros(len(names))
+    for code, level, n in school_level_counts():
+        add_by_code(school_n, code, n)
+        add_by_code(values.setdefault(f"학교:{level}_밀도", np.zeros(len(names))), code, n)
+    values["학교_밀도_2023"] = school_n / area_km2
+
+    # 분류별 파생 칸 — "학원:입시.검정 및 보습_밀도" 처럼 "종류:분류_밀도" 이름으로. 세부 강조(FOCUS_COLUMNS)가 가리킨다.
+    # ':' 가 든 이름은 master 칸과 절대 안 겹치고, 아래에서 파생 칸만 골라 면적으로 나누는 표시가 된다.
+    # INDICATOR_COLUMNS 에 없으니 관리자 화면(REGION_FIELDS)엔 안 들어간다 — build_column_scores 가 백분위로 만든다
+    index = _dong_index(names)
+    for kind in ("학원", "의료기관", "문화시설", "점포", "공원"):
+        for gu, dong, cat, n in category_counts(kind):
+            i = index.get((gu, dong.strip()))
+            if i is not None:
+                values.setdefault(f"{kind}:{cat}_밀도", np.zeros(len(names)))[i] += n
+    for col in values:
+        if ":" in col:
+            values[col] /= area_km2
+
+    # 개수는 화면에 그대로 보여줄 값이라 {동네이름: {칸: 값}}.
+    # 학교_수 는 2023년 값으로 덮는다 — 웹 typespot.py 카드가 이 키를 읽는다
     counts = {
-        name: {c: row[c] for c in COUNT_COLUMNS}
-        for name, row in zip(names, rows)
+        name: {**{c: row[c] for c in COUNT_COLUMNS}, "학교_수": round(n)}
+        for name, row, n in zip(names, rows, school_n)
     }
 
     return names, values, counts
@@ -89,20 +223,65 @@ def to_percentile(values, invert=False) :
 INDICATOR_INVERT = {"시세"}   # 이 지표들은 낮을수록 좋다
 
 
-def build_scores(values):
-    """밀도 칸들을 7개 지표 점수(0~100)로 바꾼다.
+def build_column_scores(values):
+    """칸 하나하나의 백분위. {칸 이름: 427개 배열}. build_scores() 의 재료이자, 세부 강조가 지표 평균 대신 꺼내 쓰는 값.
 
-    칸이 여러 개인 지표는 각각 백분위로 바꾼 뒤 평균낸다.
-    (안전 = CCTV 백분위와 경찰관서 백분위의 평균)
+    invert 는 지표 기준(INDICATOR_INVERT)을 따른다 — 시세처럼 낮을수록 좋은 지표의 칸도 같이 뒤집힌다
     """
     scores = {}
-    
     for indicator, cols in INDICATOR_COLUMNS.items():
         invert = indicator in INDICATOR_INVERT
-        parts = [to_percentile(values[c], invert=invert) for c in cols]
-        scores[indicator] = sum(parts) / len(parts)
-
+        for c in cols:
+            scores[c] = to_percentile(values[c], invert=invert)
+    # 파생 칸(INDICATOR_COLUMNS 밖, 이름에 ':')도 세부로 쓸 수 있게 전부 백분위로
+    for c in values:
+        if c not in scores:
+            scores[c] = to_percentile(values[c])
     return scores
+
+
+def build_scores(column_scores):
+    """칸별 백분위를 7개 지표 점수(0~100)로 묶는다. 칸이 여러 개인 지표는 평균낸다.
+    (안전 = CCTV 백분위와 경찰관서 백분위의 평균). 백분위 계산은 build_column_scores() 한 곳에서만 한다
+    """
+    return {
+        indicator: sum(column_scores[c] for c in cols) / len(cols)
+        for indicator, cols in INDICATOR_COLUMNS.items()
+    }
+
+
+def apply_focus(scores, column_scores, focus):
+    """세부 강조를 반영한 지표 점수. 새 딕셔너리를 돌려준다 — 원본 scores 는 안 건드린다.
+
+    focus 예: {"교육": "학원"} → 교육 점수 = (학교·학원 평균) 대신 학원_밀도 의 백분위.
+    준비물(get_ready)은 모든 요청이 같이 쓰므로, 여기서 복사본을 만들지 않으면
+    한 요청의 세부 강조가 다음 요청까지 남는다
+    """
+    out = dict(scores)
+    for indicator, sub in (focus or {}).items():
+        col = FOCUS_COLUMNS.get(indicator, {}).get(sub)
+        if col in column_scores:
+            out[indicator] = column_scores[col]
+    return out
+
+
+def focus_label(indicator, sub):
+    """세부 점수의 이름 — "교통(버스)". 나가는 점수와 채팅 도구가 같은 이름을 쓴다"""
+    return f"{indicator}({sub})"
+
+
+def focus_scores(column_scores, focus):
+    """세부로 콕 집은 칸의 백분위에 이름표를 붙여 돌려준다. {"교통(버스)": 427개 배열}
+
+    apply_focus() 가 순위용 지표 점수에 바꿔 넣는 바로 그 값이다. 나가는 점수에는 지표 점수를 그대로 두고 이것을 따로 싣는다 —
+    버스만 본 값을 "교통" 이라는 이름으로 내보내면 설명문·화면이 뜻을 잘못 읽는다
+    """
+    out = {}
+    for indicator, sub in (focus or {}).items():
+        col = FOCUS_COLUMNS.get(indicator, {}).get(sub)
+        if col in column_scores:
+            out[focus_label(indicator, sub)] = column_scores[col]
+    return out
 
 
 # ── 목표가 없을 때(접근 A) 시세를 8번째 신호로 쓰기 위한 재료 ──────────────
@@ -160,6 +339,19 @@ def build_relative(scores):
     return {k: scores[k] - region_mean for k in keys}
 
 
+def nearest_base(scores: dict, base: list):
+    """동네마다 '기준 동네들 중 가장 닮은 곳'과의 닮음(0~100).
+
+    닮음 = 100 - 지표 점수 차이의 평균. 기준 동네가 여럿이면 평균 내지 않고 가장 가까운 하나와 견준다 —
+    성격이 다른 두 동네를 평균 내면 어느 쪽과도 안 닮은 중간 동네가 기준이 된다.
+    scores 는 {지표: 427개 배열}, base 는 기준 동네의 자리 번호들.
+    돌려주는 것: (닮음 배열, 동네마다 가장 닮은 기준 동네의 자리 번호 배열)
+    """
+    table = np.column_stack(list(scores.values()))                             # 동네 × 지표
+    gaps = np.abs(table[:, None, :] - table[base][None, :, :]).mean(axis=2)    # 동네 × 기준 동네 수
+    return 100 - gaps.min(axis=1), np.array(base)[gaps.argmin(axis=1)]
+
+
 def recommend(names, scores, relative, weights, top_k=5, mix=0.5, sharpen=6):
     """가중치 차이를 증폭해서 중시 지표가 순위를 주도하게 한다.
 
@@ -183,8 +375,8 @@ def recommend(names, scores, relative, weights, top_k=5, mix=0.5, sharpen=6):
 
 
 if __name__ == "__main__" :
-    names, values = load_regions()
-    scores = build_scores(values)
+    names, values, _ = load_regions()
+    scores = build_scores(build_column_scores(values))
     relative = build_relative(scores)
     
     # 07번에서 나왔던 실제 가중치로 시험해본다

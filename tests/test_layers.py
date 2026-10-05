@@ -11,12 +11,18 @@ LAYER = {
     "app.domain": 0,
     "app.schemas": 1,      # 9단계 — 형식만 적은 것. 아무것도 안 부른다
     "app.core": 1,
+    "app.db": 1,           # Base · engine · SessionLocal. core 만 부른다
+    "app.models": 2,       # 표를 클래스로. db 만 부른다
     "app.repositories": 2,
     "app.ai": 2,
     "app.rag": 3,          # 7단계 — ai 위, engine 아래
     "app.engine": 4,
+    "app.prompts": 4,      # Claude 에게 가는 글. engine 과 services 가 가져다 쓴다. engine.recommend 의 세부 목록만 부른다
     "app.services": 5,     # 8단계 — 업무 로직
+    "app.tools": 5,        # 채팅 도구. engine 과 repositories 를 부른다
+    "app.graph": 5,        # engine · tools 를 부른다. services 는 안 부른다 — 부르면 순환이 되살아난다(check.sh ②)
     "app.api": 7,          # 9단계 — 맨 위. 여기만 FastAPI 를 안다
+    "app.main": 8,         # 라우터를 거는 곳. api 만 부른다
 }
 
 # 4단계에서 chunker 가 app/ai/ 로 올라와 예외가 사라졌다.
@@ -55,17 +61,33 @@ def edges():
     return out
 
 
-def test_아래층이_위층을_안_부른다():
-    broken = []
-    for source, target in edges():
+# (부르는 쪽, 불리는 쪽) 중 아래층이 위층을 부르는 것만 고른다
+def broken(pairs):
+    out = []
+    for source, target in pairs:
         up, source_layer = layer_of(source)
         down, target_layer = layer_of(target)
         if up is None or down is None or source_layer == target_layer:
             continue
         if down > up:
-            broken.append(f"{source} -> {target}  ({source_layer} -> {target_layer})")
-    assert not broken, "아래층이 위층을 가리킨다:\n  " + "\n  ".join(broken)
+            out.append(f"{source} -> {target}  ({source_layer} -> {target_layer})")
+    return out
 
+
+def test_아래층이_위층을_안_부른다():
+    found = broken(edges())
+    assert not found, "아래층이 위층을 가리킨다:\n  " + "\n  ".join(found)
+
+
+def test_모든_모듈이_표에_있다():
+    missing = sorted(m for m in (module_name(p) for p in (ROOT / "app").rglob("*.py"))
+                     if layer_of(m)[0] is None)
+    assert not missing, "LAYER 에 없는 모듈은 검사가 건너뛴다:\n  " + "\n  ".join(missing)
+
+
+def test_검사기가_위반을_잡는다():
+    assert broken([("app.core.config", "app.services.search_service")])
+    assert not broken([("app.services.search_service", "app.core.config")])
 
 def test_domain_은_아무것도_안_부른다():
     outward = [f"{s} -> {t}" for s, t in edges()

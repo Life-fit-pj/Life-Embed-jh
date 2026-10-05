@@ -117,8 +117,9 @@ py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    #
 
 ```bash
 py -m pytest tests -q       # 테스트
-bash check.sh               # 규칙 일곱 가지
+bash check.sh               # 규칙 여섯 가지
 py -m tools.check_routes    # Life-Web이 부르는 HTTP 경로가 다 열렸나 (반드시 -m)
+py -m tools.show_prompts    # Claude에게 가는 프롬프트 일곱을 최종 글로 찍는다
 ```
 
 | | `check.sh`가 세는 것 | 통과 |
@@ -128,11 +129,10 @@ py -m tools.check_routes    # Life-Web이 부르는 HTTP 경로가 다 열렸나
 | ③ | 계층 방향 (`tests/test_layers.py`) | 통과 |
 | ④ | 0바이트 `__init__.py`가 있나 | 0개 |
 | ⑤ | LangChain이 되살아났나 | 0곳 |
-| ⑥ | `app` 밖(tests·tools·pipeline)이 다리에 기대나 | 0곳 |
-| ⑦ | SQLite 전용 코드가 되살아났나 | 0곳 |
+| ⑥ | SQLite 전용 코드가 되살아났나 | 0곳 |
 
 - `tests/golden/`은 **"달라졌나"만** 봅니다 — 정확한지는 안 봅니다. 다시 찍으려면 파일을 지우고 `py -m tests.make_golden`.
-- `test_supabase_auth`는 한글 가짜 토큰을 헤더에 넣어 `UnicodeEncodeError`로 실패합니다(헤더는 latin-1만) — 토큰을 ASCII로 바꾸면 통과합니다.
+- `tests/test_golden.py`는 청크 본문을 전부 읽습니다(Supabase 전송량). 평소에는 `--ignore=tests/test_golden.py`로 뺍니다.
 - ②가 규칙인 이유 — 함수 안 import는 순환 참조를 **고치는 게 아니라 덮습니다.** 필요해지면 공통 부분을 아래층으로 내리라는 신호입니다.
 
 > Windows PowerShell에는 `bash`·`grep`이 없습니다. Git Bash 터미널(VSCode 터미널 `∨` → Git Bash)에서 돌리세요.
@@ -142,12 +142,12 @@ py -m tools.check_routes    # Life-Web이 부르는 HTTP 경로가 다 열렸나
 ```
 Life-Embed-jh/
 ├── app/          추천 엔진 본체 (아래 표)
-├── pipeline/     한 번만 돌리는 적재 작업 (schema · sample_kb · chunk · embed · io)
+├── pipeline/     한 번만 돌리는 적재 작업 (schema · sample_kb · chunk · embed · io) + golden_search(추천 품질 측정)
 ├── tests/        pytest + 골든 사진
-├── tools/        check_routes.py — Life-Web이 부르는 HTTP 경로 점검
+├── tools/        check_routes.py — Life-Web이 부르는 HTTP 경로 점검 · show_prompts.py — 프롬프트 찍어 보기
 ├── docs/         배포 문서 · ADR · 옛 계획
-├── check.sh      규칙 일곱 가지를 센다
-└── data/         원본 CSV (DB는 Supabase에 있다)
+├── check.sh      규칙 여섯 가지를 센다
+└── data/         원본 CSV (DB는 Supabase에 있다) · golden/ — 측정 문항
 ```
 
 ### app/ — 위층만 아래층을 부른다
@@ -162,8 +162,10 @@ Life-Embed-jh/
 | 2 | `repositories/` | **표를 실제로 읽고 쓰는 곳**(전부 ORM). `members`·`chunks`·`history`·`regions`는 옛 이름을 지키는 다리 |
 | 2 | `ai/` | `llm`(Claude) · `embedder`(OpenAI) · `vector_store` · `chunker` · `masking` |
 | 3 | `rag/` | `retriever.py` — 검색어로 뜻이 가까운 청크를 찾는다 |
-| 4 | `engine/` | 점수 계산 — `weights` · `recommend` · `explain` · `housing` · `resync` |
-| 5 | `services/` | 업무 순서를 엮는 창구 — search · region · chat · admin · auth · privacy · survey · history · analysis |
+| 4 | `engine/` | 점수 계산 — `weights` · `recommend` · `ranking`(조건 걸기 · 준비물 캐시) · `explain` · `chat_context`(채팅 재료) · `housing` · `resync` |
+| 4 | `prompts/` | **Claude에게 가는 글 일곱** — `search` · `chat` · `admin` + 공통 `common`. 프롬프트는 여기서만 고친다 |
+| 5 | `services/` | 업무 순서를 엮는 창구 — search · region · chat · admin · auth · privacy · survey · history · analysis · activity |
+| 5 | `graph/` · `tools/` | LangGraph 흐름(검색 · 채팅)과 채팅 도구 일곱. **`services`를 부르지 않는다** — 부르면 순환이 되살아난다(`check.sh` ②) |
 | 7 | `api/` | 라우터 — **여기만 FastAPI를 안다.** `main.py`가 전부 `include_router` |
 
 ### 요청 하나가 흐르는 길
@@ -172,13 +174,15 @@ Life-Embed-jh/
 POST /search  "애들 학원 보내기 좋은 곳"
  └ api/recommend.py                   ← FastAPI를 아는 유일한 층
     └ schemas/                          값 검사. 틀리면 여기서 422
-    └ services/search_service.py        업무 순서를 엮는다
-       ├ engine/weights.py              검색어 → 가중치 7개   (ai/llm.py)
-       │  └ rag/retriever.py            비슷한 회원·사례 찾기 (pgvector)
-       ├ engine/housing.py              예산 조건이 있으면 후보를 먼저 추린다
-       ├ engine/recommend.py            가중치 → TOP 5
-       └ engine/explain.py              TOP 5 → 설명문        (ai/llm.py)
-          └ repositories/ → db.py → Supabase Postgres
+    └ services/search_service.py        그래프 입구
+       └ graph/nodes.py                 weights → recommend → explain 순서로 돈다
+          ├ engine/weights.py           검색어 → 가중치 7개   (ai/llm.py · prompts/search.py)
+          │  └ rag/retriever.py         비슷한 회원·사례 찾기 (pgvector)
+          ├ engine/ranking.py           예산·자치구·세부 조건을 걸고 TOP 5를 뽑는다
+          │  ├ engine/housing.py        예산 조건이 있으면 후보를 먼저 추린다
+          │  └ engine/recommend.py      가중치 → 점수 계산
+          └ engine/explain.py           TOP 5 → 설명문        (ai/llm.py · prompts/search.py)
+             └ repositories/ → db.py → Supabase Postgres
 ```
 
 ### 무엇을 고치려면 어디를 여나
@@ -187,6 +191,9 @@ POST /search  "애들 학원 보내기 좋은 곳"
 | --- | --- |
 | 검색어에서 가중치 7개를 뽑는 규칙 | `engine/weights.py` (`ask_claude` · `blend`) |
 | TOP 5를 고르는 계산 | `engine/recommend.py` `recommend` |
+| 예산·자치구·세부 조건을 거는 순서 | `engine/ranking.py` `recommend_by_weights` |
+| Claude에게 주는 지시문(프롬프트) | `prompts/` — 검색 `search.py` · 채팅 `chat.py` · 관리자 `admin.py`. 고친 뒤 `py -m tools.show_prompts`와 `tests/test_prompts.py` |
+| 채팅이 쓰는 도구 | `tools/tools.py` |
 | Claude를 부르는 곳 | `ai/llm.py` `ask` |
 | 좋아요를 눌렀을 때 저장되는 것 | `repositories/history_repository.py` `add_like` |
 | 전화번호·이름을 가리는 규칙 | `ai/masking.py` `mask` (DB 연결은 `services/privacy_service.py`) |
@@ -201,7 +208,7 @@ POST /search  "애들 학원 보내기 좋은 곳"
 1. app/schemas/<이름>_schema.py     주고받을 형식
 2. app/api/<이름>_router.py         라우터. app.services를 부른다
 3. app/main.py                      include_router 한 줄   ← 빼먹기 쉽다. 빠지면 웹이 404
-4. bash check.sh                    일곱 가지 전부 OK
+4. bash check.sh                    여섯 가지 전부 OK
 ```
 
 파일 이름 뒤에는 역할을 붙입니다(`…_schema.py` · `…_router.py` · `…_service.py` · `…_repository.py`) —
@@ -224,8 +231,9 @@ POST /search  "애들 학원 보내기 좋은 곳"
 | 개인정보 | `privacy_preview`(원본 ↔ 가린 것 나란히) |
 | 캐시 | `clear_caches` |
 
-**회원을 고칠 때는 세 곳이 같이 움직여야 합니다** — ① DB 값 → ② 페르소나를 고쳤다면 벡터 재생성
-(`resync_member`) → ③ 캐시 비우기(`_clear_caches`). 하나라도 빠지면 "화면엔 새 값인데 추천은 옛날 것"이 됩니다.
+**회원을 고칠 때는 세 곳이 같이 움직여야 합니다** — ① DB 값 → ② 페르소나를 고쳤다면 고친 칸의 벡터 재생성
+(`resync_member`) → ③ 이름 목록 캐시 비우기(`_clear_member_caches`). 하나라도 빠지면 "화면엔 새 값인데 추천은 옛날 것"이 됩니다.
+행정동 값을 고쳤을 때는 순위 준비물까지 전부 비웁니다(`_clear_caches`).
 
 **개인정보 마스킹** — 내보내기 전에 전화번호·이메일·회원 이름·주소를 가리고, 연락 수단이 적힌 문장은
 문장째 걷어냅니다. 규칙은 `app/ai/masking.py`(순수 함수), DB 연결은 `app/services/privacy_service.py`
@@ -276,7 +284,7 @@ POST /search  "애들 학원 보내기 좋은 곳"
 - 제외 필터 (`exclude_gu` — "강남 외")
 - `pipeline/schema.py`의 일부 단계가 `if __name__` 없이 모듈 최상위에서 실행됨 — import만 해도 돈다
 - 월세는 시세 25~75% 분포를 못 보여줌 — 원본에 `월임대료` 분위 칼럼이 없음
-- 추천 정확도(hit@k) 평가 도구 없음 — 골든 테스트는 "전과 같은가"만 본다
+- 추천 정확도(hit@k)는 `py -m pipeline.golden_search`로 잽니다(27문항, Claude를 부릅니다 — 요금 주의). 채팅의 도구 선택은 아직 재는 도구가 없음
 - `repositories/`의 다리 넷(`members`·`chunks`·`history`·`regions`) 정리
 
 <details>

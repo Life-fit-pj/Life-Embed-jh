@@ -9,6 +9,7 @@ from app.services.admin_service import (
     list_members, list_regions, preview_member, privacy_preview, recent_logs,
     similar_members, update_member, update_region,
 )
+from app.services.activity_service import LimitReached, NotEnough, refresh_candidates, suggest, suggestions_today
 from app.services.auth_service import backfill_logins
 from app.schemas.admin import (
     BackfillLoginOut, ClearCachesOut, DashboardOut, HealthOut, MemberListItem,
@@ -93,8 +94,36 @@ def get_member_privacy_preview(customer_id: str):
         raise HTTPException(status_code=404, detail="member not found")
     return result
 
+@router.get("/refresh-candidates")
+def get_refresh_candidates():
+    """활동에서 본 성향을 갱신할 회원 — 마지막 저장 뒤 검색이 5건 이상 늘어난 회원. Claude 를 안 부른다."""
+    return refresh_candidates()
+
+
+@router.get("/members/{customer_id}/suggestions")
+def get_member_suggestions(customer_id: str):
+    """오늘 이 회원에게 준 성향 제안들과 남은 횟수."""
+    return suggestions_today(customer_id)
+
+
+@router.post("/members/{customer_id}/suggestions")
+def post_member_suggestion(customer_id: str):
+    """성향 제안을 하나 더 만든다(Claude 1번). 저장은 안 한다 — 관리자가 회원 수정으로 저장한다.
+
+    없는 회원이면 404, 검색이 모자라면 422, 하루 횟수를 넘으면 429.
+    """
+    try:
+        result = suggest(customer_id)
+    except NotEnough as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except LimitReached as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="member not found")
+    return result
+
 # ===================================================================
-# 행정동 
+# 행정동
 # ===================================================================
 
 @router.get("/regions", response_model=list[RegionListItem])

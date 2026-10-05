@@ -8,9 +8,9 @@
 {label, value} 로 바꾸는 건 화면 쪽(services) 일이다.
 """
 
-from sqlalchemy import Integer, cast, func, inspect
+from sqlalchemy import Integer, cast, func, inspect, literal, select, union_all
 
-from app.core.config import INDICATORS
+from app.core.config import ACTIVITY_COLUMN, CHUNK_COLUMNS, INDICATORS
 from app.db import engine
 from app.models.chunk import Chunk
 from app.models.customer import Customer
@@ -33,20 +33,20 @@ def _dicts(db, columns, fields, *filters):
 # 화이트리스트는 그대로 둔다 — 그건 주입 방지가 아니라 "고쳐도 되는 칸" 정책이다.
 
 def _apply(db, model, where, patch, allowed):
-    """patch 중 allowed 에 있는 칸만 골라 고친다. 고친 칸 수를 돌려준다."""
+    """patch 중 allowed 에 있는 칸만 골라 고친다. 고친 칸 수를 돌려준다. 고칠 줄이 없으면 0 이다."""
     fields = [name for name in patch if name in allowed]
     if not fields:
         return 0
 
     row = db.query(model).filter(where).first()
-    if row is not None:
-        for name in fields:
-            setattr(row, name, patch[name])
-        db.commit()
+    if row is None:
+        # 고칠 줄이 없다 — 아무것도 안 했으니 0 이다. 전에는 len(fields) 를 돌려줘서
+        # 선호도 행이 없는 회원의 가중치 저장이 "됐다"고 나갔다(2026-10-03 실측: C107)
+        return 0
 
-    # ⚠ 옛 코드는 대상 줄이 없어도 len(fields) 를 돌려줬다. 그 동작을 그대로 둔다 —
-    #    고칠 값어치가 있어 보이지만, 리팩터링 중에 동작을 바꾸면 "옮겨서 깨진 건지
-    #    고쳐서 바뀐 건지" 를 구분할 수 없다. 리팩터링이 끝난 뒤에 따로 다룬다
+    for name in fields:
+        setattr(row, name, patch[name])
+    db.commit()
     return len(fields)
 
 
@@ -78,6 +78,23 @@ def member_weights(db, customer_ids):
     return _dicts(db, columns, fields, Preference.customer_id.in_(customer_ids))
 
 
+def members_near_weights(db, weights, top_k=5, exclude=None):
+    """선호 가중치 7개가 weights 와 가장 가까운 회원 번호들(가까운 순). exclude 는 뺄 회원(자기 자신).
+
+    거리 = 지표별 차이의 제곱 합. 계산과 정렬을 DB 가 하므로 top_k 줄만 받는다.
+    동점은 회원 번호 순 — 같은 질문에 같은 답이 나오게 한다
+    """
+    distance = sum((getattr(Preference, k) - weights[k]) * (getattr(Preference, k) - weights[k]) for k in INDICATORS)
+    rows = (
+        db.query(Preference.customer_id)
+        .filter(Preference.customer_id != (exclude or ""))
+        .order_by(distance, Preference.customer_id)
+        .limit(top_k)
+        .all()
+    )
+    return [cid for (cid,) in rows]
+
+
 # ── 회원 관리자 조회 (app/services/admin_service.py 가 쓴다) ──────────────
 
 def customer_list(db):
@@ -85,6 +102,16 @@ def customer_list(db):
     columns = [getattr(Customer, name) for name in CUSTOMER_LIST_FIELDS]
     rows = db.query(*columns).order_by(Customer.customer_id).all()
     return [dict(zip(CUSTOMER_LIST_FIELDS, row)) for row in rows]
+
+
+def customer_homes(db, customer_ids):
+    """회원들의 거주 동. {customer_id: "구 동"} — 채팅의 닮은 회원 도구가 쓴다. 이름·연락처는 안 읽는다"""
+    rows = (
+        db.query(Customer.customer_id, Customer.city, Customer.city_dong)
+        .filter(Customer.customer_id.in_(customer_ids))
+        .all()
+    )
+    return {cid: f"{city} {dong}" for cid, city, dong in rows}
 
 
 def customer_one(db, customer_id):
@@ -128,7 +155,10 @@ def customer_preferences_initial(db, customer_id):
 
 
 def customer_persona(db, customer_id):
-    """chunks 에서 회원 한 명의 페르소나 9칸을 {category: text} 로 되돌린다.
+    """chunks 에서 회원 한 명의 페르소나 칸들을 {category: text} 로 되돌린다.
+
+    350자를 넘는 글은 조각 여러 개로 나뉘어 있다 — 넣은 순서(chunk_id)대로 이어 붙여 원래 글로 돌려준다.
+    한 조각만 돌려주면 관리자가 다른 칸을 고쳐 저장할 때 나머지 조각이 조용히 지워진다(admin_service.update_member).
 
     표를 합친 뒤로는 source 로 회원 줄만 걸러야 한다 — 옛 member_chunk 였을 때는
     표 이름이 그 일을 대신해 줬다(5-10절).
@@ -136,9 +166,17 @@ def customer_persona(db, customer_id):
     rows = (
         db.query(Chunk.category, Chunk.text)
         .filter(Chunk.source == "member", Chunk.source_id == customer_id)
+        .order_by(Chunk.chunk_id)
         .all()
     )
-    return {category: text for category, text in rows}
+    persona = {}
+    for category, text in rows:
+        persona[category] = f"{persona[category]} {text}" if category in persona else text
+
+    # 칸 순서는 설문 순서로 고정한다. 고친 칸은 조각이 새로 들어가 chunk_id 가 커지므로,
+    # 들어간 순서대로 주면 화면에서 방금 고친 칸이 맨 아래로 내려간다
+    order = (*CHUNK_COLUMNS, ACTIVITY_COLUMN)
+    return {c: persona[c] for c in sorted(persona, key=lambda c: order.index(c) if c in order else len(order))}
 
 
 # ── 회원 관리자 수정 (app/services/admin_service.py 가 쓴다) ──────────────
@@ -214,41 +252,46 @@ def indicator_averages(db):
     return {name: (float(v) if v is not None else None) for name, v in zip(INDICATORS, row)}
 
 
-def indicator_spread(db, name):
-    """지표 하나를 1~5 중 몇 명이 골랐나. (점수, 인원) 목록."""
-    score = cast(getattr(Preference, name), Integer)
+def indicator_spreads(db):
+    """지표마다 1~5 를 몇 명이 골랐나. {지표: [(점수, 인원), …]} — 일곱 지표를 한 번에 센다.
 
-    return [
-        tuple(row)
-        for row in db.query(score, func.count())
-        .filter(getattr(Preference, name).isnot(None))
-        .group_by(score)
-        .order_by(score)
-        .all()
-    ]
+    지표마다 따로 물으면 일곱 번 왕복이다. 지표별 집계를 하나로 이어(UNION ALL) 한 번에 가져온다.
+    소수점 가중치는 가까운 정수 묶음으로 들어간다(4.5 와 3.5 는 둘 다 4 — Postgres 가 가까운 짝수로 바꾼다)
+    """
+    parts = []
+    for name in INDICATORS:
+        column = getattr(Preference, name)
+        score = cast(column, Integer)
+        parts.append(select(literal(name), score, func.count()).where(column.isnot(None)).group_by(score))
+
+    spreads = {name: [] for name in INDICATORS}
+    for name, score, n in db.execute(union_all(*parts)):
+        spreads[name].append((score, n))
+    return {name: sorted(rows) for name, rows in spreads.items()}
 
 
-def indicator_drift(db, name):
-    """지표 하나가 가입 시 값에서 얼마나 움직였나. (인원, 평균변화).
+def indicator_drifts(db):
+    """지표마다 가입 시 값에서 얼마나 움직였나. {지표: (인원, 평균변화)} — 일곱 지표를 한 번에 센다.
 
     0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다.
-    func.avg() 는 Decimal 을 낸다 — indicator_averages() 와 같은 이유로 float 로 바꾼다.
+    가입 시 값이 빈 줄은 차이가 NULL 이라 그 조건에서 같이 빠진다.
+    func.avg() 는 Decimal 을 낼 수 있다 — indicator_averages() 와 같은 이유로 float 로 바꾼다.
     """
-    current = getattr(Preference, name)
-    initial = getattr(Preference, f"{name}_초기")
+    columns = []
+    for name in INDICATORS:
+        change = getattr(Preference, name) - getattr(Preference, f"{name}_초기")
+        moved = func.abs(change) >= 0.005
+        columns += [func.count().filter(moved), func.avg(change).filter(moved)]
 
-    n, avg = (
-        db.query(func.count(), func.avg(current - initial))
-        .filter(initial.isnot(None))
-        .filter(func.abs(current - initial) >= 0.005)
-        .one()
-    )
-    return n, (float(avg) if avg is not None else None)
+    row = db.query(*columns).one()
+    return {name: (row[2 * i], float(row[2 * i + 1]) if row[2 * i + 1] is not None else None)
+            for i, name in enumerate(INDICATORS)}
 
 
 def age_group_counts(db):
     """연령대(10년 단위)별 인원. (연령대, 인원) 목록."""
-    group = cast(Customer.age / 10, Integer) * 10
+    # 내림해서 묶는다. 나눈 값을 그대로 정수로 바꾸면 Postgres 가 반올림해 35세가 40대로 들어간다
+    group = cast(func.floor(Customer.age / 10), Integer) * 10
 
     return [
         tuple(row)

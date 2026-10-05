@@ -64,7 +64,7 @@ def list_chat_history(anon_id, limit=20):
 
 # => 관리자 수정 이력
 
-def write_admin_log(target: str, target_id: str, patch: dict) -> None:
+def write_admin_log(target: str, target_id: str, patch: dict) -> str:
     return _run(repo.write_admin_log, target, target_id, patch)
 
 
@@ -136,6 +136,18 @@ def admin_log_count():
 
 def admin_log_recent(limit=8):
     return _run(repo.admin_log_recent, limit)
+
+
+def admin_logs_of(target, target_id, since=""):
+    return _run(repo.admin_logs_of, target, target_id, since)
+
+
+def last_change_times(target, field):
+    return _run(repo.last_change_times, target, field)
+
+
+def member_searches():
+    return _run(repo.member_searches)
 
 
 # ── 분석 대화 (app/services/analysis_service.py 가 쓴다) ────────

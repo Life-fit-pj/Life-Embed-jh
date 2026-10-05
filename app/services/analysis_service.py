@@ -16,17 +16,19 @@
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from app.ai.llm import ask as llm_ask
 from app.core.config import INDICATORS
+from app.prompts.admin import ANALYSIS_PROMPT
 from app.services.admin_service import dashboard, to_pairs
 from app.repositories.history import (
     add_analysis_chat, analysis_chat_one, chat_count, delete_analysis_chat,
     like_region_counts, list_analysis_chat, search_count, top_searches,
 )
 from app.repositories.members import (
-    has_initial_columns, indicator_drift, indicator_spread,
+    has_initial_columns, indicator_drifts, indicator_spreads,
     preference_count, work_city_counts,
 )
 
@@ -40,7 +42,8 @@ def facts_spread() -> dict:
     dashboard() 는 평균만 준다. 평균 3.0 이 "다들 3점"인지 "1점과 5점이 반반"인지
     구분이 안 되므로, 판단에 필요한 분포를 여기서 따로 센다
     """
-    return {name: to_pairs(indicator_spread(name)) for name in INDICATORS}
+    spreads = indicator_spreads()          # 일곱 지표를 한 번에 (전엔 지표마다 한 번씩 일곱 번)
+    return {name: to_pairs(spreads[name]) for name in INDICATORS}
     
     
 def facts_drift() -> dict:
@@ -64,8 +67,9 @@ def facts_drift() -> dict:
         }
 
     changed, moves = 0, []
+    drifts = indicator_drifts()            # 일곱 지표를 한 번에
     for name in INDICATORS:
-        n, delta = (indicator_drift(name) or (0, None))
+        n, delta = drifts[name]
         changed += n or 0
         if n:
             moves.append({"label": name, "value": round(delta, 3), "인원": n})
@@ -104,14 +108,25 @@ def collect_facts() -> dict:
       대신 dashboard() 를 고치면 Claude 가 보는 것도 같이 바뀐다는 걸 알고 고칠 것
     """
     d = dashboard()
+    # 나머지 여섯 묶음은 서로 안 기댄다. 차례로 물으면 원격 DB 왕복이 그대로 더해져 8초가 걸렸다(2026-10-05 실측) —
+    # 동시에 보내 가장 느린 것 하나만큼만 기다린다. dashboard() 가 끝난 뒤에 보낸다 — 그것도 안에서 열둘을
+    # 동시에 보내므로, 겹치면 DB 연결을 한꺼번에 너무 많이 잡는다
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        sample_f = pool.submit(preference_count)
+        spread_f = pool.submit(facts_spread)
+        work_f = pool.submit(work_city_counts, 15)
+        likes_f = pool.submit(like_region_counts, 15)
+        drift_f = pool.submit(facts_drift)
+        searches_f = pool.submit(facts_searches)
+
     return {
         "규모": d["counts"],
         "회원_성향": {
             # ⚠ 표본은 counts["members"] 가 아니다 —
             #   그건 customers 표(로그인만 발급된 빈 계정 포함)라 가중치가 없는 사람까지 센다
-            "표본": preference_count(),
+            "표본": sample_f.result(),
             "지표평균": d["charts"]["weights"],
-            "지표분포": facts_spread(),
+            "지표분포": spread_f.result(),
             "연령대": d["charts"]["ages"],
             "성별": d["charts"]["genders"],
             "가입추이": d["charts"]["joins"],
@@ -119,32 +134,15 @@ def collect_facts() -> dict:
         },
         "지역_수요": {
             "거주_자치구": d["charts"]["memberGu"],
-            "직장_자치구": to_pairs(work_city_counts(15)),
-            "좋아요_동네": to_pairs(like_region_counts(15)),
+            "직장_자치구": to_pairs(work_f.result()),
+            "좋아요_동네": to_pairs(likes_f.result()),
         },
-        "변동_추이": facts_drift(),
-        "검색_트렌드": facts_searches(),
+        "변동_추이": drift_f.result(),
+        "검색_트렌드": searches_f.result(),
     }
 
 
 # ── Claude 에게 묻기 ─────────────────────────────
-
-SYSTEM = """당신은 주거 추천 서비스 LIFE,FIT 의 데이터 분석 도우미입니다.
-아래 "집계 자료"만 보고 관리자의 질문에 답하세요.
-
-## 반드시 지킬 것
-
-1. 집계 자료에 있는 숫자만 쓰세요. 없는 숫자를 추정하거나 지어내지 마세요.
-2. 자료에 없는 것을 물으면 "그 자료는 아직 없습니다"라고 답하고,
-   무엇이 있어야 답할 수 있는지 한 줄로 알려주세요.
-3. `비어있는_이유`가 채워진 항목은 데이터가 없는 것입니다.
-   그 이유를 그대로 전하고, 없는 데이터로 추세를 말하지 마세요.
-4. 표본 수를 반드시 밝히세요. 회원 100명은 작은 표본입니다.
-   "회원들은 ~하다" 대신 "회원 100명 표본에서는 ~로 나타난다"로 쓰세요.
-5. 이 답변은 회사 내부 자료로 쓰입니다. 확실하지 않으면 확실하지 않다고 쓰세요.
-
-한국어로, 짧게. 숫자를 인용할 때는 항목 이름을 같이 쓰세요."""
-
 
 def _facts_text(facts: dict) -> str:
     """집계를 Claude 가 읽을 글로. JSON 을 그대로 넣는 게 가장 오해가 적다."""
@@ -160,7 +158,7 @@ def ask(question: str) -> dict:
     facts = collect_facts()
     prompt = f"## 집계 자료\n{_facts_text(facts)}\n\n## 질문\n{question}"
     try:
-        answer = llm_ask([("system", SYSTEM), ("human", prompt)], max_tokens=900).strip()
+        answer = llm_ask([("system", ANALYSIS_PROMPT), ("human", prompt)], max_tokens=900).strip()
     except Exception as e:
         # Claude 호출 실패(요금 한도·네트워크 등)를 500으로 그대로 죽이지 않고
         # 기존 계약(dict 의 "error")으로 돌려준다 — admin.py 가 422로 바꿔서 화면에 실제 이유가 뜬다

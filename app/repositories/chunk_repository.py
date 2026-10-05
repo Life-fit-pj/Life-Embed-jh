@@ -7,6 +7,7 @@
 
 from sqlalchemy import Integer, cast, func
 
+from app.core.config import ACTIVITY_COLUMN
 from app.models.chunk import Chunk
 
 # 부르는 쪽이 쓰는 딕셔너리 키다. 표를 합친 뒤에도 이 이름은 안 바꾼다 —
@@ -68,8 +69,9 @@ def nearest_chunks(db,source, query_vector, top_k=5):
 def nearest_people(db, source, query_vector, top_k=5):
     """사람 단위로 top_k. [(id, 점수, 행)] — 한 사람은 가장 가까운 청크 하나로만 센다.
 
-    후보를 top_k 의 10배 받아 사람별 첫 줄만 남긴다. 한 사람의 청크는 많아야
-    9개(config.CHUNK_COLUMNS 의 개수)라, 50개 안에는 반드시 5명 이상이 들어 있다
+    후보를 top_k 의 10배 받아 사람별 첫 줄만 남긴다. 한 사람의 청크는 보통 열 개 안쪽이라
+    (가입 설문 아홉 칸 + 활동 한 칸, 350자를 넘는 글만 조각이 둘) 50개 안에 5명은 거의 늘 들어 있다.
+    보장은 아니다 — 모자라면 있는 만큼만 돌려준다
     """
     
     key = ID_KEY[source]
@@ -81,25 +83,46 @@ def nearest_people(db, source, query_vector, top_k=5):
     
 # ── 집계 (관리자 대시보드가 쓴다) ──────────────────────
 
-def member_chunk_count(db):
-    """회원 청크가 몇 개 쌓여 있나."""
-    return (
-        db.query(func.count())
-        .select_from(Chunk)
+def member_chunk_stats(db):
+    """회원 조각의 현황. 칸(회원 × 종류)과 조각을 따로 센다 — 350자를 넘는 글은 한 칸이 조각 둘이다.
+
+    chunks   조각 수 전부(활동 조각 포함)
+    slots    가입 설문 칸 중 채워진 것. 조각이 둘이어도 한 칸이다 — 시스템 탭이 "회원 × 9칸"과 견준다
+    activity 활동에서 본 성향 칸이 있는 회원 수
+    split    조각이 둘 이상인 칸 수
+    """
+    cells = (
+        db.query(Chunk.category.label("category"), func.count().label("pieces"))
         .filter(Chunk.source == "member")
-        .scalar()
+        .group_by(Chunk.source_id, Chunk.category)
+        .subquery()
     )
+    chunks, slots, activity, split = db.query(
+        func.coalesce(func.sum(cells.c.pieces), 0),
+        func.count().filter(cells.c.category != ACTIVITY_COLUMN),
+        func.count().filter(cells.c.category == ACTIVITY_COLUMN),
+        func.count().filter(cells.c.pieces > 1),
+    ).one()
+    return {"chunks": int(chunks), "slots": slots, "activity": activity, "split": split}
 
 
 def persona_lengths(db):
-    """페르소나 칸별 평균 글자 수. (칸이름, 평균길이) 목록."""
-    avg_length = cast(func.avg(func.length(Chunk.text)), Integer)
+    """페르소나 칸별 평균 글자 수. (칸이름, 평균길이) 목록. 가입 설문 칸만 본다 — 활동 칸은 뺀다.
+
+    칸 단위로 잰다 — 350자를 넘어 조각이 둘인 글은 조각 길이를 더한 것이 그 칸의 길이다
+    """
+    cells = (
+        db.query(Chunk.category.label("category"), func.sum(func.length(Chunk.text)).label("length"))
+        .filter(Chunk.source == "member", Chunk.category != ACTIVITY_COLUMN)
+        .group_by(Chunk.source_id, Chunk.category)
+        .subquery()
+    )
+    avg_length = cast(func.avg(cells.c.length), Integer)
 
     return [
         tuple(row)
-        for row in db.query(Chunk.category, avg_length)
-        .filter(Chunk.source == "member")
-        .group_by(Chunk.category)
+        for row in db.query(cells.c.category, avg_length)
+        .group_by(cells.c.category)
         .order_by(avg_length.desc())
         .all()
     ]
@@ -109,30 +132,17 @@ def persona_lengths(db):
 # 지우기와 넣기는 항상 짝으로 돈다. 따로 두면 하나만 부르는 사고가 나므로
 # 한 함수로 묶고 이름을 replace_ 로 짓는다
 
-def replace_kb_chunks(db, uuid, rows):
-    """kb 페르소나 한 명의 청크를 통째로 갈아 끼운다.
-
-    rows 는 (uuid, district, category, text, embedding) 튜플 목록이다 — 옛 모양 그대로.
-    embedding 은 6단계부터 float 리스트를 json.dumps 한 문자열이다(resync.py 가 만든다).
-    """
-    db.query(Chunk).filter(
-        Chunk.source == "kb", Chunk.source_id == uuid
-    ).delete(synchronize_session=False)
-    db.add_all([
-        Chunk(source="kb", source_id=u, district=d, category=c, text=t, embedding=v)
-        for u, d, c, t, v in rows
-    ])
-    db.commit()
-
-
-def replace_member_chunks(db, customer_id, rows):
-    """회원 한 명의 청크를 통째로 갈아 끼운다.
+def replace_member_chunks(db, customer_id, rows, categories=None):
+    """회원 한 명의 청크를 갈아 끼운다.
 
     rows 는 (customer_id, category, text, embedding) 튜플 목록이다.
+    categories 를 주면 그 칸의 청크만 지우고 넣는다 — 안 고친 칸은 건드리지 않는다(관리자 수정).
+    안 주면 통째로 갈아 끼운다(새 회원 · 탈퇴 · 적재 교정)
     """
-    db.query(Chunk).filter(
-        Chunk.source == "member", Chunk.source_id == customer_id
-    ).delete(synchronize_session=False)
+    old = db.query(Chunk).filter(Chunk.source == "member", Chunk.source_id == customer_id)
+    if categories is not None:
+        old = old.filter(Chunk.category.in_(categories))
+    old.delete(synchronize_session=False)
     db.add_all([
         Chunk(source="member", source_id=cid, category=c, text=t, embedding=v)
         for cid, c, t, v in rows

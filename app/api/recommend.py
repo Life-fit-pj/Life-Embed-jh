@@ -3,7 +3,8 @@
 
 from fastapi import APIRouter
 
-from app.services.search_service import recommend_by_weights, recommend_by_weights_explained, search
+from app.engine.ranking import recommend_by_weights
+from app.services.search_service import recommend_by_weights_explained, search
 from app.schemas.recommend import (
     RecommendExplainedRequest, RecommendExplainedOut,
     RecommendRequest, RegionOut,

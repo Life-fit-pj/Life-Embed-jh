@@ -65,6 +65,12 @@ MANUAL_FKS = {
 SNAPSHOT_SUFFIX = "_초기"
 SNAPSHOT_COLUMNS = {"user_preferences": tuple(INDICATORS)}
 
+# 추론을 따르지 않고 타입을 못박는 칸. {표 이름: {칸 이름: 타입 이름}}
+# 가중치 7개는 CSV 에 1~5 정수로만 적혀 있어 추론하면 INTEGER 가 된다. 그런데 관리자
+# 슬라이더와 성향 제안은 4.5 같은 값을 저장한다 — 칸이 정수면 DB 가 오류 없이 4 로 깎는다.
+# `_초기` 칸은 build_table() 이 원래 칸의 타입을 따라 만들므로 여기 안 적어도 같이 실수가 된다
+FORCED_TYPE = {"user_preferences": {name: "FLOAT" for name in INDICATORS}}
+
 # 추론한 타입 이름 -> SQLAlchemy 타입 클래스.
 # 글자가 아니라 클래스다 — DDL 문자열을 우리가 안 만들기 때문이다.
 #
@@ -282,7 +288,7 @@ for path in sorted(DATA_DIR.glob("*.csv")):
     tables[name] = {
         "path": path,          # 적재할 때 전체를 다시 읽으려고 경로를 남긴다
         "columns" : columns,
-        "type" : {col: column_type(col, sample) for col in columns},
+        "type" : {col: FORCED_TYPE.get(name, {}).get(col) or column_type(col, sample) for col in columns},
         "pk" : infer_pk(columns, sample)
     }
 

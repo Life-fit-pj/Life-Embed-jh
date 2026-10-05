@@ -23,7 +23,8 @@ def test_있는_회원이면_전부_지우고_True():
          patch.object(admin_service, "replace_member_chunks") as mock_chunks, \
          patch.object(admin_service, "delete_logins_by_customer") as mock_logins, \
          patch.object(admin_service, "delete_activity") as mock_activity, \
-         patch.object(admin_service, "delete_customer") as mock_customer:
+         patch.object(admin_service, "delete_customer") as mock_customer, \
+         patch.object(admin_service, "write_admin_log") as mock_log:      # 안 바꾸면 돌릴 때마다 공유 DB 에 "C101 탈퇴"가 쌓인다
 
         result = admin_service.delete_member("C101")
 
@@ -32,3 +33,4 @@ def test_있는_회원이면_전부_지우고_True():
     mock_logins.assert_called_once_with("C101")
     mock_activity.assert_called_once_with("C101")
     mock_customer.assert_called_once_with("C101")
+    mock_log.assert_called_once_with("member", "C101", {"action": "탈퇴"})

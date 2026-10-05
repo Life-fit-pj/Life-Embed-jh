@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     regions: list[dict] | None = None
     weights: dict[str, float] | None = None
     history: list[dict] | None = None
+    anon_id: str | None = None      # 기기 번호. 로그인하면 회원 번호("C101"). 좋아요·닮은 회원 도구가 읽는다
 
 
 class ChatOut(BaseModel):
