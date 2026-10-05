@@ -27,11 +27,25 @@ def test_조각은_너무_짧지도_너무_길지도_않다():
         assert MIN_LENGTH <= len(piece) <= MAX_LENGTH + MIN_LENGTH
 
 
-def test_마침표_없이_긴_글도_글자를_안_버린다():
-    text = "마침표없이계속이어쓴글" * 70                  # 770자, 문장이 하나다
+def test_마침표_없이_긴_글은_낱말_사이에서_자른다():
+    text = ("저는 조용한 동네에서 아이를 키우고싶어요 " * 40).strip()      # 마침표가 없어 문장이 하나다
     pieces = split_long_text(text)
-    assert "".join(pieces).replace(" ", "") == text
+    assert len(pieces) > 1
+    assert " ".join(pieces) == text                                    # 낱말 중간에 공백이 끼지 않는다
+    assert " ".join(split_long_text(" ".join(pieces))) == text         # 되읽은 글을 다시 저장해도 안 변한다
+    assert all(MIN_LENGTH <= len(piece) <= MAX_LENGTH + MIN_LENGTH for piece in pieces)
+
+
+def test_공백도_없이_긴_글은_글자를_안_버린다():
+    text = "마침표없이계속이어쓴글" * 70                  # 770자, 공백이 하나도 없다 — 글자 수로 자를 수밖에 없다
+    pieces = split_long_text(text)
+    assert "".join(pieces) == text
     assert all(len(piece) >= MIN_LENGTH for piece in pieces)
+
+
+def test_줄바꿈과_겹친_공백은_공백_하나가_된다():
+    text = "첫 문장입니다.\n둘째  문장은 줄을 바꿔 적었습니다. " + "셋째 문장은 길게 이어집니다. " * 30
+    assert " ".join(split_long_text(text)) == " ".join(text.split())
 
 
 def test_청크로_만들어도_글이_다_남는다():

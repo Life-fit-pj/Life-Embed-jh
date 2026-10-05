@@ -40,16 +40,19 @@ def split_long_text(text, max_length=MAX_LENGTH):
     1단계 — 문장 단위로 나눈 뒤, 한도를 넘지 않는 만큼 이어 붙여 한 조각으로 만든다.
             문장 하나를 조각 하나로 두면 "집에서 쉽니다." 같은 짧은 문장이 MIN_LENGTH 에 걸려
             통째로 버려진다(2026-10-03 실측: 371자 글의 25%).
-    2단계 — 문장 하나가 한도를 넘으면(마침표 없이 길게 이어 쓴 경우) 그 문장만 글자 수로 자른다.
+    2단계 — 문장 하나가 한도를 넘으면(마침표 없이 길게 이어 쓴 경우) 그 문장만 낱말 사이(공백)에서 자른다.
+            한도 안에 공백이 하나도 없을 때만 글자 수로 자른다.
     3단계 — 그래도 MIN_LENGTH 보다 짧은 조각이 남으면 옆 조각에 붙인다. 그 조각은 한도를 MIN_LENGTH 만큼
             넘을 수 있다 — 한도가 넉넉한 어림값이라 괜찮다.
 
     반환값은 항상 리스트다. text가 짧으면 [text] 하나짜리 리스트로 온다.
-    조각을 공백으로 이으면 원래 글이 된다 — member_repository.customer_persona() 가 그렇게 되읽는다
+    조각을 공백으로 이으면 원래 글이 된다 — member_repository.customer_persona() 가 그렇게 되읽는다.
+    다만 줄바꿈 · 겹친 공백은 공백 하나로 바뀌고, 공백 없이 한도를 넘게 이어 쓴 토막은 잘린 자리에 공백이 하나 낀다
     """
     text = text.strip()
     if len(text) <= max_length:
         return [text]
+    text = " ".join(text.split())      # 줄바꿈 · 겹친 공백을 공백 하나로 — 조각을 공백으로 이으면 이 글이 그대로 나온다
 
     pieces, current = [], ""
     for sentence in _SENTENCE_END.split(text):
@@ -63,10 +66,15 @@ def split_long_text(text, max_length=MAX_LENGTH):
         if current:
             pieces.append(current)
 
-        # 문장 하나가 한도를 넘으면 글자 수로 자른다. 마지막 토막에는 다음 문장이 이어 붙는다
-        cuts = [sentence[i:i + max_length] for i in range(0, len(sentence), max_length)]
-        pieces += cuts[:-1]
-        current = cuts[-1]
+        # 문장 하나가 한도를 넘으면 낱말 사이(공백)에서 자른다 — 글자 수로 자르면 되읽을 때 낱말 중간에 공백이 낀다.
+        # 한도 안에 공백이 하나도 없을 때만 글자 수로 자른다. 마지막 토막에는 다음 문장이 이어 붙는다
+        while len(sentence) > max_length:
+            cut = sentence.rfind(" ", 0, max_length + 1)
+            if cut <= 0:
+                cut = max_length
+            pieces.append(sentence[:cut])
+            sentence = sentence[cut:].lstrip()
+        current = sentence
     pieces.append(current)
 
     # 짧게 남은 조각은 앞 조각에 붙인다. 맨 앞이 짧으면 뒤 조각에 붙인다
