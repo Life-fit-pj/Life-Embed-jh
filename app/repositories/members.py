@@ -116,12 +116,12 @@ def indicator_averages():
     return _run(repo.indicator_averages)
 
 
-def indicator_spread(name):
-    return _run(repo.indicator_spread, name)
+def indicator_spreads():
+    return _run(repo.indicator_spreads)
 
 
-def indicator_drift(name):
-    return _run(repo.indicator_drift, name)
+def indicator_drifts():
+    return _run(repo.indicator_drifts)
 
 
 def age_group_counts():

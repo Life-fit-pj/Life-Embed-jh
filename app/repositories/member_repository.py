@@ -8,7 +8,7 @@
 {label, value} 로 바꾸는 건 화면 쪽(services) 일이다.
 """
 
-from sqlalchemy import Integer, cast, func, inspect
+from sqlalchemy import Integer, cast, func, inspect, literal, select, union_all
 
 from app.core.config import ACTIVITY_COLUMN, CHUNK_COLUMNS, INDICATORS
 from app.db import engine
@@ -252,36 +252,40 @@ def indicator_averages(db):
     return {name: (float(v) if v is not None else None) for name, v in zip(INDICATORS, row)}
 
 
-def indicator_spread(db, name):
-    """지표 하나를 1~5 중 몇 명이 골랐나. (점수, 인원) 목록."""
-    score = cast(getattr(Preference, name), Integer)
+def indicator_spreads(db):
+    """지표마다 1~5 를 몇 명이 골랐나. {지표: [(점수, 인원), …]} — 일곱 지표를 한 번에 센다.
 
-    return [
-        tuple(row)
-        for row in db.query(score, func.count())
-        .filter(getattr(Preference, name).isnot(None))
-        .group_by(score)
-        .order_by(score)
-        .all()
-    ]
+    지표마다 따로 물으면 일곱 번 왕복이다. 지표별 집계를 하나로 이어(UNION ALL) 한 번에 가져온다.
+    소수점 가중치는 가까운 정수 묶음으로 들어간다(4.5 와 3.5 는 둘 다 4 — Postgres 가 가까운 짝수로 바꾼다)
+    """
+    parts = []
+    for name in INDICATORS:
+        column = getattr(Preference, name)
+        score = cast(column, Integer)
+        parts.append(select(literal(name), score, func.count()).where(column.isnot(None)).group_by(score))
+
+    spreads = {name: [] for name in INDICATORS}
+    for name, score, n in db.execute(union_all(*parts)):
+        spreads[name].append((score, n))
+    return {name: sorted(rows) for name, rows in spreads.items()}
 
 
-def indicator_drift(db, name):
-    """지표 하나가 가입 시 값에서 얼마나 움직였나. (인원, 평균변화).
+def indicator_drifts(db):
+    """지표마다 가입 시 값에서 얼마나 움직였나. {지표: (인원, 평균변화)} — 일곱 지표를 한 번에 센다.
 
     0.005 미만 차이는 세지 않는다 — 소수점 오차를 변동으로 세지 않기 위해서다.
-    func.avg() 는 Decimal 을 낸다 — indicator_averages() 와 같은 이유로 float 로 바꾼다.
+    가입 시 값이 빈 줄은 차이가 NULL 이라 그 조건에서 같이 빠진다.
+    func.avg() 는 Decimal 을 낼 수 있다 — indicator_averages() 와 같은 이유로 float 로 바꾼다.
     """
-    current = getattr(Preference, name)
-    initial = getattr(Preference, f"{name}_초기")
+    columns = []
+    for name in INDICATORS:
+        change = getattr(Preference, name) - getattr(Preference, f"{name}_초기")
+        moved = func.abs(change) >= 0.005
+        columns += [func.count().filter(moved), func.avg(change).filter(moved)]
 
-    n, avg = (
-        db.query(func.count(), func.avg(current - initial))
-        .filter(initial.isnot(None))
-        .filter(func.abs(current - initial) >= 0.005)
-        .one()
-    )
-    return n, (float(avg) if avg is not None else None)
+    row = db.query(*columns).one()
+    return {name: (row[2 * i], float(row[2 * i + 1]) if row[2 * i + 1] is not None else None)
+            for i, name in enumerate(INDICATORS)}
 
 
 def age_group_counts(db):

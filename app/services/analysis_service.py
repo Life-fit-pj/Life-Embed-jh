@@ -16,6 +16,7 @@
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from app.ai.llm import ask as llm_ask
@@ -26,7 +27,7 @@ from app.repositories.history import (
     like_region_counts, list_analysis_chat, search_count, top_searches,
 )
 from app.repositories.members import (
-    has_initial_columns, indicator_drift, indicator_spread,
+    has_initial_columns, indicator_drifts, indicator_spreads,
     preference_count, work_city_counts,
 )
 
@@ -40,7 +41,8 @@ def facts_spread() -> dict:
     dashboard() 는 평균만 준다. 평균 3.0 이 "다들 3점"인지 "1점과 5점이 반반"인지
     구분이 안 되므로, 판단에 필요한 분포를 여기서 따로 센다
     """
-    return {name: to_pairs(indicator_spread(name)) for name in INDICATORS}
+    spreads = indicator_spreads()          # 일곱 지표를 한 번에 (전엔 지표마다 한 번씩 일곱 번)
+    return {name: to_pairs(spreads[name]) for name in INDICATORS}
     
     
 def facts_drift() -> dict:
@@ -64,8 +66,9 @@ def facts_drift() -> dict:
         }
 
     changed, moves = 0, []
+    drifts = indicator_drifts()            # 일곱 지표를 한 번에
     for name in INDICATORS:
-        n, delta = (indicator_drift(name) or (0, None))
+        n, delta = drifts[name]
         changed += n or 0
         if n:
             moves.append({"label": name, "value": round(delta, 3), "인원": n})
@@ -104,14 +107,25 @@ def collect_facts() -> dict:
       대신 dashboard() 를 고치면 Claude 가 보는 것도 같이 바뀐다는 걸 알고 고칠 것
     """
     d = dashboard()
+    # 나머지 여섯 묶음은 서로 안 기댄다. 차례로 물으면 원격 DB 왕복이 그대로 더해져 8초가 걸렸다(2026-10-05 실측) —
+    # 동시에 보내 가장 느린 것 하나만큼만 기다린다. dashboard() 가 끝난 뒤에 보낸다 — 그것도 안에서 열둘을
+    # 동시에 보내므로, 겹치면 DB 연결을 한꺼번에 너무 많이 잡는다
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        sample_f = pool.submit(preference_count)
+        spread_f = pool.submit(facts_spread)
+        work_f = pool.submit(work_city_counts, 15)
+        likes_f = pool.submit(like_region_counts, 15)
+        drift_f = pool.submit(facts_drift)
+        searches_f = pool.submit(facts_searches)
+
     return {
         "규모": d["counts"],
         "회원_성향": {
             # ⚠ 표본은 counts["members"] 가 아니다 —
             #   그건 customers 표(로그인만 발급된 빈 계정 포함)라 가중치가 없는 사람까지 센다
-            "표본": preference_count(),
+            "표본": sample_f.result(),
             "지표평균": d["charts"]["weights"],
-            "지표분포": facts_spread(),
+            "지표분포": spread_f.result(),
             "연령대": d["charts"]["ages"],
             "성별": d["charts"]["genders"],
             "가입추이": d["charts"]["joins"],
@@ -119,11 +133,11 @@ def collect_facts() -> dict:
         },
         "지역_수요": {
             "거주_자치구": d["charts"]["memberGu"],
-            "직장_자치구": to_pairs(work_city_counts(15)),
-            "좋아요_동네": to_pairs(like_region_counts(15)),
+            "직장_자치구": to_pairs(work_f.result()),
+            "좋아요_동네": to_pairs(likes_f.result()),
         },
-        "변동_추이": facts_drift(),
-        "검색_트렌드": facts_searches(),
+        "변동_추이": drift_f.result(),
+        "검색_트렌드": searches_f.result(),
     }
 
 
