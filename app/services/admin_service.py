@@ -292,10 +292,17 @@ def update_region(gu, dong, patch):
     return get_region(gu, dong)
 
 def preview_member(customer_id):
-    """이 회원의 희망조건으로 추천 TOP 5를 뽑아본다. 아무것도 안 고친다."""
+    """이 회원의 희망조건으로 추천 TOP 5를 뽑아본다. 아무것도 안 고친다.
+
+    선호도 행이 없는 회원(설문을 건너뛰고 가입)은 일곱 지표를 보통(3)으로 본다 — 화면의 슬라이더도 그렇게 그린다.
+    None 은 없는 회원일 때뿐이다. 행이 없다고 None 을 내면, 화면이 가중치 저장 직전에 부르는 이 조회가
+    404 로 죽어서 저장 요청이 아예 안 나간다
+    """
     prefs = customer_preferences(customer_id)
     if prefs is None:
-        return None
+        if customer_one(customer_id) is None:
+            return None
+        prefs = {name: 3 for name in INDICATORS}
     return search_service.recommend_by_weights(dict(prefs), top_k=5)
 
 
