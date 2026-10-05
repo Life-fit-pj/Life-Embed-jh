@@ -9,8 +9,7 @@
 Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제한한다.
 """
 
-from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
-                                region_price_note, price_gap_text, format_won)
+from app.engine.housing import DEAL_COLUMNS, price_fit_line, price_head_lines, price_notes
 from app.engine.recommend import (load_regions, build_column_scores, build_scores, build_relative, recommend,
                                   focus_label)
 from app.repositories.regions import region_densities
@@ -18,6 +17,29 @@ from app.ai.llm import ask
 from app.rag.retriever import retrieve
 from app.core.config import SIMILARITY_FLOOR
 
+
+# 가격을 말하는 규칙 둘. 추천 설명문(이 파일)과 동네 설명문(region_service.py)이 글자까지 같이 쓴다 — 여기 한 곳에만 적는다.
+# 두 파일에 따로 적혀 있을 때는, 한쪽만 고치면 그쪽 설명문만 "시세 85점"을 "비싸다"로 읽게 됐다(오류도 없이).
+# 프롬프트에는 자리표시(__PRICE_FIT_RULE__ · __PRICE_SCORE_RULE__)만 두고 아래에서 끼운다 — weights.py 의 __SUB_HINT__ 와 같은 방식이다
+PRICE_FIT_RULE = """   "조건 일치도"는 사용자가 말한 가격과 얼마나 가까운지를 0~100으로 나타낸 값입니다
+   (100 = 목표가와 일치). 방향은 함께 주어지는 "목표보다 N% 높음/낮음"으로 판단해
+   다음처럼 쓰세요.
+   - 목표와 비슷하면: "원하시는 가격대에 가깝습니다"
+   - 높으면: "원하시는 가격대보다 조금 높은 편입니다"
+   - 낮으면: "원하시는 가격대보다 저렴한 편입니다"
+   퍼센트 수치("23% 높음")를 그대로 옮겨 쓰지 마세요. 그건 판단 재료이지 사용자에게
+   보여 줄 문구가 아닙니다."""
+
+PRICE_SCORE_RULE = """   "시세" 점수는 다른 지표와 방향이 반대입니다 — 값이 클수록 그 동네 시세가
+   서울에서 낮은(저렴한) 편이라는 뜻입니다. "시세 85점"은 "저렴한 쪽 상위 15%"이지
+   "비싸다"가 아닙니다.
+
+   금액을 말할지 말지는 "## 사용자가 원한 가격" 절이 있는지로 판단하세요.
+   - 그 절이 있으면: 주어진 금액을 준 그대로 쓰세요. 단위를 바꾸거나 다시 계산하지
+     마세요 ("8억원"을 "8,000만원"으로 바꾸는 실수가 실제로 있었습니다).
+   - 그 절이 없고 시세 점수만 있으면: 구체적인 금액은 쓰지 말고
+     "가격대는 서울에서 저렴한 편입니다" 처럼 한 문장만 덧붙이세요.
+   - 둘 다 없으면: 가격 이야기를 아예 꺼내지 마세요."""
 
 SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
 계산이 끝난 추천 결과를 사용자에게 설명하는 역할입니다.
@@ -43,28 +65,12 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
    지역에 대한 통념(강남은 비싸다, 노원은 학원가다 등)도 쓰지 마세요.
    데이터에 없는 것은 알고 있어도 말하지 않습니다.   
    
-   "조건 일치도"는 사용자가 말한 가격과 얼마나 가까운지를 0~100으로 나타낸 값입니다
-   (100 = 목표가와 일치). 방향은 함께 주어지는 "목표보다 N% 높음/낮음"으로 판단해
-   다음처럼 쓰세요.
-   - 목표와 비슷하면: "원하시는 가격대에 가깝습니다"
-   - 높으면: "원하시는 가격대보다 조금 높은 편입니다"
-   - 낮으면: "원하시는 가격대보다 저렴한 편입니다"
-   퍼센트 수치("23% 높음")를 그대로 옮겨 쓰지 마세요. 그건 판단 재료이지 사용자에게
-   보여 줄 문구가 아닙니다.
+__PRICE_FIT_RULE__
    "비싸다/싸다"를 절대적인 평가로 쓰지 마세요. 반드시 사용자가 말한 금액을 기준으로만
    말합니다.
 
 
-   "시세" 점수는 다른 지표와 방향이 반대입니다 — 값이 클수록 그 동네 시세가
-   서울에서 낮은(저렴한) 편이라는 뜻입니다. "시세 85점"은 "저렴한 쪽 상위 15%"이지
-   "비싸다"가 아닙니다.
-
-   금액을 말할지 말지는 "## 사용자가 원한 가격" 절이 있는지로 판단하세요.
-   - 그 절이 있으면: 주어진 금액을 준 그대로 쓰세요. 단위를 바꾸거나 다시 계산하지
-     마세요 ("8억원"을 "8,000만원"으로 바꾸는 실수가 실제로 있었습니다).
-   - 그 절이 없고 시세 점수만 있으면: 구체적인 금액은 쓰지 말고
-     "가격대는 서울에서 저렴한 편입니다" 처럼 한 문장만 덧붙이세요.
-   - 둘 다 없으면: 가격 이야기를 아예 꺼내지 마세요.
+__PRICE_SCORE_RULE__
 
    있는 것: 7개 지표(녹지·안전·교통·상권·의료·교육·문화)의 백분위 점수,
            그리고 가격 조건이 없는 검색일 때는 시세 백분위
@@ -79,6 +85,9 @@ SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도�
    - 마지막에 참고 사항이나 아쉬운 점 한 문장
 
 존댓말로, 전체 8문장 이내로 짧게 쓰세요."""
+
+SYSTEM_PROMPT = (SYSTEM_PROMPT.replace("__PRICE_FIT_RULE__", PRICE_FIT_RULE)
+                 .replace("__PRICE_SCORE_RULE__", PRICE_SCORE_RULE))
 
 
 def find_cases(persona_query, top_k=3):
@@ -158,19 +167,14 @@ def build_context(query, weights, detailed, cases, housing=None, focus=None):
 
     if housing:
         cols = DEAL_COLUMNS.get((housing["건물유형"], housing["거래유형"]))
-        lines.append("")
-        # 사용자가 말한 금액을 먼저 밝힌다 — 이게 없으면 Claude 는 "비싸다/싸다"를
-        # 무엇과 비교해서 말해야 하는지 모른다
-        target_text = " / ".join(f"{field} {format_won(value)}"
-                                 for field, value in housing["targets"].items())
-        lines.append(f"## 사용자가 원한 가격\n{housing['건물유형']} {housing['거래유형']} {target_text}")
-        lines.append("")
-        lines.append("## 참고 시세 (동네 전체 중앙값, 실제 매물가 아님)")
+        lines.extend(price_head_lines(housing))
 
         # 427행 조회는 루프 밖에서 한 번만 — 예전엔 TOP 5 마다 다시 읽었다.
         # 모르는 (건물유형, 거래유형) 조합이면 cols 가 None — 빈 목록으로 두어 아래가 전부 "시세 데이터 없음"이 되게(region_service 와 같은 처리)
         rows = region_densities(list(cols.values())) if cols else []
         by_name = {(r["구"], r["행정동명"]): r for r in rows}
+        # 신뢰등급·거래건수·분포도 한 번에 읽는다 — master_dataset_v3엔 없고 시세_지역별_전처리에만 있다
+        notes = price_notes([d["name"] for d in detailed], housing["건물유형"], housing["거래유형"]) if cols else {}
 
         for d in detailed:
             gu, dong = d["name"].split(" ", 1)
@@ -179,14 +183,7 @@ def build_context(query, weights, detailed, cases, housing=None, focus=None):
                 lines.append(f"{d['name']}: 시세 데이터 없음")
                 continue
 
-            fit = housing_fit_score(row, cols, housing["targets"])
-            gap = price_gap_text(row, cols, housing["targets"])
-            # 월세면 두 금액을 같이 보여준다 — 월세가 더 중요하니 앞에 쓴다
-            parts = [f"{field} {format_won(row[col])}" for field, col in cols.items()]
-            # 신뢰등급·거래건수·분포 — master_dataset_v3엔 없고 시세_지역별_전처리에만 있다
-            note = region_price_note(gu, dong, housing["건물유형"], housing["거래유형"])
-            lines.append(f"{d['name']}: {housing['건물유형']} {housing['거래유형']} " +
-                         " / ".join(parts) + f" (조건 일치도 {fit}점 · {gap}){note}")
+            lines.append(f"{d['name']}: " + price_fit_line(row, cols, housing, notes[d["name"]]))
 
     return "\n".join(lines)
 
