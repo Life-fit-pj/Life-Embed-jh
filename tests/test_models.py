@@ -8,14 +8,14 @@
 import pytest
 import math
 import numpy as np
-from sqlalchemy import func
+from sqlalchemy import Float, func, inspect
 
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.models.chunk import Chunk
 from app.models.customer import Customer
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
 from app.models.preference import Preference
-from app.core.config import ACTIVITY_COLUMN, EMBED_DIMENSION
+from app.core.config import ACTIVITY_COLUMN, EMBED_DIMENSION, INDICATORS
 
 
 # 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
@@ -72,6 +72,22 @@ def test_한글_칸을_이름으로_꺼낼_수_있다():
         assert all(getattr(row, ind) is not None for ind in INDICATORS)
     finally:
         db.close()
+
+
+def test_가중치_칸은_모델도_DB도_실수다():
+    """4.5 를 저장하면 4.5 로 읽혀야 한다 — 어느 한쪽만 정수여도 오류 없이 4 로 깎인다.
+
+    모델이 Integer 면 SQLAlchemy 가 저장할 때 값에 ::INTEGER 를 붙여 보내고,
+    DB 칸이 정수면 DB 가 깎는다. pipeline.schema 를 다시 돌린 뒤에도 실수인지 여기서 본다.
+    실패하면 정수로 남은 칸의 이름이 찍힌다.
+    """
+    names = [*INDICATORS, *(f"{name}_초기" for name in INDICATORS)]
+
+    model = Preference.__table__.c
+    assert [n for n in names if not isinstance(model[n].type, Float)] == []
+
+    actual = {c["name"]: c["type"] for c in inspect(engine).get_columns("user_preferences")}
+    assert [n for n in names if not isinstance(actual[n], Float)] == []
 
 
 def test_임베딩이_1536개다():
