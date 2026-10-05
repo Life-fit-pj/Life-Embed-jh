@@ -286,7 +286,8 @@ def indicator_drift(db, name):
 
 def age_group_counts(db):
     """연령대(10년 단위)별 인원. (연령대, 인원) 목록."""
-    group = cast(Customer.age / 10, Integer) * 10
+    # 내림해서 묶는다. 나눈 값을 그대로 정수로 바꾸면 Postgres 가 반올림해 35세가 40대로 들어간다
+    group = cast(func.floor(Customer.age / 10), Integer) * 10
 
     return [
         tuple(row)

@@ -313,8 +313,8 @@ def chat_count(db):
 
 
 def admin_log_count(db):
-    """관리자가 몇 번 고쳤나."""
-    return db.query(func.count()).select_from(AdminLog).scalar()
+    """관리자가 몇 번 고쳤나. 받은 제안(target="suggestion")은 고친 것이 아니라서 안 센다"""
+    return db.query(func.count()).select_from(AdminLog).filter(AdminLog.target != "suggestion").scalar()
 
 
 def top_searches(db, top=20):

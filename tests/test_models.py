@@ -18,26 +18,30 @@ from app.models.preference import Preference
 from app.core.config import ACTIVITY_COLUMN, EMBED_DIMENSION, INDICATORS
 
 
-# 고정 데이터 — 파이프라인을 다시 돌리기 전까지 줄 수가 안 변한다.
+# 고정 데이터 — 파이프라인이 CSV 에서 넣은 몫만 센다. 다시 적재하기 전까지 줄 수가 안 변한다.
 # 여기서 숫자가 틀리면 데이터가 유실된 것이므로 정확히 대조한다.
+# 표 전체를 세지 않는다 — 가입 · 관리자 저장으로 회원(C101~) · 선호도 행 · 회원 조각이 늘어난다.
+# 전체를 세면 "앱을 쓰면 깨지는 테스트" 가 된다(2026-10-05, C107 의 선호도 행이 생기며 실제로 깨졌다)
+LOADED = "C100"             # 적재로 들어온 마지막 회원 번호
+LOADED_CHUNK = (Chunk.source == "kb") | (Chunk.source_id <= LOADED)      # kb 전부 + 적재된 회원의 조각
 FIXED = [
-    (Customer, 104),
-    (Preference, 102),
-    (Chunk, 9914),          # member 900 + kb 9,000
+    (Customer, Customer.customer_id <= LOADED, 100),
+    (Preference, Preference.customer_id <= LOADED, 100),
+    (Chunk, LOADED_CHUNK, 9900),          # member 900 + kb 9,000
 ]
 
 # 기록용 표 — 서버를 켜서 검색 한 번만 해도 늘어난다.
 # 줄 수를 단언하면 "앱을 쓰면 깨지는 테스트" 가 되고, 그런 테스트는 곧 무시당한다.
 GROWING = [Like, SearchHistory, ChatHistory, AnalysisChat, AdminLog, UserLogin]
 
-ALL_MODELS = [model for model, _ in FIXED] + GROWING
+ALL_MODELS = [model for model, _, _ in FIXED] + GROWING
 
 
-@pytest.mark.parametrize("model,expected", FIXED, ids=lambda v: getattr(v, "__name__", v))
-def test_고정_표는_줄_수가_맞는다(model, expected):
+@pytest.mark.parametrize("model,loaded,expected", FIXED, ids=[model.__name__ for model, _, _ in FIXED])
+def test_적재된_몫은_줄_수가_맞는다(model, loaded, expected):
     db = SessionLocal()
     try:
-        rows = db.query(func.count()).select_from(model)
+        rows = db.query(func.count()).select_from(model).filter(loaded)
         if model is Chunk:      # 활동 조각은 관리자가 저장할 때마다 늘어난다 — 고정 데이터가 아니다
             rows = rows.filter(Chunk.category != ACTIVITY_COLUMN)
         assert rows.scalar() == expected
@@ -111,9 +115,9 @@ def test_chunks_는_source_로_나뉜다():
     db = SessionLocal()
     try:
         counts = dict(
-            db.query(Chunk.source, func.count()).filter(Chunk.category != ACTIVITY_COLUMN)
+            db.query(Chunk.source, func.count()).filter(Chunk.category != ACTIVITY_COLUMN, LOADED_CHUNK)
             .group_by(Chunk.source).all()
         )
-        assert counts == {"member": 914, "kb": 9000}
+        assert counts == {"member": 900, "kb": 9000}
     finally:
         db.close()
