@@ -31,15 +31,17 @@ def resync_kb_person(uuid, row):
     ])
 
 
-def resync_member(customer_id, row):
+def resync_member(customer_id, row, categories=None):
     """회원 한 명을 다시 임베딩한다.
 
     row 는 nemotron.csv 한 줄 + customer_id 가 들어간 모양이어야 한다.
+    categories 를 주면 그 칸만 다시 만든다 — row 에는 그 칸들만 있으면 된다. 관리자가 한 칸을 고쳤을 때
+    나머지 칸까지 지우고 다시 임베딩하지 않는다. 안 주면 회원의 청크를 통째로 다시 만든다
     """
     chunks = make_chunks([row], MEMBER_KEYS)
-    vectors = _embed(chunks)
+    vectors = _embed(chunks) if chunks else []      # 칸을 비우기만 했으면 임베딩할 글이 없다 — 빈 목록은 OpenAI 가 400 으로 거절한다
 
     replace_member_chunks(customer_id, [
         (c["customer_id"], c["category"], c["text"], vec)
         for c, vec in zip(chunks, vectors)
-    ])
+    ], categories)

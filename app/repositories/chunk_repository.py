@@ -148,14 +148,17 @@ def replace_kb_chunks(db, uuid, rows):
     db.commit()
 
 
-def replace_member_chunks(db, customer_id, rows):
-    """회원 한 명의 청크를 통째로 갈아 끼운다.
+def replace_member_chunks(db, customer_id, rows, categories=None):
+    """회원 한 명의 청크를 갈아 끼운다.
 
     rows 는 (customer_id, category, text, embedding) 튜플 목록이다.
+    categories 를 주면 그 칸의 청크만 지우고 넣는다 — 안 고친 칸은 건드리지 않는다(관리자 수정).
+    안 주면 통째로 갈아 끼운다(새 회원 · 탈퇴 · 적재 교정)
     """
-    db.query(Chunk).filter(
-        Chunk.source == "member", Chunk.source_id == customer_id
-    ).delete(synchronize_session=False)
+    old = db.query(Chunk).filter(Chunk.source == "member", Chunk.source_id == customer_id)
+    if categories is not None:
+        old = old.filter(Chunk.category.in_(categories))
+    old.delete(synchronize_session=False)
     db.add_all([
         Chunk(source="member", source_id=cid, category=c, text=t, embedding=v)
         for cid, c, t, v in rows

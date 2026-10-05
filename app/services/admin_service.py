@@ -61,18 +61,29 @@ def get_member(customer_id):
     같은 customer_id 로 그대로 조회하면 이 회원 몫만 걸러진다. 로그인 전(임시
     UUID로 활동했을 때) 기록은 안 잡힌다 — 로그인해야 그 뒤로 이 사람 것이 된다.
     """
-    customer = customer_one(customer_id)
-    if customer is None:
-        return None
-    return {
-        "customer": customer,
-        "preferences": customer_preferences(customer_id) or {},
-        "preferences_initial": customer_preferences_initial(customer_id) or {},
-        "persona": customer_persona(customer_id),
-        "likes": list_likes(customer_id),
-        "searches": list_search_history(customer_id),
-        "chats": list_chat_history(customer_id),
-    }
+    # 일곱 조회는 서로 안 기댄다. 하나씩 보내면 원격 DB 왕복이 그대로 더해져 3초가 걸렸다(2026-10-03 실측) —
+    # 대시보드처럼 동시에 보내 가장 느린 것 하나만큼만 기다린다. 없는 회원이면 여섯은 헛걸음이지만 드문 일이다
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        customer_f = pool.submit(customer_one, customer_id)
+        preferences_f = pool.submit(customer_preferences, customer_id)
+        initial_f = pool.submit(customer_preferences_initial, customer_id)
+        persona_f = pool.submit(customer_persona, customer_id)
+        likes_f = pool.submit(list_likes, customer_id)
+        searches_f = pool.submit(list_search_history, customer_id)
+        chats_f = pool.submit(list_chat_history, customer_id)
+
+        customer = customer_f.result()
+        if customer is None:
+            return None
+        return {
+            "customer": customer,
+            "preferences": preferences_f.result() or {},
+            "preferences_initial": initial_f.result() or {},
+            "persona": persona_f.result(),
+            "likes": likes_f.result(),
+            "searches": searches_f.result(),
+            "chats": chats_f.result(),
+        }
 
 
 def list_members():
@@ -176,6 +187,19 @@ def clear_caches() -> dict:
     return {"ok": True, "cache_warm": False}
 
 
+def _insert_first_preferences(customer_id: str, patch: dict) -> None:
+    """선호도 행을 처음 만든다 — 새 회원, 그리고 설문을 건너뛰고 가입해 행이 없는 회원.
+
+    처음 저장하는 값이 "가입 시 값"(_초기)도 된다 — 방금 생긴 행은 지금 값과 가입 때 값이 같아야 정상이다.
+    받지 않은 지표는 보통(3)으로 채운다. patch 에 가중치가 하나도 없으면 아무것도 안 한다
+    """
+    if not any(k in patch for k in PREFERENCE_FIELDS):
+        return
+    weights = {k: patch[k] if patch.get(k) is not None else 3 for k in PREFERENCE_FIELDS}
+    row = {**weights, **{f"{k}_초기": v for k, v in weights.items()}}
+    insert_preferences(customer_id, row, tuple(row))
+
+
 # 회원수정
 def update_member(customer_id, patch):
     if customer_one(customer_id) is None:   # 존재 확인은 이 한 줄로 충분 — get_member() 는 7번 왕복한다
@@ -183,14 +207,14 @@ def update_member(customer_id, patch):
     _validate(patch)                     # 없는 회원 확인(404) 다음, 저장 전
 
     update_customer(customer_id, patch, CUSTOMER_FIELDS)
-    update_preferences(customer_id, patch, PREFERENCE_FIELDS)
+    if not update_preferences(customer_id, patch, PREFERENCE_FIELDS):
+        _insert_first_preferences(customer_id, patch)      # 고칠 행이 없었다 — 설문을 건너뛰고 가입한 회원
 
     persona_patch = {k: v for k, v in patch.items() if k in PERSONA_FIELDS}
     if persona_patch:
-        row = dict(customer_persona(customer_id))   # 지금 있는 칸 전부. 긴 글은 조각을 이어 붙인 원문이다
-        row.update(persona_patch)                   # 바뀐 칸만 덮어쓰기
-        row["customer_id"] = customer_id            # resync 가 요구하는 칸
-        resync_member(customer_id, row)             # 벡터 재생성
+        # 고친 칸의 조각만 다시 만든다. 안 고친 칸은 읽지도 지우지도 않는다 —
+        # 통째로 다시 만들던 때는 되읽은 글이 원문과 어긋나면 안 고친 칸이 망가졌다
+        resync_member(customer_id, {**persona_patch, "customer_id": customer_id}, tuple(persona_patch))
 
     write_admin_log("member", customer_id, patch)
     _clear_caches()
@@ -224,13 +248,7 @@ def create_member(payload: dict) -> dict:
     customer_id = _next_customer_id()
     insert_customer(customer_id, payload, CUSTOMER_FIELDS)
 
-    # 가중치를 하나라도 받았으면 '_초기' 칸도 같은 값으로 같이 채운다 —
-    # 방금 가입한 회원은 "지금 값"과 "가입 때 값"이 아직 같아야 정상이다
-    indicator_patch = {k: v for k, v in payload.items() if k in PREFERENCE_FIELDS}
-    if indicator_patch:
-        pref_row = dict(indicator_patch)
-        pref_row.update({f"{k}_초기": v for k, v in indicator_patch.items()})
-        insert_preferences(customer_id, pref_row, tuple(pref_row.keys()))
+    _insert_first_preferences(customer_id, payload)      # 가중치를 하나라도 받았으면 선호도 행을 만든다
 
     if persona_patch:
         row = {k: persona_patch.get(k, "") for k in PERSONA_FIELDS}

@@ -59,5 +59,5 @@ def replace_kb_chunks(uuid, rows):
     return _run(repo.replace_kb_chunks, uuid, rows)
 
 
-def replace_member_chunks(customer_id, rows):
-    return _run(repo.replace_member_chunks, customer_id, rows)
+def replace_member_chunks(customer_id, rows, categories=None):
+    return _run(repo.replace_member_chunks, customer_id, rows, categories)

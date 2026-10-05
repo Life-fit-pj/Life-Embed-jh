@@ -10,7 +10,7 @@
 
 from sqlalchemy import Integer, cast, func, inspect
 
-from app.core.config import INDICATORS
+from app.core.config import ACTIVITY_COLUMN, CHUNK_COLUMNS, INDICATORS
 from app.db import engine
 from app.models.chunk import Chunk
 from app.models.customer import Customer
@@ -33,20 +33,20 @@ def _dicts(db, columns, fields, *filters):
 # 화이트리스트는 그대로 둔다 — 그건 주입 방지가 아니라 "고쳐도 되는 칸" 정책이다.
 
 def _apply(db, model, where, patch, allowed):
-    """patch 중 allowed 에 있는 칸만 골라 고친다. 고친 칸 수를 돌려준다."""
+    """patch 중 allowed 에 있는 칸만 골라 고친다. 고친 칸 수를 돌려준다. 고칠 줄이 없으면 0 이다."""
     fields = [name for name in patch if name in allowed]
     if not fields:
         return 0
 
     row = db.query(model).filter(where).first()
-    if row is not None:
-        for name in fields:
-            setattr(row, name, patch[name])
-        db.commit()
+    if row is None:
+        # 고칠 줄이 없다 — 아무것도 안 했으니 0 이다. 전에는 len(fields) 를 돌려줘서
+        # 선호도 행이 없는 회원의 가중치 저장이 "됐다"고 나갔다(2026-10-03 실측: C107)
+        return 0
 
-    # ⚠ 옛 코드는 대상 줄이 없어도 len(fields) 를 돌려줬다. 그 동작을 그대로 둔다 —
-    #    고칠 값어치가 있어 보이지만, 리팩터링 중에 동작을 바꾸면 "옮겨서 깨진 건지
-    #    고쳐서 바뀐 건지" 를 구분할 수 없다. 리팩터링이 끝난 뒤에 따로 다룬다
+    for name in fields:
+        setattr(row, name, patch[name])
+    db.commit()
     return len(fields)
 
 
@@ -172,7 +172,11 @@ def customer_persona(db, customer_id):
     persona = {}
     for category, text in rows:
         persona[category] = f"{persona[category]} {text}" if category in persona else text
-    return persona
+
+    # 칸 순서는 설문 순서로 고정한다. 고친 칸은 조각이 새로 들어가 chunk_id 가 커지므로,
+    # 들어간 순서대로 주면 화면에서 방금 고친 칸이 맨 아래로 내려간다
+    order = (*CHUNK_COLUMNS, ACTIVITY_COLUMN)
+    return {c: persona[c] for c in sorted(persona, key=lambda c: order.index(c) if c in order else len(order))}
 
 
 # ── 회원 관리자 수정 (app/services/admin_service.py 가 쓴다) ──────────────
