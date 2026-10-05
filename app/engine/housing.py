@@ -196,7 +196,7 @@ def price_lines(row, details):
 def price_head_lines(housing):
     """재료 글의 가격 절 머리 — 사용자가 말한 금액과 "참고 시세" 제목. 추천 설명문·동네 설명문이 같이 쓴다.
 
-    프롬프트(explain.PRICE_SCORE_RULE)가 "## 사용자가 원한 가격" 절이 있는지로 금액을 말할지 정한다 — 제목의 글자가 그것과 맞아야 한다
+    프롬프트(app/prompts/common.py 의 PRICE_SCORE_RULE)가 "## 사용자가 원한 가격" 절이 있는지로 금액을 말할지 정한다 — 제목의 글자가 그것과 맞아야 한다
     """
     # 사용자가 말한 금액을 먼저 밝힌다 — 이게 없으면 Claude 는 "비싸다/싸다"를 무엇과 비교해서 말해야 하는지 모른다
     target_text = " / ".join(f"{field} {format_won(value)}" for field, value in housing["targets"].items())

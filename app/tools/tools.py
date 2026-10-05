@@ -271,7 +271,7 @@ def run_tool(name, arguments, state=None):
     """Claude 가 고른 도구를 실제로 실행한다. state 는 채팅 상태 — FROM_STATE 에 적힌 값만 그 도구에 넣는다.
 
     도구 이름과 인자는 Claude 가 쓴 것이라 믿지 않는다. 없는 도구·안 맞는 인자면 죽지 않고
-    {"오류": …} 를 결과로 돌려준다 — generate 가 그걸 보고 "그건 볼 수 없다"고 답한다(SYSTEM_PROMPT 규칙 4)
+    {"오류": …} 를 결과로 돌려준다 — generate 가 그걸 보고 "그건 볼 수 없다"고 답한다(채팅 프롬프트 ANSWER_PROMPT 의 규칙 4)
     """
     tool = TOOLS.get(name)
     if tool is None:

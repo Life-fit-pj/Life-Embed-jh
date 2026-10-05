@@ -17,9 +17,10 @@ LAYER = {
     "app.ai": 2,
     "app.rag": 3,          # 7단계 — ai 위, engine 아래
     "app.engine": 4,
+    "app.prompts": 4,      # Claude 에게 가는 글. engine 과 services 가 가져다 쓴다. engine.recommend 의 세부 목록만 부른다
     "app.services": 5,     # 8단계 — 업무 로직
-    "app.tools": 5,        # 채팅 도구. services(recommend_by_weights)를 부른다
-    "app.graph": 5,        # services 와 서로 부른다 — 순환이다(check.sh ②)
+    "app.tools": 5,        # 채팅 도구. engine 과 repositories 를 부른다
+    "app.graph": 5,        # engine · tools 를 부른다. services 는 안 부른다 — 부르면 순환이 되살아난다(check.sh ②)
     "app.api": 7,          # 9단계 — 맨 위. 여기만 FastAPI 를 안다
     "app.main": 8,         # 라우터를 거는 곳. api 만 부른다
 }

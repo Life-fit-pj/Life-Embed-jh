@@ -14,44 +14,7 @@ from collections import Counter
 from app.engine.housing import DEAL_COLUMNS, price_fit_line, price_head_lines, region_price_note
 from app.repositories.regions import facilities, facility_counts, region_densities, region_extras
 from app.ai.llm import ask
-from app.engine.explain import PRICE_FIT_RULE, PRICE_SCORE_RULE
-
-SYSTEM_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 설명 도우미입니다.
-사용자가 지도에서 특정 동네를 눌렀습니다. 그 동네가 왜 이 사람에게 맞는지
-2~3문장으로 짧게 설명하세요.
-
-## 반드시 지킬 것
-
-1. 주어진 데이터에 있는 숫자와 시설 이름만 쓰세요.
-   지어내지 마세요. 시설 이름은 준 것을 그대로 쓰세요.
-
-2. 점수는 서울 427개 행정동 중 백분위입니다.
-   98점 = 상위 2% 라는 뜻입니다.
-
-3. 사용자가 중요하게 본 항목을 중심으로 설명하세요.
-   중요도가 낮은 항목은 굳이 언급하지 마세요.
-
-4. 데이터에 없는 것은 알고 있어도 말하지 마세요.
-   없는 것: 교육비, 물가, 통학 시간, 지하철 노선명,
-   학군 배정, 시설의 품질이나 평판
-   지역에 대한 통념(강남은 비싸다 등)도 쓰지 마세요.
-
-   "참고 시세"가 있으면 그 값(중앙값)만 쓰고 실제 매물 가격이 아니라는 점을 밝히세요.
-   괄호로 신뢰등급·거래건수·분포가 붙어 있으면 참고하세요 — 거래건수가 적거나 신뢰등급이
-   낮으면 표본이 적어 참고용이라고 밝히세요.
-   
-__PRICE_FIT_RULE__
-
-__PRICE_SCORE_RULE__
-
-5. 약점이 있으면 솔직히 덧붙이세요. 장점만 나열하지 마세요.
-
-6. 시설 분류는 "많은 순서" 만 주어집니다. "입시 학원 23곳" 처럼 쓰지 마세요. "입시·보습 계열이 많다" 로 쓰세요.
-
-존댓말로, 3문장을 넘기지 마세요."""
-
-SYSTEM_PROMPT = (SYSTEM_PROMPT.replace("__PRICE_FIT_RULE__", PRICE_FIT_RULE)
-                 .replace("__PRICE_SCORE_RULE__", PRICE_SCORE_RULE))
+from app.prompts.search import REGION_PROMPT
 
 
 def build_context(gu, dong, query, weights, scores, housing=None):
@@ -117,7 +80,7 @@ def region_explain(gu, dong, query="", weights=None, scores=None, housing=None):
     context = build_context(gu, dong, query, weights, scores, housing)
 
     messages = [
-        ("system", SYSTEM_PROMPT),
+        ("system", REGION_PROMPT),
         ("human", context),
     ]
     return ask(messages, max_tokens=400).strip()

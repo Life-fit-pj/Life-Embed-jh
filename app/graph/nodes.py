@@ -7,9 +7,10 @@ LangGraph 가 돌려받은 키만 기존 state 에 덮어쓴다.
 
 from app.ai.llm import ask, ask_with_tools
 from app.core.config import INDICATORS
-from app.engine.chat_context import PLAN_SYSTEM, SYSTEM_PROMPT, build_context
+from app.engine.chat_context import build_context
 from app.engine.explain import explain, find_cases
 from app.engine.weights import ask_claude, blend, find_similar_members
+from app.prompts.chat import ANSWER_PROMPT, PLAN_PROMPT
 from app.repositories.members import member_weights
 from app.engine.ranking import recommend_by_weights
 from app.tools.tools import run_tool, tool_specs
@@ -67,7 +68,7 @@ def explain_node(state):
 def chat_plan_node(state):
     names = [r.get("name", "").replace("서울특별시 ", "") for r in state["regions"] or []]
     user_prompt = f"추천된 동네: {', '.join(names)}\n\n질문: {state['question']}"
-    calls = ask_with_tools([("system", PLAN_SYSTEM), *state["history"], ("human", user_prompt)],
+    calls = ask_with_tools([("system", PLAN_PROMPT), *state["history"], ("human", user_prompt)],
                            tool_specs(state.get("anon_id")))
     
     if not calls:
@@ -99,7 +100,7 @@ def chat_generate_node(state):
     else:
         user_prompt = f"{state['context']}\n\n## 질문\n{state['question']}"
 
-    messages = [("system", SYSTEM_PROMPT), *state["history"], ("human", user_prompt)]
+    messages = [("system", ANSWER_PROMPT), *state["history"], ("human", user_prompt)]
     answer = ask(messages, max_tokens=600).strip()
     return {"answer": answer, "path": state["path"] + ["generate"]}
 

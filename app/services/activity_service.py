@@ -12,6 +12,7 @@ from app.ai.chunker import MAX_LENGTH
 from app.ai.llm import ask
 from app.core.config import ACTIVITY_COLUMN, INDICATORS, MIN_LENGTH
 from app.engine.weights import indicator_weights
+from app.prompts.admin import SUGGEST_PROMPT
 from app.repositories.history import (
     admin_logs_of, last_change_times, list_likes, list_search_history, member_searches, write_admin_log,
 )
@@ -24,20 +25,6 @@ MIN_SEARCHES = 5            # 이보다 적으면 재료가 모자라 Claude 가
 SEARCH_LIMIT = 30           # 재료로 싣는 검색어 수(최근 것부터)
 SUGGESTION = "suggestion"   # admin_log 의 target. 회원 수정("member")과 구분한다
 OFFERED = {ACTIVITY_COLUMN, *INDICATORS}    # 제안이 건네는 칸. 이 중 하나라도 저장했으면 그 전에 받은 제안은 쓴 것으로 본다
-
-SYSTEM = f"""당신은 주거지 추천 서비스 LIFE,FIT 의 회원 성향을 정리합니다.
-아래는 회원 한 명이 로그인한 뒤 남긴 검색어와, 좋아요를 누른 동네입니다.
-이 활동에서 드러나는 주거 성향을 지표 {len(INDICATORS)}개({'·'.join(INDICATORS)}) 기준으로 정리하세요.
-
-## 규칙
-1. 근거가 있는 지표만 씁니다. 검색어나 좋아요 동네의 점수에서 드러나지 않는 지표는 아예 언급하지 않습니다. 지어내지 않습니다.
-2. 성향 글은 "이 회원은"으로 시작하는 평서문 2~4문장, 300자 이내입니다. 어느 검색어·어느 동네에서 그렇게 봤는지 근거를 문장 안에 짧게 넣습니다.
-3. 이름·전화·주소 같은 개인 정보는 쓰지 않습니다. 동네 이름은 써도 됩니다.
-4. "지난번에 정리한 성향"이 있으면 그것을 바탕으로 하되, 새 활동에 맞게 고쳐 씁니다.
-5. 가중치는 지표마다 1~5 사이 숫자(0.5 단위)입니다. 근거가 있는 지표만 지금 값에서 올리거나 내리고, 근거가 없는 지표는 지금 값을 그대로 둡니다.
-6. JSON 만 출력합니다. 다른 글은 쓰지 않습니다.
-
-{{"성향": "…", "가중치": {{{', '.join(f'"{k}": 3' for k in INDICATORS)}}}}}"""
 
 
 class NotEnough(Exception):
@@ -153,7 +140,7 @@ def _generate(customer_id: str) -> dict:
     previous = customer_persona(customer_id).get(ACTIVITY_COLUMN, "")
     material = _material(queries, _liked(list_likes(customer_id)), weights, previous)
 
-    persona, proposed = _parse(ask([("system", SYSTEM), ("human", material)], max_tokens=700), weights)
+    persona, proposed = _parse(ask([("system", SUGGEST_PROMPT), ("human", material)], max_tokens=700), weights)
     if len(persona) < MIN_LENGTH:
         raise NotEnough("Claude 가 성향을 정리하지 못했습니다. 다시 눌러 주세요")
     return {ACTIVITY_COLUMN: persona, "가중치": proposed, "검색수": len(queries)}
