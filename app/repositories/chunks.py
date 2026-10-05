@@ -2,7 +2,7 @@
 
 부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
   app/ai/vector_store.py        nearest_chunks · nearest_people (검색마다)
-  app/engine/resync.py          replace_kb_chunks · replace_member_chunks
+  app/engine/resync.py          replace_member_chunks
   app/services/admin_service.py member_chunk_stats · persona_lengths
   tests/make_golden.py          네 함수 모두 (골든 사진)
 
@@ -54,10 +54,6 @@ def persona_lengths():
 
 
 # ── 재임베딩 쓰기 (app/engine/resync.py 가 쓴다) ────────
-
-def replace_kb_chunks(uuid, rows):
-    return _run(repo.replace_kb_chunks, uuid, rows)
-
 
 def replace_member_chunks(customer_id, rows, categories=None):
     return _run(repo.replace_member_chunks, customer_id, rows, categories)

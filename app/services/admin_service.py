@@ -28,7 +28,7 @@ from app.repositories.members import (
     join_month_counts, home_city_counts, deal_type_counts,
 )
 from app.repositories.regions import (
-    region_list, region_one, column_percentile, region_count,
+    region_list, region_one, region_count,
     gu_count, region_gu_counts,
     update_region as db_update_region,
 )
@@ -91,19 +91,21 @@ def list_members():
     return customer_list()
 
 
-def _derived_percentiles(gu, dong):
-    """계산된 칸(공원면적비율 등)의 백분위.
+def _percentiles(row):
+    """화면에 그릴 칸 전부의 백분위 — 표에 있는 칸(REGION_FIELDS)과 계산된 칸(공원면적비율 등).
 
     순위 계산이 쓰는 칸별 백분위(get_ready() 의 column_scores)를 그대로 읽는다 — 여기서 다시 계산하지 않는다.
+    칸마다 DB 에 물으면 왕복이 열 번이고(동네 하나 여는 데 3.9초), 그렇게 센 값은 순위가 쓰는 값과 1점씩 어긋났다.
     지표 점수(scores)가 아니다. 교육처럼 칸이 둘인 지표의 점수는 두 칸의 평균이라 칸 하나의 백분위와 다르다
     """
     r = search_service.get_ready()
-    i = r["index"].get(f"{gu} {dong}")
+    i = r["index"].get(f"{row['구']} {row['행정동명']}")
     if i is None:
         return {}
     return {
-        col: round(float(r["column_scores"][col][i]))
-        for col in DERIVED_COLUMNS
+        # 값이 빈 칸은 백분위도 비운다. 계산된 칸은 row 에 없다 — 늘 값이 있다
+        col: None if row.get(col, 0) is None else round(float(r["column_scores"][col][i]))
+        for col in (*REGION_FIELDS, *DERIVED_COLUMNS)
     }
 
 
@@ -124,11 +126,7 @@ def get_region(gu: str, dong: str) -> dict | None:
         "행정동명": row["행정동명"],
         "likes": likes,
         "values": {name: row[name] for name in REGION_FIELDS},
-        "percentiles": {
-            **{name: column_percentile(name, row[name]) for name in REGION_FIELDS},
-            # 계산된 칸은 순위가 쓰는 바로 그 점수를 보여준다 — 두 구현이 어긋날 길을 없앤다
-            **_derived_percentiles(row["구"], row["행정동명"]),
-        },
+        "percentiles": _percentiles(row),      # 순위가 쓰는 바로 그 점수를 보여준다 — 두 구현이 어긋날 길을 없앤다
     }
 
 
@@ -181,6 +179,15 @@ def _clear_caches():
     privacy_service.reset()          # 이름이 바뀌었을 수 있다
 
 
+def _clear_member_caches():
+    """회원을 만들고 · 고치고 · 지웠을 때 비울 것 — 이름 목록 하나다.
+
+    행정동 점수(search_service._ready)와 동네 설명(region_service._cache)은 회원 데이터로 만들지 않는다.
+    같이 비우면 가입 한 번 · 저장 한 번마다 점수를 다시 만들고(DB 왕복 9번 · 3.5초) Claude 가 써 둔 설명을 다시 산다
+    """
+    privacy_service.reset()          # 이름이 바뀌었을 수 있다
+
+
 def clear_caches() -> dict:
     """바깥(서버)이 부를 수 있는 공개 창구. 관리자가 버튼으로 직접 비울 때 쓴다."""
     _clear_caches()
@@ -217,7 +224,7 @@ def update_member(customer_id, patch):
         resync_member(customer_id, {**persona_patch, "customer_id": customer_id}, tuple(persona_patch))
 
     write_admin_log("member", customer_id, patch)
-    _clear_caches()
+    _clear_member_caches()
     return get_member(customer_id)
 
 
@@ -241,7 +248,7 @@ def create_member(payload: dict) -> dict:
     """
     _validate(payload)     # 나이·가중치 범위는 기존 규칙을 그대로 쓴다
 
-    # 페르소나 길이(20자 이상 · 700자 이하)는 위의 _validate() 가 봤다 — 수정과 같은 규칙이다
+    # 페르소나 길이(20자 이상 · 800자 이하)는 위의 _validate() 가 봤다 — 수정과 같은 규칙이다
     persona_patch = {k: v for k, v in payload.items()
                       if k in PERSONA_FIELDS and (v or "").strip()}
 
@@ -256,7 +263,7 @@ def create_member(payload: dict) -> dict:
         resync_member(customer_id, row)   # ← 청킹 + 임베딩 + 저장
 
     write_admin_log("member", customer_id, payload)
-    _clear_caches()
+    _clear_member_caches()
     return get_member(customer_id)
 
 
@@ -276,13 +283,13 @@ def delete_member(customer_id: str) -> bool:
     delete_customer(customer_id)
 
     write_admin_log("member", customer_id, {"action": "탈퇴"})
-    _clear_caches()
+    _clear_member_caches()
     return True
 
 
 # 행정동 수정
 def update_region(gu, dong, patch):
-    if get_region(gu, dong) is None:
+    if region_one(gu, dong, REGION_FIELDS) is None:      # 있는지만 본다 — get_region() 은 좋아요 수와 백분위까지 만든다
         return None
     _validate(patch)
 
@@ -315,7 +322,9 @@ def similar_members(customer_id: str, top_k: int = 5) -> list | None:
     """
     ranked = find_members_like(customer_id, top_k)
     if ranked is None:
-        return None
+        # 페르소나가 없는 회원과 없는 회원을 가른다 — 앞은 빈 목록이고 뒤만 None(404)이다.
+        # 둘 다 None 이면 화면이 "찾는 중…" 에서 안 넘어간다
+        return None if customer_one(customer_id) is None else []
     return [
         {
             "customer_id": cid,
@@ -355,7 +364,7 @@ def privacy_preview(customer_id: str) -> dict | None:
     무엇이 '안' 가려지는지 눈으로 확인하는 용도다. 아무것도 안 고친다.
     """
     persona = customer_persona(customer_id)
-    if not persona:
+    if not persona and customer_one(customer_id) is None:     # 페르소나가 없는 회원은 빈 결과다. None(404)은 없는 회원뿐이다
         return None
 
     masked = {name: privacy_service.mask_text(text) for name, text in persona.items()}

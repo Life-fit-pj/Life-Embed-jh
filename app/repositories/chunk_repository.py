@@ -132,22 +132,6 @@ def persona_lengths(db):
 # 지우기와 넣기는 항상 짝으로 돈다. 따로 두면 하나만 부르는 사고가 나므로
 # 한 함수로 묶고 이름을 replace_ 로 짓는다
 
-def replace_kb_chunks(db, uuid, rows):
-    """kb 페르소나 한 명의 청크를 통째로 갈아 끼운다.
-
-    rows 는 (uuid, district, category, text, embedding) 튜플 목록이다 — 옛 모양 그대로.
-    embedding 은 6단계부터 float 리스트를 json.dumps 한 문자열이다(resync.py 가 만든다).
-    """
-    db.query(Chunk).filter(
-        Chunk.source == "kb", Chunk.source_id == uuid
-    ).delete(synchronize_session=False)
-    db.add_all([
-        Chunk(source="kb", source_id=u, district=d, category=c, text=t, embedding=v)
-        for u, d, c, t, v in rows
-    ])
-    db.commit()
-
-
 def replace_member_chunks(db, customer_id, rows, categories=None):
     """회원 한 명의 청크를 갈아 끼운다.
 
