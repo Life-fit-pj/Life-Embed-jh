@@ -4,7 +4,7 @@
 속성이 아니라 .c["이름"] 으로 간다 — 교안 5-1 이론 2.
 """
 
-from sqlalchemy import Float, cast, func, select, update
+from sqlalchemy import Float, cast, func, select, tuple_, update
 
 from app.domain.dong import dong_variants
 from app.models.region import (
@@ -73,6 +73,23 @@ def _in_dong(t, gu_col, dong_col, gu, dong):
     """(구, 동) 한 곳을 찾는 WHERE. 표기 변형(dong_variants)과 공백까지 여기서 흡수한다 — 동을 찾는 함수는 전부 이걸 쓴다"""
     return (func.trim(t.c[gu_col]) == gu.strip(),
             func.trim(t.c[dong_col]).in_(dong_variants(dong)))
+
+
+def _in_places(t, gu_col, dong_col, places):
+    """(구, 동) 여러 곳을 한 번에 찾는 WHERE 와, 표에 적힌 표기를 요청한 (구, 동)으로 되돌리는 사전.
+
+    _in_dong() 의 여러 곳 판이다 — 표기 변형과 공백을 같은 규칙으로 흡수한다.
+    표마다 동 이름 표기가 달라서, 찾은 줄이 어느 요청의 것인지는 이 사전으로 되짚는다
+    """
+    back = {(gu.strip(), variant): (gu, dong) for gu, dong in places for variant in dong_variants(dong)}
+    return tuple_(func.trim(t.c[gu_col]), func.trim(t.c[dong_col])).in_(list(back)), back
+
+
+def region_rows(db, places, columns):
+    """master 에서 여러 동네의 칸을 한 번에. {(구, 동): {칸: 값}} — region_one() 의 여러 곳 판이다"""
+    where, back = _in_places(master, "구", "행정동명", places)
+    stmt = select(func.trim(master.c["구"]), func.trim(master.c["행정동명"]), *[master.c[c] for c in columns]).where(where)
+    return {back[(gu, dong)]: dict(zip(columns, values)) for gu, dong, *values in db.execute(stmt)}
 
 
 def facilities(db, gu, dong, kind=None, limit=10):
@@ -212,6 +229,23 @@ def facility_categories(db, gu, dong, kind="학원", top=8):
     return [dict(r) for r in db.execute(stmt).mappings()]
 
 
+def facility_breakdown(db, places):
+    """여러 동네의 시설을 종류 · 분류별로 센다. {(구, 동): {종류: {분류: 개수}}} — 분류가 빈 줄은 None 아래 모인다.
+
+    facility_counts() · facility_categories() 를 동네마다 · 종류마다 부르면 5곳에 60번이다 — 표마다 한 번, 여섯 번에 센다.
+    종류의 전체 개수는 분류별 값을 더하면 된다. 한 곳도 없는 종류는 그 동네의 사전에 안 들어간다
+    """
+    out = {place: {} for place in places}
+    for label, (t, gu_col, dong_col, _, cat_col) in FACILITY_TABLES.items():
+        where, back = _in_places(t, gu_col, dong_col, places)
+        gu, dong, cat = func.trim(t.c[gu_col]), func.trim(t.c[dong_col]), t.c[cat_col]
+        for g, d, c, n in db.execute(select(gu, dong, cat, func.count()).where(where).group_by(gu, dong, cat)):
+            key = c if c is not None and c.strip() else None
+            by_cat = out[back[(g, d)]].setdefault(label, {})
+            by_cat[key] = by_cat.get(key, 0) + int(n)
+    return out
+
+
 def category_counts(db, kind):
     """시설 종류 하나의 (구, 동, 분류, 개수) 전부. 세부 강조의 파생 칸 재료다.
 
@@ -300,6 +334,31 @@ def region_price_details(db, gu, dong):
     for r in db.execute(stmt).mappings():
         details.setdefault((r["건물용도"], r["거래유형"]), {c: r[c] for c in PRICE_COLUMNS})
     return details
+
+
+def region_price_details_many(db, places):
+    """여러 동네의 시세 상세. {(구, 동): {(건물용도, 거래유형): {칸: 값}}} — region_price_details() 의 여러 곳 판이다"""
+    where, back = _in_places(시세, "자치구명", "지역명", places)
+    stmt = select(func.trim(시세.c["자치구명"]), func.trim(시세.c["지역명"]), 시세.c["건물용도"], 시세.c["거래유형"],
+                  *[시세.c[c] for c in PRICE_COLUMNS]).where(where)
+    out = {place: {} for place in places}
+    for gu, dong, bldg, deal, *values in db.execute(stmt):
+        out[back[(gu, dong)]].setdefault((bldg, deal), dict(zip(PRICE_COLUMNS, values)))
+    return out
+
+
+def region_bundle(db, places, columns):
+    """여러 동네의 시설(종류 · 분류별 개수) · master 의 칸 · 시세 상세를 한 세션에서 읽는다. 채팅의 재료다.
+
+    동네마다 따로 읽으면 5곳에 83번 왕복이다(2026-10-05 실측 4.4초). 표마다 한 번씩 여덟 번에 끝낸다
+    """
+    if not places:
+        return {"facilities": {}, "rows": {}, "prices": {}}
+    return {
+        "facilities": facility_breakdown(db, places),
+        "rows": region_rows(db, places, columns),
+        "prices": region_price_details_many(db, places),
+    }
 
 
 # ── 이름 목록 ──────────────────────────────────

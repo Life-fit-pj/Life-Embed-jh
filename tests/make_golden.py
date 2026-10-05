@@ -29,7 +29,7 @@ GOLDEN_MEMBERS = {f"C{i:03d}" for i in range(1, 101)}
 
 def snap_recommend():
     """가중치 -> TOP 5. LLM 을 안 부르므로 몇 번을 돌려도 같은 답이 나온다."""
-    from app.services.search_service import recommend_by_weights
+    from app.engine.ranking import recommend_by_weights
 
     return {
         label: [[r["name"], r["total"]] for r in recommend_by_weights(weights, top_k=5)]

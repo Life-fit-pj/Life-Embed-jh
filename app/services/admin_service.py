@@ -10,7 +10,8 @@ from app.core.config import ACTIVITY_COLUMN, INDICATORS, CHUNK_COLUMNS, MAX_PERS
 from app.engine.recommend import DB_COLUMNS, DERIVED_COLUMNS
 from app.engine.resync import resync_member
 from app.engine.weights import find_members_like
-from app.services import search_service, region_service, privacy_service
+from app.engine import ranking
+from app.services import region_service, privacy_service
 from app.repositories.chunks import member_chunk_stats, persona_lengths, replace_member_chunks
 from app.repositories.history import (
     write_admin_log,
@@ -98,7 +99,7 @@ def _percentiles(row):
     칸마다 DB 에 물으면 왕복이 열 번이고(동네 하나 여는 데 3.9초), 그렇게 센 값은 순위가 쓰는 값과 1점씩 어긋났다.
     지표 점수(scores)가 아니다. 교육처럼 칸이 둘인 지표의 점수는 두 칸의 평균이라 칸 하나의 백분위와 다르다
     """
-    r = search_service.get_ready()
+    r = ranking.get_ready()
     i = r["index"].get(f"{row['구']} {row['행정동명']}")
     if i is None:
         return {}
@@ -174,7 +175,7 @@ def _validate(patch: dict) -> None:
 # 캐시비우기
 def _clear_caches():
 
-    search_service._ready = None
+    ranking.reset_ready()
     region_service._cache.clear()
     privacy_service.reset()          # 이름이 바뀌었을 수 있다
 
@@ -182,7 +183,7 @@ def _clear_caches():
 def _clear_member_caches():
     """회원을 만들고 · 고치고 · 지웠을 때 비울 것 — 이름 목록 하나다.
 
-    행정동 점수(search_service._ready)와 동네 설명(region_service._cache)은 회원 데이터로 만들지 않는다.
+    행정동 점수(ranking 의 준비물)와 동네 설명(region_service._cache)은 회원 데이터로 만들지 않는다.
     같이 비우면 가입 한 번 · 저장 한 번마다 점수를 다시 만들고(DB 왕복 9번 · 3.5초) Claude 가 써 둔 설명을 다시 산다
     """
     privacy_service.reset()          # 이름이 바뀌었을 수 있다
@@ -310,7 +311,7 @@ def preview_member(customer_id):
         if customer_one(customer_id) is None:
             return None
         prefs = {name: 3 for name in INDICATORS}
-    return search_service.recommend_by_weights(dict(prefs), top_k=5)
+    return ranking.recommend_by_weights(dict(prefs), top_k=5)
 
 
 
@@ -353,7 +354,7 @@ def health() -> dict:
         "ok": ok,
         "regions": regions,
         "members": members,
-        "cache_warm": search_service._ready is not None,   # 캐시가 채워져 있나
+        "cache_warm": ranking.is_ready(),   # 캐시가 채워져 있나
         "error": error,
     }
 

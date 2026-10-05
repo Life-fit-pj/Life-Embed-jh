@@ -11,7 +11,8 @@ Claude 가 숫자를 지어내지 못하도록 프롬프트에서 강하게 제�
 
 from app.engine.housing import (DEAL_COLUMNS, housing_fit_score,
                                 region_price_note, price_gap_text, format_won)
-from app.engine.recommend import load_regions, build_column_scores, build_scores, build_relative, recommend
+from app.engine.recommend import (load_regions, build_column_scores, build_scores, build_relative, recommend,
+                                  focus_label)
 from app.repositories.regions import region_densities
 from app.ai.llm import ask
 from app.rag.retriever import retrieve
@@ -126,7 +127,7 @@ def with_scores(result, names, scores, counts=None):
 
 
 # 프롬프트에 넣을 데이터 만들기
-def build_context(query, weights, detailed, cases, housing=None):
+def build_context(query, weights, detailed, cases, housing=None, focus=None):
     """Claude 에게 넘길 데이터를 글로 정리한다."""
     
     # 사용자가 중시한 지표 (가중치 3.5 이상)
@@ -137,7 +138,12 @@ def build_context(query, weights, detailed, cases, housing=None):
     lines.append(f"가중치: " + ", ".join(f"{k} {w}" for k, w in weights.items()))
     lines.append("")
     lines.append("## 추천 결과 (점수는 서울 427개 동 중 백분위)")
-    
+    # 세부가 걸린 검색은 순위를 그 한 가지로만 보고 매겼다. 지표 점수(전체)와 세부 점수가 둘 다 실려 있으므로
+    # 무엇이 무엇인지 적어 준다 — 안 적으면 "교통 60" 인 동네가 왜 1위인지 설명하지 못한다
+    for indicator, sub in (focus or {}).items():
+        lines.append(f"※ 이번 순위는 {indicator} 지표를 '{sub}' 한 가지로만 보고 매겼다. "
+                     f"그 점수 = '{focus_label(indicator, sub)}' / 지표 전체의 점수 = '{indicator}'")
+
     for rank, d in enumerate(detailed, start=1):
         score_text = " / ".join(f"{k} {v}" for k, v in d["scores"].items())
         lines.append(f"{rank}위 {d['name']} (종합 {d['total']})")
@@ -186,9 +192,9 @@ def build_context(query, weights, detailed, cases, housing=None):
 
 
 # 호출
-def explain(query, weights, detailed, cases, housing=None):
-    """추천 결과를 설명문으로 만든다."""
-    context = build_context(query, weights, detailed, cases, housing)
+def explain(query, weights, detailed, cases, housing=None, focus=None):
+    """추천 결과를 설명문으로 만든다. focus 는 검색어에서 뽑힌 세부({"교통": "버스"}) — 재료에 그 뜻을 한 줄 적는다"""
+    context = build_context(query, weights, detailed, cases, housing, focus)
     
     messages = [
         ("system", SYSTEM_PROMPT),

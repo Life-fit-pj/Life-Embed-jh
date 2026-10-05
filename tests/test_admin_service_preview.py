@@ -12,7 +12,7 @@ from app.services import admin_service
 def test_선호도_행이_없는_회원은_보통으로_돌려_본다():
     with patch.object(admin_service, "customer_preferences", return_value=None), \
          patch.object(admin_service, "customer_one", return_value={"customer_id": "C107"}), \
-         patch.object(admin_service.search_service, "recommend_by_weights", return_value=["동네"]) as mock_recommend:
+         patch.object(admin_service.ranking, "recommend_by_weights", return_value=["동네"]) as mock_recommend:
 
         result = admin_service.preview_member("C107")
 
@@ -23,7 +23,7 @@ def test_선호도_행이_없는_회원은_보통으로_돌려_본다():
 def test_없는_회원이면_None():
     with patch.object(admin_service, "customer_preferences", return_value=None), \
          patch.object(admin_service, "customer_one", return_value=None), \
-         patch.object(admin_service.search_service, "recommend_by_weights") as mock_recommend:
+         patch.object(admin_service.ranking, "recommend_by_weights") as mock_recommend:
 
         assert admin_service.preview_member("C999") is None
 

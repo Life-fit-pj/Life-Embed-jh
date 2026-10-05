@@ -16,7 +16,8 @@ from app.repositories.history import (
     admin_logs_of, last_change_times, list_likes, list_search_history, member_searches, write_admin_log,
 )
 from app.repositories.members import customer_one, customer_persona, customer_preferences
-from app.services import privacy_service, search_service
+from app.engine.ranking import get_ready
+from app.services import privacy_service
 
 DAILY_LIMIT = 5             # 한 회원에게 하루에 줄 수 있는 제안 수. 누를 때마다 Claude 를 한 번 부른다
 MIN_SEARCHES = 5            # 이보다 적으면 재료가 모자라 Claude 가 지어낸다
@@ -109,7 +110,7 @@ def _fresh_counts(searches: list, saved: dict) -> dict:
 
 def _liked(likes: list) -> list:
     """좋아요 누른 동네마다 (이름, 지표 점수 글). 427개 동에 없는 이름은 점수 없이 이름만 준다"""
-    r = search_service.get_ready()
+    r = get_ready()
     out = []
     for like in likes:
         name = f"{like['구']} {like['행정동명']}"

@@ -1,8 +1,8 @@
 """Claude 가 채팅 중에 고를 수 있는 도구 목록이다.
 
-조회 도구 넷은 chat_service.build_context() 가 지금 쓰는 함수를 그대로 부른다 —
-시설(facility_counts·facility_categories), 시세(region_price_lines), 생활 여건(region_extras). 다른 점은 5개 동네
-데이터를 전부 미리 채워 넣는 대신, plan 노드가 필요하다고 고른 동네·항목만 그때 조회한다는 것이다.
+조회 도구 넷은 동네 하나를 읽는 함수를 부른다 —
+시설(facility_counts·facility_categories), 시세(region_price_lines), 생활 여건(region_extras).
+chat_context.build_context() 가 5개 동네 재료를 전부 미리 채워 넣는 것과 달리, plan 노드가 필요하다고 고른 동네·항목만 그때 조회한다.
 
 rerank_by_focus 하나만 성격이 다르다 — 동네를 조회하는 게 아니라 순위를 다시 매긴다.
 "학원 많은 쪽으로 다시 보면?" 처럼 추천 기준을 좁히는 말을, 화면을 늘리지 않고 채팅으로 받는 길이다.
@@ -15,13 +15,13 @@ import numpy as np
 
 from app.core.config import INDICATORS
 from app.engine.housing import region_price_lines
-from app.engine.recommend import FOCUS_COLUMNS, FOCUS_HINT, nearest_base
+from app.engine.recommend import FOCUS_COLUMNS, FOCUS_HINT, focus_label, nearest_base
 from app.engine.weights import find_members_like, indicator_weights
 from app.repositories.members import customer_homes, members_near_weights
 from app.repositories.region_repository import FACILITY_TABLES
 from app.repositories.regions import facility_counts, facility_categories, region_extras
 from app.services.history_service import get_likes
-from app.services.search_service import get_ready, recommend_by_weights
+from app.engine.ranking import get_ready, recommend_by_weights
 
 # "학원 많은 쪽으로 다시" 는 그 지표를 중시한다는 말이다. 원래 보통(3)이었어도 최댓값으로 올린다 —
 # 안 올리면 세부를 바꿔도 가중치가 낮아 순위가 거의 안 움직인다
@@ -45,7 +45,7 @@ def rerank_by_focus(weights, indicator, sub):
         "기준": f"{indicator} 점수를 '{sub}' 하나로만 보고 서울 427개 동을 다시 줄 세움",
         "안_반영된_것": "가격 조건(건물유형·예산)과 자치구 제한",
         "순위": [
-            {"순위": rank, "동네": r["name"], "종합": r["total"], f"{indicator}({sub}) 백분위": r["scores"][indicator]}
+            {"순위": rank, "동네": r["name"], "종합": r["total"], f"{focus_label(indicator, sub)} 백분위": r["scores"][focus_label(indicator, sub)]}
             for rank, r in enumerate(top, start=1)
         ],
     }

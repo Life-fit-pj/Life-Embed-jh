@@ -265,6 +265,25 @@ def apply_focus(scores, column_scores, focus):
     return out
 
 
+def focus_label(indicator, sub):
+    """세부 점수의 이름 — "교통(버스)". 나가는 점수와 채팅 도구가 같은 이름을 쓴다"""
+    return f"{indicator}({sub})"
+
+
+def focus_scores(column_scores, focus):
+    """세부로 콕 집은 칸의 백분위에 이름표를 붙여 돌려준다. {"교통(버스)": 427개 배열}
+
+    apply_focus() 가 순위용 지표 점수에 바꿔 넣는 바로 그 값이다. 나가는 점수에는 지표 점수를 그대로 두고 이것을 따로 싣는다 —
+    버스만 본 값을 "교통" 이라는 이름으로 내보내면 설명문·화면이 뜻을 잘못 읽는다
+    """
+    out = {}
+    for indicator, sub in (focus or {}).items():
+        col = FOCUS_COLUMNS.get(indicator, {}).get(sub)
+        if col in column_scores:
+            out[focus_label(indicator, sub)] = column_scores[col]
+    return out
+
+
 # ── 목표가 없을 때(접근 A) 시세를 8번째 신호로 쓰기 위한 재료 ──────────────
 # INDICATOR_COLUMNS 에는 안 넣는다 — build_relative() 의 "동네 자기 평균" 기준선이
 # housing 이 있는 요청에도 영향을 받게 되는 부작용이 있어서, 별도로 분리해서 계산한다.

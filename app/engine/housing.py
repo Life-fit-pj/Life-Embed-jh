@@ -134,6 +134,10 @@ def region_price_note(gu, dong, 건물유형, 거래유형):
     return _format_price_note(region_price_detail(gu, dong, 건물유형, 거래유형))
 
 
+# 시세 줄(price_lines)을 만드는 데 드는 master 의 칸 전부
+PRICE_LINE_COLUMNS = tuple(sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()}))
+
+
 def region_price_lines(gu, dong):
     """동네 하나의 시세 전부를 건물유형별 한 줄씩 문장으로 만든다.
 
@@ -144,12 +148,17 @@ def region_price_lines(gu, dong):
     금액 뒤엔 그 (건물유형, 거래유형) 조합의 신뢰등급·거래건수·분포를 괄호로 덧붙인다 —
     "매매 95,250만원" 만으로는 표본이 42건인지 2건인지 알 수 없어서다.
     """
-    all_cols = sorted({col for cols in DEAL_COLUMNS.values() for col in cols.values()})
-    row = region_one(gu, dong, all_cols)             # 427행을 다 읽지 않고 한 줄만
+    row = region_one(gu, dong, list(PRICE_LINE_COLUMNS))     # 427행을 다 읽지 않고 한 줄만
     if row is None:
         return []
-    details = region_price_details(gu, dong)         # 조합 12개의 상세를 한 번에 (전엔 조합마다 한 번씩 12번)
+    return price_lines(row, region_price_details(gu, dong))   # 조합 12개의 상세를 한 번에 (전엔 조합마다 한 번씩 12번)
 
+
+def price_lines(row, details):
+    """master 의 한 줄(row)과 시세 상세(details)로 건물유형별 문장을 만든다. DB 를 안 읽는다.
+
+    한 곳이면 region_price_lines() 가, 여러 곳이면 chat_context.build_context() 가 읽어서 넘긴다
+    """
     lines = []
     for 건물유형 in ("단독다가구", "아파트", "연립다세대", "오피스텔"):
         parts = []
