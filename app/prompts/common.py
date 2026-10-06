@@ -19,17 +19,23 @@ PRICE_FIT_RULE = """   "조건 일치도"는 사용자가 말한 가격과 얼�
    퍼센트 수치("23% 높음")를 그대로 옮겨 쓰지 마세요. 그건 판단 재료이지 사용자에게
    보여 줄 문구가 아닙니다."""
 
-# ── "시세" 점수의 방향(클수록 저렴)과, 금액을 말할지 말지 ───────────────────
-# 들어가는 곳  search.EXPLAIN_PROMPT · search.REGION_PROMPT
-# 짝          재료의 "## 사용자가 원한 가격" 절 — engine/housing.py 의 price_head_lines(). 그 제목의 글자를 바꾸면 여기도 고친다
-# 알아 둘 것   채팅 프롬프트(chat.ANSWER_PROMPT)에도 같은 뜻의 규칙이 있다. 문장이 달라 따로 적혀 있다 — 방향을 바꾸면 거기도 본다
-PRICE_SCORE_RULE = """   "시세" 점수는 다른 지표와 방향이 반대입니다 — 값이 클수록 그 동네 시세가
+# ── "시세" 점수의 방향(클수록 저렴) ─────────────────────────────────────────
+# 들어가는 곳  search.EXPLAIN_PROMPT · search.REGION_PROMPT(아래 PRICE_SCORE_RULE 의 앞부분으로) · chat.ANSWER_PROMPT
+# 짝          engine/ranking.py 가 내보내는 "시세" 값 — 클수록 저렴(build_price_score 의 invert=True). 방향을 바꾸면 셋이 같이 바뀐다
+PRICE_DIRECTION_RULE = """   "시세" 점수는 다른 지표와 방향이 반대입니다 — 값이 클수록 그 동네 시세가
    서울에서 낮은(저렴한) 편이라는 뜻입니다. "시세 85점"은 "저렴한 쪽 상위 15%"이지
-   "비싸다"가 아닙니다.
+   "비싸다"가 아닙니다."""
 
-   금액을 말할지 말지는 "## 사용자가 원한 가격" 절이 있는지로 판단하세요.
+# ── 금액을 말할지 말지 ──────────────────────────────────────────────────
+# 들어가는 곳  search.EXPLAIN_PROMPT · search.REGION_PROMPT(PRICE_SCORE_RULE 의 뒷부분). 채팅에는 안 들어간다 —
+#            채팅 재료에는 "## 사용자가 원한 가격" 절이 없고, 금액 규칙은 chat.ANSWER_PROMPT 에 한 줄로 따로 있다
+# 짝          재료의 "## 사용자가 원한 가격" 절 — engine/housing.py 의 price_head_lines(). 그 제목의 글자를 바꾸면 여기도 고친다
+PRICE_AMOUNT_RULE = """   금액을 말할지 말지는 "## 사용자가 원한 가격" 절이 있는지로 판단하세요.
    - 그 절이 있으면: 주어진 금액을 준 그대로 쓰세요. 단위를 바꾸거나 다시 계산하지
      마세요 ("8억원"을 "8,000만원"으로 바꾸는 실수가 실제로 있었습니다).
    - 그 절이 없고 시세 점수만 있으면: 구체적인 금액은 쓰지 말고
      "가격대는 서울에서 저렴한 편입니다" 처럼 한 문장만 덧붙이세요.
    - 둘 다 없으면: 가격 이야기를 아예 꺼내지 마세요."""
+
+# 검색 설명문 둘이 끼우는 것 — 방향 + 빈 줄 + 금액. 나누기 전의 PRICE_SCORE_RULE 과 글자가 같다(tests/test_prompts.py 가 지킨다)
+PRICE_SCORE_RULE = PRICE_DIRECTION_RULE + "\n\n" + PRICE_AMOUNT_RULE

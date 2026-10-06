@@ -12,7 +12,7 @@ import re
 
 from app.engine import chat_context, explain, housing, weights
 from app.prompts import admin, chat, search
-from app.prompts.common import PRICE_FIT_RULE, PRICE_SCORE_RULE
+from app.prompts.common import PRICE_AMOUNT_RULE, PRICE_DIRECTION_RULE, PRICE_FIT_RULE, PRICE_SCORE_RULE
 from app.services import activity_service, analysis_service
 from app.tools import tools
 
@@ -79,3 +79,16 @@ def test_가격_규칙은_두_설명문에_글자까지_같이_들어_있다():
     """추천 설명문과 동네 설명문이 시세를 다르게 읽지 않게 — 한쪽에서만 빠지면 그쪽이 "시세 85점"을 "비싸다"로 읽는다"""
     for rule in (PRICE_FIT_RULE, PRICE_SCORE_RULE):
         assert rule in search.EXPLAIN_PROMPT and rule in search.REGION_PROMPT
+
+
+def test_시세_방향_규칙은_채팅에도_같은_글자로_들어_있다():
+    """채팅만 시세를 반대로 읽지 않게. 금액 규칙은 채팅에 안 들어간다 — 채팅 재료에는 '## 사용자가 원한 가격' 절이 없다"""
+    assert PRICE_DIRECTION_RULE in chat.ANSWER_PROMPT
+    assert PRICE_AMOUNT_RULE not in chat.ANSWER_PROMPT
+    assert "__PRICE_DIRECTION_RULE__" not in chat.ANSWER_PROMPT      # 자리표시가 안 채워진 채 나가면 Claude 가 그 글자를 본다
+
+
+def test_시세_규칙은_방향과_금액을_빈_줄_하나로_이은_것이다():
+    """나누기 전의 PRICE_SCORE_RULE 과 글자가 같아야 검색 설명문 둘의 프롬프트가 안 바뀐다"""
+    assert PRICE_SCORE_RULE == PRICE_DIRECTION_RULE + "\n\n" + PRICE_AMOUNT_RULE
+    assert PRICE_SCORE_RULE.count("\n\n") == 1

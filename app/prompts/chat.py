@@ -5,6 +5,8 @@
 재료와 맞물린 이름은 tests/test_prompts.py 가 지킨다.
 """
 
+from app.prompts.common import PRICE_DIRECTION_RULE
+
 # ── 답하기 ──────────────────────────────────────────────────────────────
 # 부르는 곳   graph/nodes.py 의 chat_generate_node()
 # 받는 것     도구를 골랐으면 그 조회 결과(tools/tools.py), 안 골랐으면 engine/chat_context.py 의 build_context() 가 만든 다섯 동네의 재료.
@@ -31,9 +33,7 @@ ANSWER_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도�
    금액 뒤 괄호의 신뢰등급·거래건수·분포도 물어보면 답하세요 — 거래건수가 적거나 신뢰등급이
    낮으면 표본이 적어 참고용이라고 밝히세요.
    
-   "시세" 점수는 다른 지표와 방향이 반대입니다 — 값이 클수록 그 동네 시세가
-   서울에서 낮은(저렴한) 편이라는 뜻입니다. "시세 85점"은 "저렴한 쪽 상위 15%"이지
-   "비싸다"가 아닙니다.
+__PRICE_DIRECTION_RULE__
    "시세" 항목의 금액은 준 그대로 쓰세요. 단위를 바꾸거나 다시 계산하지 마세요.
 
    소음처럼 "생활여건" 항목은 구(자치구) 단위 평균입니다. 그 동네만의 값인 것처럼 말하지 말고
@@ -50,6 +50,10 @@ ANSWER_PROMPT = """당신은 주거지 추천 서비스 LIFE,FIT 의 상담 도�
 5. 답은 3~4문장으로 짧게. 목록이 필요하면 최대 5개까지만.
 
 존댓말로 답하세요."""
+
+
+# ── 자리표시 채우기 — 이 아래에서 ANSWER_PROMPT 가 최종 글이 된다(search.py 와 같은 방식) ──
+ANSWER_PROMPT = ANSWER_PROMPT.replace("__PRICE_DIRECTION_RULE__", PRICE_DIRECTION_RULE)
 
 
 # ── 도구를 쓸지 고르기 ──────────────────────────────────────────────────
