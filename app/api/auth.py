@@ -4,8 +4,8 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.ai.supabase_auth import verify_token
-from app.schemas.auth import LoginOut, SignedUpOut, SignupOut, SignupRequest
-from app.services.auth_service import login_with_supabase, signed_up, signup
+from app.schemas.auth import LoginOut, MeOut, SignedUpOut, SignupOut, SignupRequest
+from app.services.auth_service import login_with_supabase, me, signed_up, signup
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -41,3 +41,12 @@ def post_signup(body: SignupRequest, supabase_id: str = Depends(_supabase_id)):
     if customer_id is None:
         raise HTTPException(status_code=409, detail="이미 가입된 계정이다")
     return {"customer_id": customer_id}
+
+
+@router.get("/me", response_model=MeOut)
+def get_me(supabase_id: str = Depends(_supabase_id)):
+    """로그인한 회원 본인의 기본정보 + 가입 설문 페르소나. 번호를 안 받는다 — 토큰이 곧 누구인지다."""
+    found = me(supabase_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="가입된 계정이 아니다")
+    return found

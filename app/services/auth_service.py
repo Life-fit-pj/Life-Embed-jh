@@ -9,12 +9,13 @@ app/services/admin_service.py 가 이미 쓰는 것과 같은 구조.
 import random
 import string
 
+from app.core.config import CHUNK_COLUMNS
 from app.services import admin_service
 
 from app.repositories.history import (
     create_login, delete_login, get_login_row, login_customer_ids, update_login_customer,
 )
-from app.repositories.members import customer_ids
+from app.repositories.members import customer_ids, customer_one, customer_persona
 
 
 def _random_code(length, chars):
@@ -66,6 +67,22 @@ def signup(supabase_user_id, payload):
     customer_id = member["customer"]["customer_id"]
     update_login_customer(login_id, customer_id)
     return customer_id
+
+
+def me(supabase_user_id):
+    """로그인한 회원 본인 — 기본정보 + 가입 설문 페르소나. 가입 전이면 None.
+
+    activity_persona 는 돌려주지 않는다 — 관리자가 회원의 활동에서 정리해 적는 칸이라 회원에게는 안 보인다
+    """
+    customer_id = login_with_supabase(supabase_user_id)
+    if customer_id is None:
+        return None
+    persona = customer_persona(customer_id)
+    return {
+        "customer_id": customer_id,
+        "customer": customer_one(customer_id),
+        "persona": {k: v for k, v in persona.items() if k in CHUNK_COLUMNS},
+    }
 
 
 def backfill_logins():
