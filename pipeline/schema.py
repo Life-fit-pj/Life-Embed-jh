@@ -1,7 +1,7 @@
 import sys
 import re
 
-from sqlalchemy import (BigInteger, Column, Date, Double, ForeignKeyConstraint,
+from sqlalchemy import (BigInteger, Column, Date, DDL, Double, ForeignKeyConstraint,
                         Index, MetaData, Table, Text)
 
 # 이 파일은 pipeline/ 안에 있는데 app/config.py 를 가져다 쓴다.
@@ -467,3 +467,12 @@ if __name__ == "__main__":
     #    Base.metadata 는 csv_metadata 와 별개라 위에서 만든 표를 안 건드린다
     Base.metadata.create_all(engine)
     print("✅ 모델만 있는 표 생성 (chunks · likes · search_history · chat_history · analysis_chat · admin_log · user_login)")
+
+    # 7. 모든 표에 RLS 를 켠다 — 정책은 안 만든다.
+    #    Supabase 는 새 표에 anon · authenticated 의 모든 권한을 기본으로 주고 RLS 는 안 켠다. 안 켜면 브라우저에 박힌
+    #    anon 키로 REST 를 직접 쳐서 customers · chunks 가 통째로 읽힌다(2026-10-07 확인). 엔진은 postgres(BYPASSRLS)라 영향 없다.
+    #    DDL 객체를 쓴다 — text() 는 check.sh ① 이 막는 날 SQL 이고, RLS 켜기는 ORM 에 없는 DDL 이다
+    with engine.begin() as con:
+        for table in list(csv_metadata.sorted_tables) + list(Base.metadata.sorted_tables):
+            con.execute(DDL(f'ALTER TABLE public."{table.name}" ENABLE ROW LEVEL SECURITY'))
+    print(f"✅ 표 {len(csv_metadata.tables) + len(Base.metadata.tables)}개 RLS 켬 (정책 없음 — anon · authenticated 는 아무것도 못 한다)")
