@@ -99,7 +99,7 @@ def get_facilities(gu, dong, limit=5):
 # 핀을 누를 때마다 Claude 를 부르면 3~5초씩 걸리고 비용도 그만큼 든다.
 # 서버가 꺼지면 사라지는 단순한 사전이다 — 지금 규모에는 이걸로 충분하다
 _cache = {}
-
+CACHE_LIMIT = 2000      # 항목 하나가 1KB 쯤 — 2MB 에서 비운다
 
 def _housing_key(housing):
     """housing 딕셔너리를 캐시 키에 쓸 수 있는 (해시 가능한) 형태로 바꾼다."""
@@ -109,12 +109,22 @@ def _housing_key(housing):
     return (housing["건물유형"], housing["거래유형"], targets)
 
 
+def _dict_key(d):
+    """weights · scores 같은 딕셔너리를 캐시 키에 쓸 수 있는 (해시 가능한) 형태로 바꾼다. 없으면 None."""
+    if not d:
+        return None
+    return tuple(sorted(d.items()))
+
+
 def region_explain_cached(gu, dong, query="", weights=None, scores=None, housing=None):
     """설명을 만들되, 같은 요청이면 저장해 둔 것을 돌려준다."""
-    # housing 이 다르면 같은 동네·검색어라도 설명(특히 참고 시세)이 달라지므로 키에 포함한다
-    key = (gu, dong, query, _housing_key(housing))
+    # housing 이 다르면 같은 동네·검색어라도 설명(특히 참고 시세)이 달라지므로 키에 포함한다.
+    # 가중치·점수도 같다 — 프롬프트에 그대로 실리므로, 빠뜨리면 먼저 누른 사람의 설명이 다음 사람에게 간다
+    key = (gu, dong, query, _dict_key(weights), _dict_key(scores), _housing_key(housing))
 
     if key not in _cache:
+        if len(_cache) >= CACHE_LIMIT:      # 가중치·점수가 키에 들어가 조합이 끝이 없다 — 꽉 차면 통째로 비운다
+            _cache.clear()
         _cache[key] = region_explain(gu, dong, query, weights, scores, housing)
 
     return _cache[key]

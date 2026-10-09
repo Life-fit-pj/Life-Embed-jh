@@ -254,7 +254,9 @@ def create_member(payload: dict) -> dict:
                       if k in PERSONA_FIELDS and (v or "").strip()}
 
     customer_id = _next_customer_id()
-    insert_customer(customer_id, payload, CUSTOMER_FIELDS)
+    # 가입일은 서버가 적는다 — 화면이 보내는 값이 아니다(CUSTOMER_FIELDS 에 없어 관리자 수정으로도 못 바꾼다)
+    insert_customer(customer_id, {**payload, "joined_at": datetime.date.today()},
+                    (*CUSTOMER_FIELDS, "joined_at"))
 
     _insert_first_preferences(customer_id, payload)      # 가중치를 하나라도 받았으면 선호도 행을 만든다
 
