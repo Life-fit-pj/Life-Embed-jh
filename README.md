@@ -295,7 +295,7 @@ POST /search  "애들 학원 보내기 좋은 곳"
 - 제외 필터 없음 (`exclude_gu` — "강남 외")
 - `pipeline/schema.py`의 일부 단계가 `if __name__` 없이 모듈 최상위에서 실행됨 — import만 해도 돈다
 - 월세는 시세 25~75% 분포를 못 보여줌 — 원본에 `월임대료` 분위 칼럼이 없음
-- 추천 정확도(hit@k)는 `py -m pipeline.golden_search`로 잽니다(27문항, Claude를 부릅니다 — 요금 주의). 채팅의 도구 선택은 재는 도구가 없음
+- 추천 정확도(hit@k)는 `py -m pipeline.golden_search`로 잽니다(27문항, Claude를 부릅니다 — 요금 주의). 채팅의 도구 선택은 `py -m pipeline.golden_tools`로 잽니다(60문항 + held-out 30문항, 결과: [docs/eval_tool_select.md](docs/eval_tool_select.md))
 
 <details>
 <summary><b>검토한 대안 — 목표가 일치도를 순위에도 반영할 것인가</b></summary>
