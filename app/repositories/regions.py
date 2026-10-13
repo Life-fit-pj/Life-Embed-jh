@@ -1,12 +1,7 @@
-"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/region_repository.py 에 있다.
+"""region_repository.py 를 세션 없이 부르는 창구.
 
-부르는 쪽 —
-  app/engine/          explain · housing · recommend      region_densities · region_price_detail
-  app/services/region_service.py                                 facilities · facility_counts · region_extras
-  app/services/        admin · chat · privacy · region · search
-  Life-Web                                                HTTP 로 app/api/ 를 거쳐 들어온다
-
-세션을 여기서 열고 닫는다 — chunks.py · members.py 와 같은 모양이다(교안 5-3-0).
+region_repository 의 함수는 db 세션을 첫 인자로 받는다. 서비스·엔진 층은 세션을 몰라도
+되도록, 여기서 _run() 이 세션을 열고 닫아 준다.
 """
 
 from app.db import SessionLocal
