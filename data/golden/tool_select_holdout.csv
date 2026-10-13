@@ -1,0 +1,31 @@
+question,member,expected_tools,note
+잠실3동 녹지는 괜찮은 편이야?,0,,도구 불필요 — 지표 점수로 답함
+성수1가1동 상권 점수가 어떻게 돼?,0,,도구 불필요 — 지표 점수
+중계1동 의료 환경은 좋아?,0,,도구 불필요 — 지표 점수로 답함
+왜 서교동이 5위 안에 들었어?,0,,도구 불필요 — 추천 이유
+백분위라는 게 뭐야?,0,,도구 불필요 — 점수 의미
+대치1동 학교 평판은 어때?,0,,도구 불필요 — 데이터에 없음(평판)
+여기서 강남역까지 통근 시간은 얼마나 걸려?,0,,도구 불필요 — 데이터에 없음(통근 시간)
+서교동 주민들 분위기는 어때?,0,,도구 불필요 — 데이터에 없음(주민 성향)
+좋아요 해 둔 동네랑 닮은 곳 보여줘,0,,비회원 — 회원 전용 도구 금지
+나랑 비슷한 회원들은 어디 살아?,0,,비회원 — 회원 전용 도구 금지
+잠실3동에 의료기관 몇 군데 있어?,0,get_facility_counts,
+성수1가1동 학원 많아?,0,get_facility_counts,
+서교동 공원 개수 알려줘,0,get_facility_counts,
+중계1동 중학교 몇 개야?,0,get_facility_categories,
+서교동 학원은 어떤 종류가 많아?,0,get_facility_categories,
+대치1동에 고등학교 있어?,0,get_facility_categories,
+서교동 연립다세대 전세 얼마야?,0,get_region_prices,
+잠실3동 월세 보증금 수준은?,0,get_region_prices,
+대치1동 단독주택 매매가는?,0,get_region_prices,
+중계1동 공기 질은 어때?,0,get_living_conditions,
+대치1동 소음 심해?,0,get_living_conditions,
+성수1가1동에 혼자 사는 사람 많아?,0,get_living_conditions,
+버스 정류장 많은 곳 기준으로 다시 보면?,0,rerank_by_focus,
+백화점 가까운 곳 위주로 다시 줄 세워줘,0,rerank_by_focus,
+찜해 둔 동네랑 닮은 곳 추천해줘,1,similar_to_my_likes,
+좋아요 표시한 동네들이랑 지금 추천 비교해줘,1,similar_to_my_likes,
+나랑 비슷한 회원들은 어디 살아?,1,people_like_me,
+나 같은 성향인 사람들이 고른 동네랑 비슷한 데는?,1,people_like_me,
+서교동 학원 수랑 소음 정도 알려줘,0,get_facility_counts;get_living_conditions,도구 2개
+잠실3동 전세 얼마고 1인 가구 많아?,0,get_region_prices;get_living_conditions,도구 2개
