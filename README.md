@@ -122,6 +122,10 @@ py -m tools.check_routes    # Life-Web이 부르는 HTTP 경로가 다 열렸나
 py -m tools.show_prompts    # Claude에게 가는 프롬프트 일곱을 최종 글로 찍는다
 ```
 
+PR마다 GitHub Actions(`.github/workflows/ci.yml`)가 DB·API 키 없이 도는 테스트와 `check.sh`를 돌립니다.
+Supabase에 실제로 붙는 다섯 파일(`test_db`·`test_models`·`test_golden`·`test_vector_search`·`test_supabase_auth`)과
+요금이 드는 Golden Set 평가(`pipeline.golden_search`·`pipeline.golden_tools`)는 CI에서 빼고 로컬에서 돌립니다.
+
 | | `check.sh`가 세는 것 | 통과 |
 | --- | --- | --- |
 | ① | `app/`·`pipeline/`에 날 SQL(`text("…")`)이 있나 | 0곳 |
