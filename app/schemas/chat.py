@@ -16,3 +16,13 @@ class ChatRequest(BaseModel):
 
 class ChatOut(BaseModel):
     answer: str
+
+
+class MemoryOut(BaseModel):
+    """채팅에서 기억한 거주 선호. app/engine/memory.py 의 칸과 같다"""
+    budget_manwon: int | None = None
+    deal_type: str | None = None
+    commute: str | None = None
+    priorities: list[str] = []
+    avoid: list[str] = []
+    updated_at: str | None = None

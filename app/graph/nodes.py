@@ -100,6 +100,11 @@ def chat_generate_node(state):
     else:
         user_prompt = f"{state['context']}\n\n## 질문\n{state['question']}"
 
+    # 장기 메모리 — 사실 데이터가 아니라 답의 초점을 맞추는 참고다. 도구·재료 경로 둘 다에 싣는다
+    if state.get("memory"):
+        user_prompt = (f"## 이 회원이 전에 말한 선호 (답의 초점을 맞추는 데만 쓰고, 동네 데이터처럼 인용하지 마세요)\n"
+                       f"{state['memory']}\n\n{user_prompt}")
+
     messages = [("system", ANSWER_PROMPT), *state["history"], ("human", user_prompt)]
     answer = ask(messages, max_tokens=600).strip()
     return {"answer": answer, "path": state["path"] + ["generate"]}

@@ -8,13 +8,21 @@ region_service.py 는 동네 하나를 설명하고 끝난다.
 여기는 앞선 대화를 다듬고 chat_graph 를 돌리는 창구다.
 """
 
+import re
+
+from app.engine.memory import extract, is_empty, merge, to_prompt_line
 from app.graph.graph import chat_graph
+from app.repositories.history import delete_memory, get_memory, save_memory
 
 
 # 앞선 대화는 최근 몇 턴만 싣는다. 브라우저가 보내는 값이라 길이를 여기서 자른다 —
 # 안 자르면 아주 긴 기록 하나로 토큰 비용을 마음대로 늘릴 수 있다
 HISTORY_TURNS = 6
 HISTORY_CHARS = 1000
+
+# 장기 메모리는 회원만 남긴다 — 기기 번호(UUID)는 브라우저를 지우면 사라져 기억할 주인이 없다.
+# Life-Web 의 state.js isLoggedIn() 과 같은 규칙이다
+MEMBER_ID = re.compile(r"C\d+")
 
 
 def history_messages(history):
@@ -45,6 +53,7 @@ def chat(question, regions=None, weights=None, history=None, anon_id=None):
         "weights": weights or {},
         "history": history_messages(history),
         "anon_id": anon_id,
+        "memory": to_prompt_line(get_memory(anon_id)) if _is_member(anon_id) else "",
         "route": "",
         "tool_calls": [],
         "tool_result": [],
@@ -54,3 +63,33 @@ def chat(question, regions=None, weights=None, history=None, anon_id=None):
     }
     result = chat_graph.invoke(state)
     return result["answer"]
+
+
+def _is_member(anon_id):
+    return bool(MEMBER_ID.fullmatch(anon_id or ""))
+
+
+def remember(anon_id, question):
+    """질문에서 거주 선호를 뽑아 기억에 합친다. 답을 돌려준 뒤 백그라운드로 돈다(app/api/chat.py).
+
+    새로 말한 것이 없으면 DB 를 안 건드린다. 실패해도 채팅은 이미 끝났으므로 조용히 넘어간다 —
+    기억은 덤이고, 기억 때문에 답이 늦거나 깨지면 안 된다
+    """
+    if not _is_member(anon_id):
+        return
+    try:
+        new = extract(question)
+        if not is_empty(new):
+            save_memory(anon_id, merge(get_memory(anon_id), new))
+    except Exception as e:                       # 백그라운드라 올려 봐야 받을 곳이 없다 — 로그만 남긴다
+        print(f"[memory] {anon_id} 기억 실패: {type(e).__name__}: {e}")
+
+
+def read_memory(customer_id):
+    """마이페이지에 보여 줄 기억. 없으면 None"""
+    return get_memory(customer_id)
+
+
+def forget(customer_id):
+    """마이페이지의 "모두 지우기"."""
+    delete_memory(customer_id)

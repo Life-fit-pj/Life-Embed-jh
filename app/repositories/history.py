@@ -165,3 +165,17 @@ def ai_usage_by_user(since):
 
 def ai_usage_by_day(since):
     return _run(repo.ai_usage_by_day, since)
+
+
+# => 장기 메모리
+
+def get_memory(customer_id):
+    return _run(repo.get_memory, customer_id)
+
+
+def save_memory(customer_id, memory):
+    return _run(repo.save_memory, customer_id, memory)
+
+
+def delete_memory(customer_id):
+    return _run(repo.delete_memory, customer_id)
