@@ -5,6 +5,10 @@
 실행: `py -m pipeline.golden_search --twice` — 같은 문항을 두 번 돌려 흔들림까지 본다.
 hit@5 가 두 번 다르면 `1회/2회` 로 둘 다 적는다 (흔들림을 숨기지 않는다).
 
+채팅 도구 선택은 `tool_select.csv` **60문항**을 따로 잰다 — `py -m pipeline.golden_tools --twice`.
+칸: `question` · `member`(1 이면 회원으로 묻는다) · `expected_tools`(세미콜론, 없으면 빈칸) · `note`.
+기록은 [docs/eval_tool_select.md](../../docs/eval_tool_select.md).
+
 | 날짜 | 바꾼 것 | hit@5 | hint | 두 번 같음 | 메모 |
 | --- | --- | --- | --- | --- | --- |
 | 2026-09-28 | (기준점) 아무것도 안 바꿈 | 2/3 · 1/3 | 3/3 | 1/3 | "강남 출퇴근"이 1회 강남구 5곳 → 2회 신길·화곡 등 강남구 0곳. Claude 가 `지역` 칸을 한 번은 강남구, 한 번은 null 로 답함(이슈.md 1·2) |
