@@ -25,8 +25,8 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 **따라서 서버를 둘 띄워야 화면이 돈다**(엔진 `:8000` · 웹 `:5000`).
 
 `app/api/` 라우터는 `app/services/` 를 곧장 부른다(옛 다리 `app/features/` 는 2026-09-28 지웠다).
-`app/repositories/` 의 `members`·`chunks`·`history`·`regions` 넷은 아직 다리이고 실제 내용은
-같은 폴더의 `*_repository.py` 에 있다. **새 코드는 다리를 부르지 않는다**.
+`app/repositories/` 의 `members`·`chunks`·`history`·`regions` 넷은 세션을 열고 닫는 래퍼이고
+실제 내용은 같은 폴더의 `*_repository.py` 에 있다.
 
 패키지는 `requirements.txt`. `pyproject.toml`·린트 설정은 아직 없다.
 검증은 `tests/`(pytest 8파일 42개) + `bash check.sh`(여섯 가지) + `py -m tools.check_routes`(Life-Web 이 부르는 HTTP 경로 36개).
@@ -61,7 +61,7 @@ TOP 5를 추천하고, Claude가 근거를 들어 설명해주는 추천 엔진�
 > py -m app.services.region_service  # 동네 하나 설명 (시설명 근거)
 > py -m app.rag.retriever kb "조용한 동네에서 아이 키우는 사람"    # 벡터 검색만 (디버깅)
 >
-> `app/repositories/regions.py` 같은 다리는 `__main__` 이 없다.
+> `app/repositories/regions.py` 같은 래퍼는 `__main__` 이 없다.
 > 없어진 이름: `pipeline.weights` · `pipeline.recommend` · `pipeline.search_kb` · `pipeline.chunk_kb` ·
 > `pipeline.embed_kb` · `pipeline.embed_member` · `app/llm.py` · `pipeline/prep/chunking.py`.
 
@@ -157,7 +157,7 @@ app/models/       customer, preference,      표를 클래스로 (ORM). history.
                                              ㎡·/·숫자시작이 있어 클래스로 못 적는다 — .c["이름"] 로 쓴다)
 app/repositories/ chunk_, member_, history_, 표를 실제로 읽고 쓰는 곳(ORM). 딕셔너리·튜플만 낸다
                   region_repository
-                  members, chunks, history,  옛 이름을 지키는 다리. _run() 이 세션을 열고 닫는다
+                  members, chunks, history,  세션 래퍼. _run() 이 세션을 열고 닫는다
                   regions
 app/ai/           llm(Claude), embedder      외부 모델과 순수 규칙. 모델 교체는 이 폴더만 고친다
                   (OpenAI), vector_store,
@@ -285,17 +285,3 @@ nemotron.csv ───┴→ pipeline/chunk.py → chunks 표(9,900줄, embeddin
 "쓸 때 표를 만든다" 는 파일 DB 시절 습관이고, Postgres 에서는 서비스 코드가 DDL 을 던질 자리가 아니다.
 `analysis_service` 는 이 표들을 집계해 Claude 에게 해석시킨다 — **집계는 우리가 만들고 Claude
 에게는 숫자만 준다**(느린 쿼리·잘못된 조인·개인정보 칸 노출을 원천적으로 없앤다).
-
-## 기록은 어디에 있나
-
-| 파일 | 무엇 |
-| --- | --- |
-| `README.md` (이 저장소) | 설치·실행·설계 원칙·아직 안 된 것·논의 필요 |
-| `docs/REFACTOR.md` | **옛 계획**(FastAPI 이전 논의, ADR-0001). 남의 컴퓨터 절대경로가 섞여 있다 |
-| 루트 `studyall.md` | 지도 — 지금 어디 있고 무엇은 안 하기로 했나 |
-| 루트 `study3.md` | 교안 — 지금 진행 중인 작업 하나(2026-09-12 기준: 웹을 DB 에 잇기 W1~W5) |
-| 루트 `study2-archive.md` | 끝난 교안 보관함. 마이그레이션 0~9단계는 `[보관 11]`~`[보관 21]` |
-
-**`STUDY.md`(엔진 성능 진단 [A]~[E]와 추천 품질 버그 5건)는 마이그레이션 때 지웠다.**
-필요하면 `git show 81af7d1^:STUDY.md` 로 꺼내 본다. 거기 적힌 파일 경로는 8월 구조 기준이라
-지금과 다르다 — 코드를 직접 볼 것.

@@ -1,18 +1,7 @@
-"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/history_repository.py 에 있다.
+"""history_repository.py 를 세션 없이 부르는 창구.
 
-이 파일에 날 SQL 은 없다. user_login 셋도 4단계에서 ORM 으로 옮겼다
-   (app/models/history.py 의 UserLogin).
-
-   ensure_* 6개는 지웠다. "쓸 때 표를 만든다" 는 SQLite 시절 습관이고,
-   Postgres 에서는 서비스 코드가 DDL 을 던질 자리가 아니다. 표를 세우는 일은
-   pipeline/schema.py 끝의 Base.metadata.create_all() 이 한 번에 한다.
-
-부르는 쪽 —
-  app/services/admin_service.py     집계·관리자로그
-  app/services/analysis_service.py  분석대화·집계
-  app/services/auth_service.py      user_login 계열
-  Life-Web/services/engine.py 20행  add_like · remove_like · add_search_history ·
-                                    list_search_history · add_chat_history · list_chat_history
+history_repository 의 함수는 db 세션을 첫 인자로 받는다. 서비스·엔진 층은 세션을 몰라도
+되도록, 여기서 _run() 이 세션을 열고 닫아 준다.
 """
 
 from app.db import SessionLocal
