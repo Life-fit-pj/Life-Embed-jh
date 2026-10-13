@@ -6,6 +6,7 @@
 hit@5 가 두 번 다르면 `1회/2회` 로 둘 다 적는다 (흔들림을 숨기지 않는다).
 
 채팅 도구 선택은 `tool_select.csv` **60문항**을 따로 잰다 — `py -m pipeline.golden_tools --twice`.
+`tool_select_holdout.csv` **30문항**은 도구 설명을 고칠 때 보지 않는 문항이다 — `--holdout` 으로 잰다.
 칸: `question` · `member`(1 이면 회원으로 묻는다) · `expected_tools`(세미콜론, 없으면 빈칸) · `note`.
 기록은 [docs/eval_tool_select.md](../../docs/eval_tool_select.md).
 

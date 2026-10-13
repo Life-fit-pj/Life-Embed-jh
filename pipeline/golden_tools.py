@@ -2,6 +2,7 @@
 
 실행:  py -m pipeline.golden_tools          # data/golden/tool_select.csv 전부
        py -m pipeline.golden_tools --twice  # 두 번 돌려 흔들림(같은 문항이 다른 도구)까지 본다
+       py -m pipeline.golden_tools --holdout   # tool_select_holdout.csv — 설명을 고칠 때 보지 않은 문항
 
 왜 답변을 안 보나 — 도구를 잘못 고르면 답이 아무리 좋아도 근거가 틀린다. 여기서는 plan 한 단계만 잰다.
 도구는 실행하지 않는다 — 고른 이름만 모은다. 그래서 DB 를 안 읽는다.
@@ -25,6 +26,7 @@ from app.tools.tools import MEMBER_TOOLS, TOOL_SPECS
 from pipeline.io import read_csv, save_csv
 
 GOLDEN = DATA_DIR / "golden" / "tool_select.csv"    # 문항. 사람이 적는다
+HOLDOUT = DATA_DIR / "golden" / "tool_select_holdout.csv"   # 도구 설명을 고칠 때 보지 않는 문항. 일반화 확인용
 LAST_RUN = DATA_DIR / "golden" / "last_tools.csv"   # 마지막 실행의 문항별 결과. 덮어쓴다
 
 # 채팅 화면에 떠 있는 추천 다섯 곳. 문항이 이 동네 이름으로 묻는다
@@ -97,8 +99,8 @@ def instability(first, second):
     return sum(a["got"] != b["got"] for a, b in zip(first, second)) / len(first)
 
 
-def run_all(save_to=None):
-    _, rows = read_csv(GOLDEN)
+def run_all(golden=GOLDEN, save_to=None):
+    _, rows = read_csv(golden)
     results = []
     try:
         for row in rows:
@@ -136,12 +138,13 @@ def report(s):
 
 
 def main():
-    first = run_all(save_to=LAST_RUN)
+    golden = HOLDOUT if "--holdout" in sys.argv else GOLDEN
+    first = run_all(golden, save_to=LAST_RUN)
     report(score(first))
 
     if "--twice" in sys.argv:
         print("\n-- 두 번째 실행 (흔들림 확인) --")
-        second = run_all()
+        second = run_all(golden)
         print(f"\n2회 실행 불일치율  {instability(first, second):.1%}  <- 0 에 가까울수록 재기 좋은 잣대다")
 
 
