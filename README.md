@@ -36,6 +36,8 @@
 인구통계("3인 가구 40대")가 아니라 **라이프스타일 선호도**로 동네를 고릅니다.
 추천 뒤에는 지도 핀 하나를 설명하는 창구(`services/region_service.py`)와
 후속 질문에 답하는 창구(`services/chat_service.py`)가 더 있습니다.
+채팅은 회원이 말한 거주 선호(예산·거래유형·통근지·중요 지표·기피 조건)를 기억해 다음 대화에 반영합니다
+([docs/agent_memory.md](docs/agent_memory.md)).
 
 ## 설치
 
@@ -124,7 +126,7 @@ py -m tools.show_prompts    # Claude에게 가는 프롬프트 일곱을 최종 
 
 PR마다 GitHub Actions(`.github/workflows/ci.yml`)가 DB·API 키 없이 도는 테스트와 `check.sh`를 돌립니다.
 Supabase에 실제로 붙는 다섯 파일(`test_db`·`test_models`·`test_golden`·`test_vector_search`·`test_supabase_auth`)과
-요금이 드는 Golden Set 평가(`pipeline.golden_search`·`pipeline.golden_tools`)는 CI에서 빼고 로컬에서 돌립니다.
+요금이 드는 Golden Set 평가(`pipeline.golden_search`·`pipeline.golden_tools`·`pipeline.golden_memory`)는 CI에서 빼고 로컬에서 돌립니다.
 
 | | `check.sh`가 세는 것 | 통과 |
 | --- | --- | --- |

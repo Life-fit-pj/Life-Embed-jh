@@ -10,7 +10,7 @@ from sqlalchemy import (BigInteger, Column, Date, DDL, Double, ForeignKeyConstra
 
 from app.core.config import DATA_DIR, INDICATORS
 from app.db import Base, engine
-from app.models import chunk, customer, history, preference   # noqa: F401
+from app.models import chunk, customer, history, memory, preference   # noqa: F401
 from pipeline.io import read_csv, count_rows
 
 # 타입을 살펴볼 때 읽을 줄 수. 11만 줄을 전부 읽을 필요가 없다.
@@ -466,7 +466,7 @@ if __name__ == "__main__":
     # 6. CSV 가 없는 표 — 기록 5 + user_login + chunks. 모델이 정의처다.
     #    Base.metadata 는 csv_metadata 와 별개라 위에서 만든 표를 안 건드린다
     Base.metadata.create_all(engine)
-    print("✅ 모델만 있는 표 생성 (chunks · likes · search_history · chat_history · analysis_chat · admin_log · user_login)")
+    print("✅ 모델만 있는 표 생성 (chunks · likes · search_history · chat_history · analysis_chat · admin_log · user_login · user_memory)")
 
     # 7. 모든 표에 RLS 를 켠다 — 정책은 안 만든다.
     #    Supabase 는 새 표에 anon · authenticated 의 모든 권한을 기본으로 주고 RLS 는 안 켠다. 안 켜면 브라우저에 박힌
