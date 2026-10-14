@@ -10,7 +10,7 @@ region_service.py 는 동네 하나를 설명하고 끝난다.
 
 import re
 
-from app.engine.memory import extract, is_empty, merge, to_prompt_line
+from app.engine.memory import clean, extract, is_empty, merge, to_prompt_line
 from app.graph.graph import chat_graph
 from app.repositories.history import delete_memory, get_memory, save_memory
 
@@ -46,14 +46,17 @@ def chat(question, regions=None, weights=None, history=None, anon_id=None):
 
     history 는 같은 추천 결과를 두고 앞서 주고받은 말이다 — "거기", "그럼 두 번째 동네는?"
     처럼 앞 질문을 가리키는 말을 알아듣게 plan·generate 둘 다에 싣는다
+
+    돌려주는 memory 는 이번 답에 실은 기억 한 줄이다 — 화면이 말풍선 아래 "기억한 조건 반영" 으로 보여 준다
     """
+    memory = to_prompt_line(get_memory(anon_id)) if _is_member(anon_id) else ""
     state = {
         "question": question,
         "regions": regions or [],
         "weights": weights or {},
         "history": history_messages(history),
         "anon_id": anon_id,
-        "memory": to_prompt_line(get_memory(anon_id)) if _is_member(anon_id) else "",
+        "memory": memory,
         "route": "",
         "tool_calls": [],
         "tool_result": [],
@@ -62,7 +65,7 @@ def chat(question, regions=None, weights=None, history=None, anon_id=None):
         "path": [],
     }
     result = chat_graph.invoke(state)
-    return result["answer"]
+    return {"answer": result["answer"], "memory": memory}
 
 
 def _is_member(anon_id):
@@ -90,6 +93,18 @@ def read_memory(customer_id):
     return get_memory(customer_id)
 
 
-def forget(customer_id):
-    """마이페이지의 "모두 지우기"."""
-    delete_memory(customer_id)
+def forget(customer_id, field=None, value=None):
+    """field 가 없으면 모두 지운다(마이페이지). 있으면 그 칸만, 목록 칸은 value 하나만 지운다(채팅창 띠의 ✕).
+    지우고 남은 게 없으면 줄째 지운다"""
+    memory = get_memory(customer_id)
+    if field is None or memory is None:
+        delete_memory(customer_id)
+        return
+    if field in ("priorities", "avoid"):
+        memory[field] = [v for v in memory[field] if v != value]
+    elif field in ("budget_manwon", "deal_type", "commute"):
+        memory[field] = None
+    if is_empty(memory):
+        delete_memory(customer_id)
+    else:
+        save_memory(customer_id, clean(memory))

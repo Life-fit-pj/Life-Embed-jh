@@ -16,6 +16,7 @@ class ChatRequest(BaseModel):
 
 class ChatOut(BaseModel):
     answer: str
+    memory: str = ""        # 이번 답에 실은 기억 한 줄. 손님이거나 기억이 없으면 빈 글자
 
 
 class MemoryOut(BaseModel):
