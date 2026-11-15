@@ -1,18 +1,7 @@
-"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/history_repository.py 에 있다.
+"""history_repository.py 를 세션 없이 부르는 창구.
 
-이 파일에 날 SQL 은 없다. user_login 셋도 4단계에서 ORM 으로 옮겼다
-   (app/models/history.py 의 UserLogin).
-
-   ensure_* 6개는 지웠다. "쓸 때 표를 만든다" 는 SQLite 시절 습관이고,
-   Postgres 에서는 서비스 코드가 DDL 을 던질 자리가 아니다. 표를 세우는 일은
-   pipeline/schema.py 끝의 Base.metadata.create_all() 이 한 번에 한다.
-
-부르는 쪽 —
-  app/services/admin_service.py     집계·관리자로그
-  app/services/analysis_service.py  분석대화·집계
-  app/services/auth_service.py      user_login 계열
-  Life-Web/services/engine.py 20행  add_like · remove_like · add_search_history ·
-                                    list_search_history · add_chat_history · list_chat_history
+history_repository 의 함수는 db 세션을 첫 인자로 받는다. 서비스·엔진 층은 세션을 몰라도
+되도록, 여기서 _run() 이 세션을 열고 닫아 준다.
 """
 
 from app.db import SessionLocal
@@ -60,6 +49,11 @@ def add_chat_history(anon_id, question, answer):
 
 def list_chat_history(anon_id, limit=20):
     return _run(repo.list_chat_history, anon_id, limit)
+
+
+def list_history(anon_id, limit=20):
+    """검색 · 대화 기록을 세션 하나로 (searches, chats). 마이페이지 "기록" 탭(/history)이 쓴다 — 위 둘을 따로 부르면 연결을 두 번 꺼낸다"""
+    return _run(lambda db: (repo.list_search_history(db, anon_id, limit), repo.list_chat_history(db, anon_id, limit)))
 
 
 # => 관리자 수정 이력
@@ -176,3 +170,17 @@ def ai_usage_by_user(since):
 
 def ai_usage_by_day(since):
     return _run(repo.ai_usage_by_day, since)
+
+
+# => 장기 메모리
+
+def get_memory(customer_id):
+    return _run(repo.get_memory, customer_id)
+
+
+def save_memory(customer_id, memory):
+    return _run(repo.save_memory, customer_id, memory)
+
+
+def delete_memory(customer_id):
+    return _run(repo.delete_memory, customer_id)

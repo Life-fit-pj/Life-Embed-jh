@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # 계층이 지켜지나 여섯 가지를 센다. 저장소 뿌리에서  bash check.sh
+# 하나라도 X 면 종료 코드 1 — CI 가 이것으로 실패를 안다
+fail=0
 
 echo
 echo "① app/ 에 날 SQL 이 없다"
@@ -8,7 +10,7 @@ echo "① app/ 에 날 SQL 이 없다"
 #   ['\"]     text(변수) 가 아니라 text("SELECT …") 처럼 글자를 넘기는 것만 본다
 #   app/models/  server_default=text("CURRENT_TIMESTAMP") 는 DDL 기본값이라 예외
 if grep -rnE "\btext\(['\"]" --include=*.py app pipeline | grep -v "^app/models/"; then
-    echo "  X 전부 ORM 으로 간다 (app/repositories/*_repository.py)"
+    fail=1; echo "  X 전부 ORM 으로 간다 (app/repositories/*_repository.py)"
 else
     echo "  OK 0곳"
 fi
@@ -16,20 +18,20 @@ fi
 echo
 echo "② 함수 안 import 가 있으면 안 된다"
 if grep -rn "^ \+from app\." --include=*.py app/; then
-    echo "  X 맨 위로 올린다. 올려서 죽으면 진짜 순환이다"
+    fail=1; echo "  X 맨 위로 올린다. 올려서 죽으면 진짜 순환이다"
 else
     echo "  OK 0곳"
 fi
 
 echo
 echo "③ 계층 방향"
-python -m pytest tests/test_layers.py -q
+python -m pytest tests/test_layers.py -q || fail=1
 
 
 echo
 echo "④ 0바이트 __init__.py 가 있으면 안 된다"
 if find app -name '__init__.py' | grep .; then
-    echo "  X 지운다. 뿌리에서 -m 으로 실행하므로 필요 없다"
+    fail=1; echo "  X 지운다. 뿌리에서 -m 으로 실행하므로 필요 없다"
 else
     echo "  OK 0개"
 fi
@@ -37,7 +39,7 @@ fi
 echo
 echo "⑤ LangChain 이 코드에 남아 있으면 안 된다"
 if grep -rnE "^ *(from|import) langchain" --include=*.py app pipeline tests tools; then
-    echo "  X 4단계에서 걷어냈다. 되살아났다"
+    fail=1; echo "  X 4단계에서 걷어냈다. 되살아났다"
 else
     echo "  OK 0곳"
 fi
@@ -48,7 +50,9 @@ echo "⑥ SQLite 가 되살아났나"
 # 주석의 "SQLite 시절에는 …" 은 왜 이렇게 짰나를 남긴 기록이라 잡지 않는다 —
 # 잡으면 ⑥ 이 늘 X 로 끝나고, 그러면 아무도 안 보게 된다
 if grep -rnE "import sqlite3|sqlite3\.|\bDB_PATH\b|PRAGMA |check_same_thread|dialects\.sqlite|sqlite:///" --include=*.py app pipeline tests tools; then
-    echo "  X 5단계에서 없앴다. 되살아났다"
+    fail=1; echo "  X 5단계에서 없앴다. 되살아났다"
 else
     echo "  OK 0곳"
 fi
+
+exit $fail

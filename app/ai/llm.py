@@ -10,6 +10,8 @@ messages 는 옛 모양을 그대로 받는다: [("system", 지시문), ("human"
 튜플을 SDK 모양으로 바꾸는 번역은 이 파일 안에서만 일어난다(이론 8).
 """
 
+import json
+
 from anthropic import Anthropic
 
 from app.core.config import API_KEY, MODEL
@@ -51,6 +53,23 @@ def ask(messages, max_tokens=800, temperature=None):
         extra_body=extra,
     )
     return reply.content[0].text
+
+
+def ask_json(messages, schema, max_tokens=400):
+    """Claude 의 답을 schema 모양의 dict 로 받는다 (Structured Outputs).
+
+    output_config.format 이 JSON Schema 를 강제하므로 답이 항상 그 모양이다 —
+    "JSON 만 출력하라" 고 부탁하고 정규식으로 파내던 방식(survey 의 parse_llm_scores)과 다르다.
+    """
+    system, turns = _to_sdk(messages)
+    reply = client.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=turns,
+        output_config={"format": {"type": "json_schema", "schema": schema}},
+    )
+    return json.loads(next(block.text for block in reply.content if block.type == "text"))
 
 
 def ask_with_tools(messages, tool_specs, max_tokens=800):

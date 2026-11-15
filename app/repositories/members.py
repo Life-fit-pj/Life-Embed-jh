@@ -1,30 +1,15 @@
-"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/member_repository.py 에 있다.
+"""member_repository.py 를 세션 없이 부르는 창구.
 
-부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
-  app/engine/weights.py     member_weights
-  app/services/search_service.py    member_weights
-  app/services/admin_service.py     조회·수정 대부분
-  app/services/analysis_service.py  집계
-  app/services/auth_service.py      customer_ids
-  app/services/privacy_service.py   customer_names
-  Life-Web/services/engine.py 22행  customer_one
-
-8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
-
-_run_update 는 4단계에서 없앴다 — regions 가 ORM 으로 옮겨 가면서
-(app/repositories/region_repository.py 의 update_region) 부르는 곳이 사라졌다.
+member_repository 의 함수는 db 세션을 첫 인자로 받는다. 서비스·엔진 층은 세션을 몰라도
+되도록, 여기서 _run() 이 세션을 열고 닫아 준다.
 """
 
 from app.db import SessionLocal
+from app.repositories import history_repository
 from app.repositories import member_repository as repo
 
-
 def _run(fn, *args, **kwargs):
-    """세션을 열고 fn(db, *args) 를 부른 뒤 반드시 닫는다.
-
-    옛 함수들은 db 를 인자로 안 받았다. 그 모양을 지켜야 부르는 쪽을
-    안 고칠 수 있으므로, 세션을 여기서 열고 닫는다.
-    """
+    """세션을 열고 fn(db, *args) 를 부른 뒤 반드시 닫는다."""
     db = SessionLocal()
     try:
         return fn(db, *args, **kwargs)
@@ -66,6 +51,21 @@ def customer_preferences_initial(customer_id):
 
 def customer_persona(customer_id):
     return _run(repo.customer_persona, customer_id)
+
+
+def member_by_login(login_id):
+    """로그인 아이디 하나로 (회원 번호, 기본정보, 페르소나). 가입 전이면 None. 마이페이지(/auth/me)가 쓴다.
+
+    위 창구들로 셋을 따로 부르면 조회마다 연결을 꺼내고 닫느라 DB 왕복이 네 번씩 붙는다 — 세션 하나로 묶는다
+    """
+    def read(db):
+        row = history_repository.get_login_row(db, login_id)
+        if row is None:
+            return None
+        customer_id = row["customer_id"]
+        return customer_id, repo.customer_one(db, customer_id), repo.customer_persona(db, customer_id)
+    return _run(read)
+
 
 
 # ── 회원 관리자 수정 (app/services/admin_service.py 가 쓴다) ──────────────

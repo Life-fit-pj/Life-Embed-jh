@@ -227,3 +227,6 @@ __marimo__/
 .DS_Store
 
 data/golden/last_run.csv
+# 개인 도구 설정
+.claude/skills/
+data/golden/last_tools.csv

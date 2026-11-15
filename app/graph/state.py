@@ -64,6 +64,9 @@ class ChatState(TypedDict):
     # 누가 묻는지. 웹이 보내는 기기 번호 — 로그인하면 회원 번호("C101")다. 좋아요·닮은 회원 도구가 읽는다. 없으면 None
     anon_id: str | None
 
+    # 회원이 전에 말한 거주 선호 한 줄(engine/memory.py 의 to_prompt_line). 손님이거나 없으면 빈 글자. generate 가 싣는다
+    memory: str
+
     # plan 노드가 정한다: "tool" 또는 "context"
     route: str
 

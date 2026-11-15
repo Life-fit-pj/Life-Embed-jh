@@ -10,7 +10,7 @@
 
 서울 427개 행정동 중 자연어 검색어에 맞는 동네 TOP 5를 고르고, LLM이 근거를 들어 설명하는 엔진입니다.
 
-[무엇을 하는가](#무엇을-하는가) · [설치](#설치) · [실행](#실행) · [확인](#확인) · [구조](#구조) · [설계 원칙](#설계-원칙) · [남은 일](#남은-일)
+[무엇을 하는가](#무엇을-하는가) · [설치](#설치) · [실행](#실행) · [확인](#확인) · [구조](#구조) · [설계 원칙](#설계-원칙) · [알려진 한계](#알려진-한계)
 
 </div>
 
@@ -36,6 +36,8 @@
 인구통계("3인 가구 40대")가 아니라 **라이프스타일 선호도**로 동네를 고릅니다.
 추천 뒤에는 지도 핀 하나를 설명하는 창구(`services/region_service.py`)와
 후속 질문에 답하는 창구(`services/chat_service.py`)가 더 있습니다.
+채팅은 회원이 말한 거주 선호(예산·거래유형·통근지·중요 지표·기피 조건)를 기억해 다음 대화에 반영합니다
+([docs/agent_memory.md](docs/agent_memory.md)).
 
 ## 설치
 
@@ -122,6 +124,10 @@ py -m tools.check_routes    # Life-Web이 부르는 HTTP 경로가 다 열렸나
 py -m tools.show_prompts    # Claude에게 가는 프롬프트 일곱을 최종 글로 찍는다
 ```
 
+PR마다 GitHub Actions(`.github/workflows/ci.yml`)가 DB·API 키 없이 도는 테스트와 `check.sh`를 돌립니다.
+Supabase에 실제로 붙는 다섯 파일(`test_db`·`test_models`·`test_golden`·`test_vector_search`·`test_supabase_auth`)과
+요금이 드는 Golden Set 평가(`pipeline.golden_search`·`pipeline.golden_tools`·`pipeline.golden_memory`)는 CI에서 빼고 로컬에서 돌립니다.
+
 | | `check.sh`가 세는 것 | 통과 |
 | --- | --- | --- |
 | ① | `app/`·`pipeline/`에 날 SQL(`text("…")`)이 있나 | 0곳 |
@@ -159,7 +165,7 @@ Life-Embed-jh/
 | 0 | `domain/` | `dong.py` — 행정동 이름 표기 변형. 순수 함수 |
 | 1 | `schemas/` · `core/` | API 형식(pydantic) · 설정(`DATABASE_URL`·키·모델명·`INDICATORS`) |
 | 2 | `models/` | ORM 모델 — `customer` · `preference` · `chunk` · `history` · `region` |
-| 2 | `repositories/` | **표를 실제로 읽고 쓰는 곳**(전부 ORM). `members`·`chunks`·`history`·`regions`는 옛 이름을 지키는 다리 |
+| 2 | `repositories/` | **표를 실제로 읽고 쓰는 곳**(전부 ORM). `members`·`chunks`·`history`·`regions`는 세션을 열고 닫는 래퍼 |
 | 2 | `ai/` | `llm`(Claude) · `embedder`(OpenAI) · `vector_store` · `chunker` · `masking` |
 | 3 | `rag/` | `retriever.py` — 검색어로 뜻이 가까운 청크를 찾는다 |
 | 4 | `engine/` | 점수 계산 — `weights` · `recommend` · `ranking`(조건 걸기 · 준비물 캐시) · `explain` · `chat_context`(채팅 재료) · `housing` · `resync` |
@@ -289,17 +295,16 @@ POST /search  "애들 학원 보내기 좋은 곳"
 
 원본 파일 하나하나와 정제본의 짝은 상위 폴더 `docs/데이터-출처-대조.md`.
 
-## 남은 일
+## 알려진 한계
 
-- 학교·버스·CCTV는 밀도로만 순위에 쓰이고 `facilities`(시설 이름 목록)에는 아직 없음
-- 제외 필터 (`exclude_gu` — "강남 외")
+- 학교·버스·CCTV는 밀도로만 순위에 쓰이고 `facilities`(시설 이름 목록)에는 없음
+- 제외 필터 없음 (`exclude_gu` — "강남 외")
 - `pipeline/schema.py`의 일부 단계가 `if __name__` 없이 모듈 최상위에서 실행됨 — import만 해도 돈다
 - 월세는 시세 25~75% 분포를 못 보여줌 — 원본에 `월임대료` 분위 칼럼이 없음
-- 추천 정확도(hit@k)는 `py -m pipeline.golden_search`로 잽니다(27문항, Claude를 부릅니다 — 요금 주의). 채팅의 도구 선택은 아직 재는 도구가 없음
-- `repositories/`의 다리 넷(`members`·`chunks`·`history`·`regions`) 정리
+- 추천 정확도(hit@k)는 `py -m pipeline.golden_search`로 잽니다(27문항, Claude를 부릅니다 — 요금 주의). 채팅의 도구 선택은 `py -m pipeline.golden_tools`로 잽니다(60문항 + held-out 30문항, 결과: [docs/eval_tool_select.md](docs/eval_tool_select.md))
 
 <details>
-<summary><b>논의 필요 — 목표가 일치도를 순위에도 반영할 것인가</b> (2026-09-01 제기)</summary>
+<summary><b>검토한 대안 — 목표가 일치도를 순위에도 반영할 것인가</b></summary>
 
 <br/>
 
@@ -315,6 +320,6 @@ tolerance(±30%) 안의 동만 남긴 뒤, 순위는 7개 지표로만 매깁니
 
 **설명문의 시세 어법** — 지금은 Claude에게 목표 금액이 전달되지 않고 `price_fit_score()`가 `abs()`를
 써서 방향(비싼지 싼지)도 사라집니다. "원하시는 가격대보다 조금 높은 편입니다" 같은 답이 불가능하니,
-목표가와 방향을 프롬프트에 같이 넣어야 합니다. (옛 수정안: `git show 81af7d1^:STUDY.md`)
+목표가와 방향을 프롬프트에 같이 넣어야 합니다.
 
 </details>

@@ -1,12 +1,7 @@
-"""옛 이름을 지키는 다리. 실제 내용은 app/repositories/chunk_repository.py 에 있다.
+"""chunk_repository.py 를 세션 없이 부르는 창구.
 
-부르는 쪽이 이 이름으로 import 하고 있어서 아직 못 지운다 —
-  app/ai/vector_store.py        nearest_chunks · nearest_people (검색마다)
-  app/engine/resync.py          replace_member_chunks
-  app/services/admin_service.py member_chunk_stats · persona_lengths
-  tests/make_golden.py          네 함수 모두 (골든 사진)
-
-8단계에서 부르는 쪽을 repositories 로 바꾸면서 이 파일을 지운다.
+chunk_repository 의 함수는 db 세션을 첫 인자로 받는다. 서비스·엔진 층은 세션을 몰라도
+되도록, 여기서 _run() 이 세션을 열고 닫아 준다.
 """
 
 from app.db import SessionLocal
@@ -14,11 +9,7 @@ from app.repositories import chunk_repository as repo
 
 
 def _run(fn, *args):
-    """세션을 열고 fn(db, *args) 를 부른 뒤 반드시 닫는다.
-
-    옛 함수들은 db 를 인자로 안 받았다. 그 모양을 지켜야 부르는 쪽을
-    안 고칠 수 있으므로, 세션을 여기서 열고 닫는다.
-    """
+    """세션을 열고 fn(db, *args) 를 부른 뒤 반드시 닫는다."""
     db = SessionLocal()
     try:
         return fn(db, *args)

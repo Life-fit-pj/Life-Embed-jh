@@ -1,0 +1,61 @@
+question,member,expected_tools,note
+대치1동이 왜 1위야?,0,,도구 불필요 — 추천 이유
+점수 98점은 무슨 뜻이야?,0,,도구 불필요 — 점수 의미
+중계1동 교통은 어때?,0,,도구 불필요 — 지표 점수로 답함
+서교동 안전한 편이야?,0,,도구 불필요 — 지표 점수로 답함
+다섯 곳 중 녹지가 제일 좋은 데는 어디야?,0,,도구 불필요 — 지표 점수 비교
+잠실3동이랑 대치1동 중 교육 점수 높은 곳은?,0,,도구 불필요 — 지표 점수 비교
+이 추천은 어떤 기준으로 뽑은 거야?,0,,도구 불필요 — 추천 방식
+관리비는 얼마 정도 나와?,0,,도구 불필요 — 데이터에 없음
+서교동엔 지하철 몇 호선 지나가?,0,,도구 불필요 — 데이터에 없음(노선명)
+대치1동 학군 배정은 어떻게 돼?,0,,도구 불필요 — 데이터에 없음
+고마워!,0,,도구 불필요 — 인사
+대치1동이 왜 1위야?,1,,도구 불필요 — 회원도 같음
+고마워 잘 봤어,1,,도구 불필요 — 회원 인사
+내가 좋아요 누른 동네랑 비슷한 곳 있어?,0,,비회원 — 회원 전용 도구 금지
+나 같은 사람들은 보통 어디 살아?,0,,비회원 — 회원 전용 도구 금지
+찜한 곳이랑 비교하면 어때?,0,,비회원 — 회원 전용 도구 금지
+대치1동에 학원 몇 개야?,0,get_facility_counts,
+서교동에 병원 있어?,0,get_facility_counts,
+중계1동 공원 몇 곳이야?,0,get_facility_counts,
+잠실3동에 문화시설은 얼마나 있어?,0,get_facility_counts,
+서교동 근처에 시장이나 마트 같은 점포 많아?,0,get_facility_counts,
+대치1동 영어학원 몇 곳이야?,0,get_facility_categories,
+서교동엔 어떤 병원이 많아?,0,get_facility_categories,
+중계1동에 유치원 있어?,0,get_facility_categories,
+잠실3동 초등학교 몇 개야?,0,get_facility_categories,
+성수1가1동 문화시설은 어떤 종류가 있어?,0,get_facility_categories,
+대치1동 전세 얼마야?,0,get_region_prices,
+서교동 원룸 월세 시세 알려줘,0,get_region_prices,
+잠실3동 아파트 매매가는?,0,get_region_prices,
+중계1동 집값 비싼 편이야?,0,get_region_prices,
+성수1가1동 오피스텔 전세는 얼마야?,0,get_region_prices,
+서교동 시끄러워?,0,get_living_conditions,
+중계1동 1인 가구 많아?,0,get_living_conditions,
+잠실3동은 오래 사는 사람이 많은 동네야?,0,get_living_conditions,
+대치1동 미세먼지는 어때?,0,get_living_conditions,
+성수1가1동 걸어 다니기 편해?,0,get_living_conditions,
+학원 많은 쪽으로 다시 보면?,0,rerank_by_focus,
+지하철 기준으로는 어디야?,0,rerank_by_focus,
+도서관 많은 곳 기준으로 다시 추천해줘,0,rerank_by_focus,
+CCTV 많은 곳으로 다시 줄 세우면?,0,rerank_by_focus,
+놀이터 많은 동네 위주로 다시 보여줘,0,rerank_by_focus,
+전통시장 기준으로 다시 보면 어디야?,0,rerank_by_focus,
+내가 좋아요 누른 동네랑 비슷한 곳은?,1,similar_to_my_likes,
+찜한 곳이랑 비교하면 어때?,1,similar_to_my_likes,
+내가 찜한 동네랑 제일 닮은 추천 동네는 어디야?,1,similar_to_my_likes,
+좋아요 한 동네 기준으로 비슷한 동네 더 알려줘,1,similar_to_my_likes,
+내 찜 목록이랑 비슷한 데 있어?,1,similar_to_my_likes,
+나 같은 사람들은 보통 어디를 골라?,1,people_like_me,
+나랑 비슷한 사람들은 어디 살아?,1,people_like_me,
+나랑 성향 비슷한 회원들이 사는 동네랑 닮은 곳은?,1,people_like_me,
+비슷한 조건을 따지는 다른 사람들은 어느 동네 살아?,1,people_like_me,
+나랑 취향 맞는 사람들 사는 곳 기준으로 보면?,1,people_like_me,
+대치1동 학원 수랑 전세 시세 알려줘,0,get_facility_counts;get_region_prices,도구 2개
+서교동 시끄러운지랑 월세 얼마인지 알려줘,0,get_living_conditions;get_region_prices,도구 2개
+중계1동 공원 몇 곳이고 1인 가구는 많아?,0,get_facility_counts;get_living_conditions,도구 2개
+잠실3동 초등학교 몇 개고 아파트 매매가는?,0,get_facility_categories;get_region_prices,도구 2개
+성수1가1동 문화시설 몇 개고 걸어 다니기 편해?,0,get_facility_counts;get_living_conditions,도구 2개
+찜한 동네랑 비슷한 곳이랑 나 같은 사람들이 사는 곳도 알려줘,1,similar_to_my_likes;people_like_me,도구 2개 — 회원
+대치1동이랑 중계1동 전세 비교해줘,0,get_region_prices,비교 — 같은 도구를 동네마다
+대치1동이랑 서교동 중 병원 더 많은 곳은?,0,get_facility_counts,비교 — 같은 도구를 동네마다

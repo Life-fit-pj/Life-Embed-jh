@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.customer import Customer
 from app.models.history import AdminLog, AnalysisChat, ChatHistory, Like, SearchHistory, UserLogin
+from app.models.memory import UserMemory
 
 
 def create_login(db, customer_id, login_id, password):
@@ -47,13 +48,14 @@ def delete_logins_by_customer(db, customer_id):
 
 
 def delete_activity(db, anon_id):
-    """회원 탈퇴 시 이 사람이 남긴 좋아요·검색·채팅 기록을 지운다.
+    """회원 탈퇴 시 이 사람이 남긴 좋아요·검색·채팅 기록과 장기 메모리를 지운다.
 
     로그인한 회원은 anon_id 자리가 customer_id 로 덮어써져 있다(admin_service.get_member 참고).
     """
     db.query(Like).filter(Like.anon_id == anon_id).delete(synchronize_session=False)
     db.query(SearchHistory).filter(SearchHistory.anon_id == anon_id).delete(synchronize_session=False)
     db.query(ChatHistory).filter(ChatHistory.anon_id == anon_id).delete(synchronize_session=False)
+    db.query(UserMemory).filter(UserMemory.customer_id == anon_id).delete(synchronize_session=False)
     db.commit()
 
 
@@ -377,3 +379,38 @@ def ai_usage_by_day(db, since):
         for d, n in db.query(day, func.count()).filter(model.created_at >= since).group_by(day).all():
             days.setdefault(d, [0, 0])[slot] = n
     return [(d, s, c) for d, (s, c) in sorted(days.items())]
+
+
+# ── 장기 메모리 (회원 한 명에 한 줄) ───────────────────────
+
+_MEMORY_FIELDS = ("budget_manwon", "deal_type", "commute", "priorities", "avoid", "updated_at")
+
+
+def get_memory(db, customer_id):
+    """기억한 선호. 없으면 None. 목록 칸은 JSON 글자를 풀어서 준다"""
+    row = db.get(UserMemory, customer_id)
+    if row is None:
+        return None
+    out = {k: getattr(row, k) for k in _MEMORY_FIELDS}
+    for k in ("priorities", "avoid"):
+        out[k] = json.loads(out[k] or "[]")
+    return out
+
+
+def save_memory(db, customer_id, memory):
+    """한 줄을 통째로 쓴다(있으면 덮는다). 합치는 규칙은 engine/memory.py 의 merge() 가 정한다"""
+    values = {**{k: memory[k] for k in ("budget_manwon", "deal_type", "commute")},
+              "priorities": json.dumps(memory["priorities"], ensure_ascii=False),
+              "avoid": json.dumps(memory["avoid"], ensure_ascii=False)}
+    db.execute(
+        pg_insert(UserMemory)
+        .values(customer_id=customer_id, **values)
+        .on_conflict_do_update(index_elements=["customer_id"],
+                               set_={**values, "updated_at": func.current_timestamp()})
+    )
+    db.commit()
+
+
+def delete_memory(db, customer_id):
+    db.query(UserMemory).filter(UserMemory.customer_id == customer_id).delete(synchronize_session=False)
+    db.commit()
