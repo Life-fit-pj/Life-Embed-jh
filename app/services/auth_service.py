@@ -15,7 +15,7 @@ from app.services import admin_service
 from app.repositories.history import (
     create_login, delete_login, get_login_row, login_customer_ids, update_login_customer,
 )
-from app.repositories.members import customer_ids, customer_one, customer_persona
+from app.repositories.members import customer_ids, member_by_login
 
 
 def _random_code(length, chars):
@@ -74,13 +74,13 @@ def me(supabase_user_id):
 
     activity_persona 는 돌려주지 않는다 — 관리자가 회원의 활동에서 정리해 적는 칸이라 회원에게는 안 보인다
     """
-    customer_id = login_with_supabase(supabase_user_id)
-    if customer_id is None:
+    found = member_by_login(_login_id(supabase_user_id))     # 세 조회를 연결 하나로(members.py)
+    if found is None:
         return None
-    persona = customer_persona(customer_id)
+    customer_id, customer, persona = found
     return {
         "customer_id": customer_id,
-        "customer": customer_one(customer_id),
+        "customer": customer,
         "persona": {k: v for k, v in persona.items() if k in CHUNK_COLUMNS},
     }
 

@@ -3,16 +3,14 @@
 
 from app.repositories.history import (
     add_chat_history, add_like, add_search_history,
-    list_chat_history, list_likes as _list_likes, list_search_history, remove_like,
+    list_history, list_likes as _list_likes, remove_like,
 )
 
 
 def get_history(anon_id):
     """검색·대화 기록 조회. 최근 순."""
-    return {
-        "searches": list_search_history(anon_id),
-        "chats": list_chat_history(anon_id),
-    }
+    searches, chats = list_history(anon_id)      # 연결 하나로 둘 다
+    return {"searches": searches, "chats": chats}
 
 
 def get_likes(anon_id):

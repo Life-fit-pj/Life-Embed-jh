@@ -51,6 +51,11 @@ def list_chat_history(anon_id, limit=20):
     return _run(repo.list_chat_history, anon_id, limit)
 
 
+def list_history(anon_id, limit=20):
+    """검색 · 대화 기록을 세션 하나로 (searches, chats). 마이페이지 "기록" 탭(/history)이 쓴다 — 위 둘을 따로 부르면 연결을 두 번 꺼낸다"""
+    return _run(lambda db: (repo.list_search_history(db, anon_id, limit), repo.list_chat_history(db, anon_id, limit)))
+
+
 # => 관리자 수정 이력
 
 def write_admin_log(target: str, target_id: str, patch: dict) -> str:
