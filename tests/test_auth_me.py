@@ -27,15 +27,14 @@ def test_토큰이_없으면_안_받는다():
 
 def test_가입_전이면_404(monkeypatch):
     _login_as("u-new")
-    monkeypatch.setattr(auth_service, "login_with_supabase", lambda uid: None)
+    monkeypatch.setattr(auth_service, "member_by_login", lambda login_id: None)
     assert client.get("/auth/me").status_code == 404
 
 
 def test_본인_정보에_활동_성향은_없다(monkeypatch):
     _login_as("u-107")
-    monkeypatch.setattr(auth_service, "login_with_supabase", lambda uid: "C107")
-    monkeypatch.setattr(auth_service, "customer_one", lambda cid: {"customer_id": cid, "name": "홍길동"})
-    monkeypatch.setattr(auth_service, "customer_persona", lambda cid: {"travel_persona": LONG, "activity_persona": LONG})
+    found = ("C107", {"customer_id": "C107", "name": "홍길동"}, {"travel_persona": LONG, "activity_persona": LONG})
+    monkeypatch.setattr(auth_service, "member_by_login", lambda login_id: found if login_id == "supabase:u-107" else None)
     r = client.get("/auth/me")
     assert r.status_code == 200
     assert r.json()["customer_id"] == "C107"
